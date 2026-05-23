@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portfolio Intelligence & Performance Analytics</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header>
+      <div class="brand-section">
+        <h1>Portfolio Analytics</h1>
+        <p>Interactive long-term performance & asset intelligence dashboard</p>
+      </div>
+      <div class="time-badge" id="live-time-badge">
+        Loading Portfolio Date...
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs-navigation">
+      <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
+      <button class="tab-btn" onclick="switchTab('growth')">Historical Growth</button>
+      <button class="tab-btn" onclick="switchTab('stocks')">Stock Analytics</button>
+      <button class="tab-btn" onclick="switchTab('mfs')">Mutual Fund Analytics</button>
+    </div>
+
+    <!-- KPI Section (Common across tabs) -->
+    <section class="kpi-grid">
+      <div class="kpi-card total-card">
+        <div>
+          <div class="kpi-title">Current Net Worth</div>
+          <div class="kpi-value" id="kpi-net-worth">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          Aggregated Portfolio Value
+        </div>
+      </div>
+      
+      <div class="kpi-card equity-card">
+        <div>
+          <div class="kpi-title">Equity Exposure</div>
+          <div class="kpi-value" id="kpi-equity-val">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          Stocks, MFs & NPS E (<span id="kpi-equity-pct" class="trend-up">0%</span>)
+        </div>
+      </div>
+      
+      <div class="kpi-card debt-card">
+        <div>
+          <div class="kpi-title">Debt Exposure</div>
+          <div class="kpi-value" id="kpi-debt-val">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          Bonds, NPS C/G, PF & PPF (<span id="kpi-debt-pct" class="trend-up">0%</span>)
+        </div>
+      </div>
+      
+      <div class="kpi-card gold-card">
+        <div>
+          <div class="kpi-title">Gold & Alternatives</div>
+          <div class="kpi-value" id="kpi-gold-val">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          Gold, SGBs (<span id="kpi-gold-pct" class="trend-up">0%</span>)
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== OVERVIEW TAB ==================== -->
+    <div id="overview-tab" class="tab-content active">
+      <div class="dashboard-grid">
+        <!-- Asset Allocation Donut Chart -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Current Asset Allocation</h3>
+          </div>
+          <div class="chart-container" style="height: 320px;">
+            <canvas id="allocation-donut-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Portfolio Performance Metrics Card -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Component Annualized Returns (XIRR)</h3>
+          </div>
+          <div class="chart-container" style="height: 320px;">
+            <canvas id="component-xirr-chart"></canvas>
+          </div>
+        </div>
+        
+        <!-- Net Worth Allocation Shifts Over Time -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Historical Asset Allocation Shift (%)</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="allocation-shift-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== HISTORICAL GROWTH TAB ==================== -->
+    <div id="growth-tab" class="tab-content">
+      <div class="dashboard-grid">
+        <!-- Net Worth Growth Trend (Area) -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Net Worth Progression (Jan 2021 - May 2026)</h3>
+            <div class="time-filters">
+              <select id="growth-time-filter" class="select-filter" onchange="filterGrowthChart()">
+                <option value="ALL">All Time</option>
+                <option value="3Y">Past 3 Years</option>
+                <option value="1Y">Past 1 Year</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="net-worth-growth-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Invested vs Valuation Trend -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Valuation Growth vs. Total Cumulative Capital Invested</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="capital-vs-valuation-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== STOCKS TAB ==================== -->
+    <div id="stocks-tab" class="tab-content">
+      <!-- Top Performers Highlights -->
+      <div class="top-performers-grid">
+        <!-- Stock Winners -->
+        <div class="performer-card winners">
+          <h4>🔥 Top Stock Winners (Absolute Gain)</h4>
+          <div class="performer-list" id="stock-winners-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Stock Losers -->
+        <div class="performer-card losers">
+          <h4>⚠️ Top Stock Losers (Absolute Loss)</h4>
+          <div class="performer-list" id="stock-losers-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Stock Sector Allocation -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Equity Portfolio Sector Distribution</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="stock-sector-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Interactive Stock Explorer -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Historical Stock Price & Position Explorer</h3>
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">Select a stock on the left to see its history</p>
+          </div>
+          <div class="stock-explorer-section">
+            <div class="explorer-list-card" id="explorer-stock-list">
+              <!-- Dynamically populated -->
+            </div>
+            <div class="explorer-chart-card">
+              <div class="chart-container" style="height: 380px;">
+                <canvas id="stock-historical-chart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stock Holdings Table -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Current Stock Holdings</h3>
+            <div class="table-header-controls">
+              <input type="text" id="stock-search" class="search-input" placeholder="Search stock or sector..." oninput="filterStocksTable()">
+              <select id="stock-sector-filter" class="select-filter" onchange="filterStocksTable()">
+                <option value="ALL">All Sectors</option>
+                <!-- Dynamically populated -->
+              </select>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table id="stocks-table">
+              <thead>
+                <tr>
+                  <th onclick="sortStocks(0)">Instrument</th>
+                  <th onclick="sortStocks(1)">Sector</th>
+                  <th onclick="sortStocks(2)" style="text-align: right;">Qty.</th>
+                  <th onclick="sortStocks(3)" style="text-align: right;">Avg. Cost (₹)</th>
+                  <th onclick="sortStocks(4)" style="text-align: right;">LTP (₹)</th>
+                  <th onclick="sortStocks(5)" style="text-align: right;">Invested (₹)</th>
+                  <th onclick="sortStocks(6)" style="text-align: right;">Valuation (₹)</th>
+                  <th onclick="sortStocks(7)" style="text-align: right;">P&L (₹)</th>
+                  <th onclick="sortStocks(8)" style="text-align: right;">Gain %</th>
+                </tr>
+              </thead>
+              <tbody id="stocks-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MUTUAL FUND TAB ==================== -->
+    <div id="mfs-tab" class="tab-content">
+      <div class="dashboard-grid">
+        <!-- MF Category Donut -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Mutual Fund Category Allocation</h3>
+          </div>
+          <div class="chart-container" style="height: 320px;">
+            <canvas id="mf-category-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- MF Scheme Returns (Top Schemes) -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Top Mutual Fund Schemes by Valuation</h3>
+          </div>
+          <div class="chart-container" style="style: 320px;">
+            <canvas id="mf-valuation-bar-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Mutual Fund Scheme Explorer -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Historical Mutual Fund Scheme Explorer</h3>
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">Select a scheme on the left to see its history</p>
+          </div>
+          <div class="stock-explorer-section">
+            <div class="explorer-list-card" id="explorer-mf-list">
+              <!-- Dynamically populated -->
+            </div>
+            <div class="explorer-chart-card">
+              <div class="chart-container" style="height: 380px;">
+                <canvas id="mf-historical-chart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mutual Fund Table -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Current Mutual Fund Holdings</h3>
+            <div class="table-header-controls">
+              <input type="text" id="mf-search" class="search-input" placeholder="Search mutual fund scheme..." oninput="filterMfsTable()">
+              <select id="mf-type-filter" class="select-filter" onchange="filterMfsTable()">
+                <option value="ALL">All Categories</option>
+                <!-- Dynamically populated -->
+              </select>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table id="mfs-table">
+              <thead>
+                <tr>
+                  <th onclick="sortMfs(0)">Scheme Name</th>
+                  <th onclick="sortMfs(1)">Category</th>
+                  <th onclick="sortMfs(2)" style="text-align: right;">Quantity</th>
+                  <th onclick="sortMfs(3)" style="text-align: right;">NAV (₹)</th>
+                  <th onclick="sortMfs(4)" style="text-align: right;">Avg NAV (₹)</th>
+                  <th onclick="sortMfs(5)" style="text-align: right;">Invested (₹)</th>
+                  <th onclick="sortMfs(6)" style="text-align: right;">Valuation (₹)</th>
+                  <th onclick="sortMfs(7)" style="text-align: right;">P&L (₹)</th>
+                  <th onclick="sortMfs(8)" style="text-align: right;">Gain %</th>
+                </tr>
+              </thead>
+              <tbody id="mfs-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
