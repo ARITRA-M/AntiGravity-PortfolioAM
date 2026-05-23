@@ -1,0 +1,12 @@
+{
+  "name": "antigravity-portfolio-analytics",
+  "version": "1.0.0",
+  "description": "Portfolio Intelligence and Analytics Dashboard",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx -y http-server -p 8080 -o"
+  },
+  "keywords": [],
+  "author": "Antigravity Pair Programmer",
+  "license": "ISC"
+}
