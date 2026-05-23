@@ -1,0 +1,200 @@
+[
+  {
+    "scheme": "Axis Small Cap Fund Direct-Growth",
+    "scheme_type": "Equity : Small Cap",
+    "qty": 14235.332,
+    "price": 123.36,
+    "avg_nav": 47.7661,
+    "invested": 679966.9257,
+    "cur_val": 1756070.5555,
+    "pnl": 1076103.6298,
+    "gain_pct": 158.25823126502695
+  },
+  {
+    "scheme": "HDFC Small Cap Fund Direct- Growth",
+    "scheme_type": "Equity : Small Cap",
+    "qty": 4306.576,
+    "price": 151.518,
+    "avg_nav": 44.3917,
+    "invested": 191176.2298,
+    "cur_val": 652523.7824,
+    "pnl": 461347.55260000005,
+    "gain_pct": 241.32056222818136
+  },
+  {
+    "scheme": "UTI Nifty Next 50 Index Fund Direct - Growth",
+    "scheme_type": "Equity : Large Cap",
+    "qty": 18996.168,
+    "price": 26.125,
+    "avg_nav": 9.47,
+    "invested": 179893.711,
+    "cur_val": 496274.889,
+    "pnl": 316381.178,
+    "gain_pct": 175.87117206115116
+  },
+  {
+    "scheme": "Axis Midcap Direct Plan-Growth",
+    "scheme_type": "Equity : Mid Cap",
+    "qty": 4080.966,
+    "price": 134.97,
+    "avg_nav": 68.6078,
+    "invested": 279986.1096,
+    "cur_val": 550807.981,
+    "pnl": 270821.8714,
+    "gain_pct": 96.7268954116715
+  },
+  {
+    "scheme": "Parag Parikh Flexi Cap Fund Direct-Growth",
+    "scheme_type": "Equity : Flexi Cap",
+    "qty": 19397.659,
+    "price": 91.4026,
+    "avg_nav": 44.6406,
+    "invested": 865923.0047,
+    "cur_val": 1772996.4665,
+    "pnl": 907073.4618,
+    "gain_pct": 104.75220739911589
+  },
+  {
+    "scheme": "Motilal Oswal Nasdaq 100 FOF Direct - Growth",
+    "scheme_type": "Equity : International",
+    "qty": 13136.35,
+    "price": 63.5657,
+    "avg_nav": 29.6871,
+    "invested": 389980.446,
+    "cur_val": 835021.2832,
+    "pnl": 445040.83719999995,
+    "gain_pct": 114.11875691839172
+  },
+  {
+    "scheme": "Navi Nifty 50 Index Fund Direct - Growth",
+    "scheme_type": "Equity : Large Cap",
+    "qty": 84098.6585,
+    "price": 15.8551,
+    "avg_nav": 13.2042,
+    "invested": 1110455.022,
+    "cur_val": 1333392.6404,
+    "pnl": 222937.6183999998,
+    "gain_pct": 20.0762402783748
+  },
+  {
+    "scheme": "Quant Mid Cap Fund Direct-Growth",
+    "scheme_type": "Equity : Mid Cap",
+    "qty": 5481.136,
+    "price": 242.345,
+    "avg_nav": 200.7435,
+    "invested": 1100302.2502,
+    "cur_val": 1328325.9039,
+    "pnl": 228023.65370000014,
+    "gain_pct": 20.723728744402067
+  },
+  {
+    "scheme": "Canara Robeco Small Cap Fund Direct - Growth",
+    "scheme_type": "Equity : Small Cap",
+    "qty": 30844.641,
+    "price": 42.83,
+    "avg_nav": 33.2294,
+    "invested": 1024948.7568,
+    "cur_val": 1321075.974,
+    "pnl": 296127.21719999996,
+    "gain_pct": 28.891904618191926
+  },
+  {
+    "scheme": "Navi Nifty Next 50 Index Fund Direct - Growth",
+    "scheme_type": "Equity : Large Cap",
+    "qty": 46779.584,
+    "price": 16.7677,
+    "avg_nav": 14.1187,
+    "invested": 660466.9776,
+    "cur_val": 784386.0306,
+    "pnl": 123919.05300000007,
+    "gain_pct": 18.762338951494016
+  },
+  {
+    "scheme": "Axis Greater China Equity FoF Direct-Growth",
+    "scheme_type": "Equity : International",
+    "qty": 90243.51,
+    "price": 12.32,
+    "avg_nav": 8.8656,
+    "invested": 800059.9922,
+    "cur_val": 1111800.0432,
+    "pnl": 311740.051,
+    "gain_pct": 38.964584411073865
+  },
+  {
+    "scheme": "HDFC BSE Sensex Index Fund Direct-Growth",
+    "scheme_type": "Equity : Large Cap",
+    "qty": 1057.322,
+    "price": 736.8909,
+    "avg_nav": 390.4791,
+    "invested": 412862.1463,
+    "cur_val": 779130.9602,
+    "pnl": 366268.81389999995,
+    "gain_pct": 88.7145545268411
+  },
+  {
+    "scheme": "Edelweiss US Technology Equity FoF Direct - Growth",
+    "scheme_type": "Equity : International",
+    "qty": 16944.232,
+    "price": 36.8142,
+    "avg_nav": 28.9171,
+    "invested": 489977.9342,
+    "cur_val": 623788.3457,
+    "pnl": 133810.41149999993,
+    "gain_pct": 27.30947705195658
+  },
+  {
+    "scheme": "Quant Small Cap Fund Direct Plan-Growth",
+    "scheme_type": "Equity : Small Cap",
+    "qty": 1519.714,
+    "price": 280.3628,
+    "avg_nav": 266.4842,
+    "invested": 404979.8398,
+    "cur_val": 426071.2722,
+    "pnl": 21091.43239999999,
+    "gain_pct": 5.208020332670394
+  },
+  {
+    "scheme": "Nippon India Nifty IT Index Fund Direct - Growth",
+    "scheme_type": "Equity : Sectoral-Technology",
+    "qty": 53516.899,
+    "price": 7.9892,
+    "avg_nav": 9.3613,
+    "invested": 500985.3652,
+    "cur_val": 427557.2095,
+    "pnl": -73428.1557,
+    "gain_pct": -14.656746643823917
+  },
+  {
+    "scheme": "Kotak Midcap Fund Direct-Growth",
+    "scheme_type": "Equity : Mid Cap",
+    "qty": 6304.493,
+    "price": 162.407,
+    "avg_nav": 51.3112,
+    "invested": 323491.2348,
+    "cur_val": 1023893.7947,
+    "pnl": 700402.5599,
+    "gain_pct": 216.51361290608918
+  },
+  {
+    "scheme": "PGIM India Global Equity Opportunities FoF Direct-Growth",
+    "scheme_type": "Equity : International",
+    "qty": 6809.741,
+    "price": 56.1,
+    "avg_nav": 35.242,
+    "invested": 239988.8371,
+    "cur_val": 382026.4701,
+    "pnl": 142037.63299999997,
+    "gain_pct": 59.18509990563222
+  },
+  {
+    "scheme": "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth",
+    "scheme_type": "Equity : International",
+    "qty": 82131.044,
+    "price": 22.9994,
+    "avg_nav": 9.9227,
+    "invested": 814959.2439,
+    "cur_val": 1888964.7334,
+    "pnl": 1074005.4895000001,
+    "gain_pct": 131.78640496920193
+  }
+]

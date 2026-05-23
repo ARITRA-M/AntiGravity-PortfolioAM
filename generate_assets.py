@@ -3,6 +3,7 @@ import numpy as np
 import json
 import os
 import re
+import datetime
 
 excel_file = "Portfolio Analysis(1).xlsx"
 out_dir = "data/"
@@ -186,8 +187,8 @@ header_row = df_b.iloc[0].tolist()
 date_cols = []
 for idx in range(2, 67):
     val = header_row[idx]
-    if isinstance(val, pd.Timestamp):
-        date_cols.append((idx, str(val)[:10]))
+    if isinstance(val, (pd.Timestamp, datetime.datetime)):
+        date_cols.append((idx, val.strftime('%Y-%m-%d')))
     elif isinstance(val, str):
         date_cols.append((idx, val.strip()))
     else:

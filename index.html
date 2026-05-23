@@ -2,8 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Portfolio Analytics">
   <title>Portfolio Intelligence & Performance Analytics</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -28,6 +34,9 @@
       <button class="tab-btn" onclick="switchTab('growth')">Historical Growth</button>
       <button class="tab-btn" onclick="switchTab('stocks')">Stock Analytics</button>
       <button class="tab-btn" onclick="switchTab('mfs')">Mutual Fund Analytics</button>
+      <button class="tab-btn" onclick="switchTab('benchmark')">Benchmark</button>
+      <button class="tab-btn" onclick="switchTab('dividends')">Dividends</button>
+      <button class="tab-btn" onclick="switchTab('tax')">Tax Optimizer</button>
     </div>
 
     <!-- KPI Section (Common across tabs) -->
@@ -303,8 +312,243 @@
       </div>
     </div>
 
+    <!-- ==================== BENCHMARK TAB ==================== -->
+    <div id="benchmark-tab" class="tab-content">
+      <div class="dashboard-grid">
+        <!-- Benchmark Comparison Chart -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Portfolio vs Benchmark Comparison</h3>
+            <div class="time-filters">
+              <select id="benchmark-select" class="select-filter" onchange="updateBenchmarkChart()">
+                <option value="nifty50">Nifty 50</option>
+                <option value="spx">S&P 500</option>
+                <option value="gold">Gold</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="benchmark-comparison-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Benchmark Performance Stats -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Performance Comparison</h3>
+          </div>
+          <div class="benchmark-stats" id="benchmark-stats">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Rolling Returns Comparison -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Rolling Returns Comparison (1Y)</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="rolling-returns-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== DIVIDENDS TAB ==================== -->
+    <div id="dividends-tab" class="tab-content">
+      <div class="kpi-grid" style="margin-bottom: 2rem;">
+        <div class="kpi-card" style="--card-accent: var(--accent-green);">
+          <div>
+            <div class="kpi-title">Total Dividends (TTM)</div>
+            <div class="kpi-value" id="div-ttm-value">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">Trailing 12 Months</div>
+        </div>
+        <div class="kpi-card" style="--card-accent: var(--accent-amber);">
+          <div>
+            <div class="kpi-title">Dividend Yield</div>
+            <div class="kpi-value" id="div-yield-value">0.00%</div>
+          </div>
+          <div class="kpi-sub">Annual Yield on Portfolio</div>
+        </div>
+        <div class="kpi-card" style="--card-accent: var(--accent-blue);">
+          <div>
+            <div class="kpi-title">Dividend Growth</div>
+            <div class="kpi-value" id="div-growth-value">+0.0%</div>
+          </div>
+          <div class="kpi-sub">YoY Growth Rate</div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Dividend History Chart -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Dividend Income History</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="dividend-history-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Dividend by Source -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Dividend by Asset Type</h3>
+          </div>
+          <div class="chart-container" style="height: 280px;">
+            <canvas id="dividend-source-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Upcoming Dividends -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Expected Upcoming Dividends</h3>
+          </div>
+          <div class="upcoming-dividends-list" id="upcoming-dividends-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Dividend Holdings Table -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Dividend Paying Holdings</h3>
+          </div>
+          <div class="table-wrapper">
+            <table id="dividend-table">
+              <thead>
+                <tr>
+                  <th>Instrument</th>
+                  <th>Type</th>
+                  <th style="text-align: right;">Annual Dividend (₹)</th>
+                  <th style="text-align: right;">Yield %</th>
+                  <th style="text-align: right;">Last Dividend</th>
+                </tr>
+              </thead>
+              <tbody id="dividend-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAX OPTIMIZER TAB ==================== -->
+    <div id="tax-tab" class="tab-content">
+      <div class="kpi-grid" style="margin-bottom: 2rem;">
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-title">Unrealized Gains</div>
+            <div class="kpi-value" id="tax-unrealized-gains">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">Total Paper Profits</div>
+        </div>
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-title">Est. LTCG Tax</div>
+            <div class="kpi-value" id="tax-ltcg-est">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">If All Positions Sold</div>
+        </div>
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-title">Tax-Loss Harvesting</div>
+            <div class="kpi-value trend-down" id="tax-loss-opportunity">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">Available Losses to Harvest</div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Capital Gains Calculator -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Capital Gains Calculator</h3>
+          </div>
+          <div class="tax-calculator">
+            <div class="calc-input-group">
+              <label>Sell Amount (₹)</label>
+              <input type="number" id="calc-sell-amount" class="calc-input" placeholder="Enter amount" value="100000">
+            </div>
+            <div class="calc-input-group">
+              <label>Buy Amount (₹)</label>
+              <input type="number" id="calc-buy-amount" class="calc-input" placeholder="Enter amount" value="80000">
+            </div>
+            <div class="calc-input-group">
+              <label>Holding Period</label>
+              <select id="calc-holding-period" class="calc-select">
+                <option value="stcg">Short Term (<1 Year)</option>
+                <option value="ltcg">Long Term (≥1 Year)</option>
+              </select>
+            </div>
+            <div class="calc-result">
+              <div class="calc-result-item">
+                <span>Capital Gain</span>
+                <strong id="calc-gain">₹20,000</strong>
+              </div>
+              <div class="calc-result-item">
+                <span>Tax Rate</span>
+                <strong id="calc-tax-rate">15%</strong>
+              </div>
+              <div class="calc-result-item highlight">
+                <span>Tax Liability</span>
+                <strong id="calc-tax-liability">₹3,000</strong>
+              </div>
+            </div>
+            <button class="tax-calc-btn" onclick="calculateTax()">Calculate</button>
+          </div>
+        </div>
+
+        <!-- Tax Harvesting Opportunities -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Tax-Loss Harvesting Opportunities</h3>
+          </div>
+          <div class="harvest-list" id="harvest-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Gains by Holding Period -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Gains Distribution by Holding Period</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="holding-period-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Recommended Actions -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Tax Optimization Recommendations</h3>
+          </div>
+          <div class="tax-recommendations" id="tax-recommendations">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
+  <script src="auth.js"></script>
   <script src="app.js"></script>
+  <script>
+    // Service Worker Registration for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then((registration) => {
+          console.log('ServiceWorker registration successful:', registration.scope);
+        })
+        .catch((err) => {
+          console.log('ServiceWorker registration failed:', err);
+        });
+    }
+  </script>
 </body>
 </html>

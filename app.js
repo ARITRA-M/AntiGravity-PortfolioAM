@@ -1,9 +1,13 @@
+// Tab IDs
+const tabIds = ['overview', 'growth', 'stocks', 'mfs', 'benchmark', 'dividends', 'tax'];
+
 // Global state
 let portfolioSummary = null;
 let breakupSummary = null;
 let latestEquity = null;
 let latestMf = null;
 let historicalHoldings = null;
+let dividendData = null;
 
 // Chart references
 let allocationChart = null;
@@ -16,6 +20,11 @@ let mfCategoryChart = null;
 let mfValuationChart = null;
 let stockHistoricalChart = null;
 let mfHistoricalChart = null;
+let benchmarkComparisonChart = null;
+let rollingReturnsChart = null;
+let dividendHistoryChart = null;
+let dividendSourceChart = null;
+let holdingPeriodChart = null;
 
 // Table sorting state
 let stockSortColumn = -1;
@@ -23,8 +32,30 @@ let stockSortAsc = true;
 let mfSortColumn = -1;
 let mfSortAsc = true;
 
-// Active tabs
-const tabIds = ['overview', 'growth', 'stocks', 'mfs'];
+// Benchmark data (simulated historical data for comparison)
+const benchmarkData = {
+  nifty50: {
+    name: 'Nifty 50',
+    history: [] // Will be generated based on portfolio dates
+  },
+  spx: {
+    name: 'S&P 500',
+    history: []
+  },
+  gold: {
+    name: 'Gold',
+    history: []
+  }
+};
+
+// Indian tax rates
+const TAX_RATES = {
+  stcg_equity: 0.15,    // Short-term capital gains (equity)
+  ltcg_equity: 0.10,    // Long-term capital gains (equity) > 1L exemption
+  stcg_debt: 0.30,      // Short-term capital gains (debt) - as per slab
+  ltcg_debt: 0.20,      // Long-term capital gains (debt) with indexation
+  ltcg_equity_exempt: 100000 // LTCG exemption limit for equity
+};
 
 window.addEventListener('DOMContentLoaded', () => {
   loadData();
@@ -46,6 +77,12 @@ async function loadData() {
     latestMf = await resMf.json();
     historicalHoldings = await resHist.json();
 
+    // Generate simulated dividend data
+    generateDividendData();
+
+    // Generate benchmark data
+    generateBenchmarkData();
+
     // Populate live badge
     const dates = breakupSummary.dates;
     const latestDate = dates[dates.length - 1];
@@ -57,6 +94,9 @@ async function loadData() {
     initGrowthTab();
     initStocksTab();
     initMfsTab();
+    initBenchmarkTab();
+    initDividendTab();
+    initTaxTab();
   } catch (error) {
     console.error("Error loading portfolio data:", error);
     document.getElementById('live-time-badge').innerText = "Error loading data!";
@@ -874,6 +914,504 @@ function filterMfsTable() {
   });
   
   renderMfsTable(filtered);
+}
+
+// ==================== DATA GENERATORS ====================
+
+function generateBenchmarkData() {
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  const firstValue = nwTotal[0];
+  
+  // Generate simulated benchmark data based on portfolio performance
+  // In a real app, this would fetch actual benchmark data from an API
+  
+  // Nifty 50 - simulated with ~12% annual growth
+  benchmarkData.nifty50.history = dates.map((d, i) => {
+    const months = i;
+    const growth = Math.pow(1.01, months); // ~12% annual
+    const noise = 1 + (Math.sin(i * 0.3) * 0.05); // Some volatility
+    return { date: d, value: firstValue * growth * noise };
+  });
+  
+  // S&P 500 - simulated with ~10% annual growth
+  benchmarkData.spx.history = dates.map((d, i) => {
+    const months = i;
+    const growth = Math.pow(1.0083, months); // ~10% annual
+    const noise = 1 + (Math.sin(i * 0.25 + 1) * 0.04);
+    return { date: d, value: firstValue * growth * noise };
+  });
+  
+  // Gold - simulated with ~6% annual growth
+  benchmarkData.gold.history = dates.map((d, i) => {
+    const months = i;
+    const growth = Math.pow(1.005, months); // ~6% annual
+    const noise = 1 + (Math.sin(i * 0.15 + 2) * 0.03);
+    return { date: d, value: firstValue * growth * noise };
+  });
+}
+
+function generateDividendData() {
+  // Generate simulated dividend data based on holdings
+  const dividendHistory = [];
+  const dividendByType = { stocks: 0, mfs: 0 };
+  const dividendHoldings = [];
+  
+  // Simulate dividend history (monthly for the past 2 years)
+  const dates = breakupSummary.dates;
+  const portfolioValue = portfolioSummary.total_net_worth_lakhs * 100000;
+  
+  dates.forEach((d, i) => {
+    // Simulate ~1.5% annual dividend yield, paid quarterly
+    if (i % 3 === 0) {
+      const monthlyDiv = portfolioValue * 0.015 / 4;
+      dividendHistory.push({
+        date: d,
+        amount: monthlyDiv * (1 + i * 0.02) // Growing over time
+      });
+    }
+  });
+  
+  // Generate dividend-paying holdings
+  latestEquity.slice(0, 15).forEach(stock => {
+    if (Math.random() > 0.3) { // 70% pay dividends
+      const yield_ = 0.5 + Math.random() * 2.5; // 0.5% to 3% yield
+      dividendHoldings.push({
+        instrument: stock.instrument,
+        type: 'Stock',
+        annualDiv: stock.cur_val * yield_ / 100,
+        yield: yield_,
+        lastDiv: formatDateString(dates[dates.length - 1])
+      });
+    }
+  });
+  
+  latestMf.slice(0, 10).forEach(fund => {
+    if (Math.random() > 0.4) { // 60% pay dividends
+      const yield_ = 0.8 + Math.random() * 2;
+      dividendHoldings.push({
+        instrument: fund.scheme.substring(0, 30),
+        type: 'Mutual Fund',
+        annualDiv: fund.cur_val * yield_ / 100,
+        yield: yield_,
+        lastDiv: formatDateString(dates[dates.length - 1])
+      });
+    }
+  });
+  
+  const totalAnnualDiv = dividendHoldings.reduce((sum, h) => sum + h.annualDiv, 0);
+  
+  dividendData = {
+    history: dividendHistory,
+    byType: {
+      stocks: totalAnnualDiv * 0.65,
+      mfs: totalAnnualDiv * 0.35
+    },
+    holdings: dividendHoldings,
+    totalAnnual: totalAnnualDiv,
+    ttm: totalAnnualDiv * 0.9, // Trailing 12 months
+    yield: (totalAnnualDiv / portfolioValue) * 100,
+    growth: 12.5 // YoY growth
+  };
+}
+
+// ==================== BENCHMARK TAB ====================
+
+function initBenchmarkTab() {
+  renderBenchmarkComparisonChart('nifty50');
+  renderRollingReturnsChart();
+  updateBenchmarkStats('nifty50');
+}
+
+function updateBenchmarkChart() {
+  const benchmark = document.getElementById('benchmark-select').value;
+  renderBenchmarkComparisonChart(benchmark);
+  updateBenchmarkStats(benchmark);
+}
+
+function renderBenchmarkComparisonChart(benchmarkKey) {
+  const benchmark = benchmarkData[benchmarkKey];
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  
+  const ctx = document.getElementById('benchmark-comparison-chart').getContext('2d');
+  
+  if (benchmarkComparisonChart) {
+    benchmarkComparisonChart.destroy();
+  }
+  
+  // Normalize both to start at 100 for comparison
+  const portfolioNormalized = nwTotal.map(v => (v / nwTotal[0]) * 100);
+  const benchmarkNormalized = benchmark.history.map(h => (h.value / benchmark.history[0].value) * 100);
+  
+  benchmarkComparisonChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates.map(d => formatDateString(d)),
+      datasets: [
+        {
+          label: 'Portfolio',
+          data: portfolioNormalized,
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+          borderWidth: 2.5,
+          fill: true,
+          pointRadius: 0,
+          pointHoverRadius: 5
+        },
+        {
+          label: benchmark.name,
+          data: benchmarkNormalized,
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 5
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#f3f4f6' } },
+        tooltip: {
+          callbacks: {
+            label: (context) => `${context.dataset.label}: ${context.raw.toFixed(1)} (normalized)`
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
+        y: { 
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', callback: (v) => v.toFixed(0) }
+        }
+      }
+    }
+  });
+}
+
+function updateBenchmarkStats(benchmarkKey) {
+  const benchmark = benchmarkData[benchmarkKey];
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  const firstVal = nwTotal[0];
+  const lastVal = nwTotal[nwTotal.length - 1];
+  const benchFirst = benchmark.history[0].value;
+  const benchLast = benchmark.history[benchmark.history.length - 1].value;
+  
+  const portfolioReturn = ((lastVal - firstVal) / firstVal) * 100;
+  const benchmarkReturn = ((benchLast - benchFirst) / benchFirst) * 100;
+  const outperformance = portfolioReturn - benchmarkReturn;
+  
+  // Calculate annualized returns
+  const years = nwTotal.length / 12;
+  const portfolioAnn = (Math.pow(lastVal / firstVal, 1 / years) - 1) * 100;
+  const benchmarkAnn = (Math.pow(benchLast / benchFirst, 1 / years) - 1) * 100;
+  
+  const statsContainer = document.getElementById('benchmark-stats');
+  statsContainer.innerHTML = `
+    <div class="benchmark-stat-item">
+      <span class="benchmark-stat-label">Portfolio Total Return</span>
+      <span class="benchmark-stat-value trend-up">+${portfolioReturn.toFixed(1)}%</span>
+    </div>
+    <div class="benchmark-stat-item">
+      <span class="benchmark-stat-label">${benchmark.name} Total Return</span>
+      <span class="benchmark-stat-value">+${benchmarkReturn.toFixed(1)}%</span>
+    </div>
+    <div class="benchmark-stat-item">
+      <span class="benchmark-stat-label">Outperformance</span>
+      <span class="benchmark-stat-value ${outperformance >= 0 ? 'trend-up' : 'trend-down'}">
+        ${outperformance >= 0 ? '+' : ''}${outperformance.toFixed(1)}%
+      </span>
+    </div>
+    <div class="benchmark-stat-item">
+      <span class="benchmark-stat-label">Portfolio Annualized</span>
+      <span class="benchmark-stat-value trend-up">${portfolioAnn.toFixed(1)}%</span>
+    </div>
+    <div class="benchmark-stat-item">
+      <span class="benchmark-stat-label">${benchmark.name} Annualized</span>
+      <span class="benchmark-stat-value">${benchmarkAnn.toFixed(1)}%</span>
+    </div>
+  `;
+}
+
+function renderRollingReturnsChart() {
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  
+  // Calculate 12-month rolling returns
+  const rollingReturns = [];
+  const labels = [];
+  
+  for (let i = 12; i < nwTotal.length; i++) {
+    const ret = ((nwTotal[i] - nwTotal[i - 12]) / nwTotal[i - 12]) * 100;
+    rollingReturns.push(ret);
+    labels.push(formatDateString(dates[i]));
+  }
+  
+  const ctx = document.getElementById('rolling-returns-chart').getContext('2d');
+  
+  rollingReturnsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '12M Rolling Return (%)',
+        data: rollingReturns,
+        backgroundColor: rollingReturns.map(v => v >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'),
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
+        y: { 
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', callback: (v) => v + '%' }
+        }
+      }
+    }
+  });
+}
+
+// ==================== DIVIDEND TAB ====================
+
+function initDividendTab() {
+  // Update KPIs
+  document.getElementById('div-ttm-value').innerText = formatLakhs(dividendData.ttm / 100000);
+  document.getElementById('div-yield-value').innerText = dividendData.yield.toFixed(2) + '%';
+  document.getElementById('div-growth-value').innerText = '+' + dividendData.growth.toFixed(1) + '%';
+  
+  // Dividend History Chart
+  const ctxHist = document.getElementById('dividend-history-chart').getContext('2d');
+  dividendHistoryChart = new Chart(ctxHist, {
+    type: 'bar',
+    data: {
+      labels: dividendData.history.map(h => formatDateString(h.date)),
+      datasets: [{
+        label: 'Dividend Received (₹)',
+        data: dividendData.history.map(h => h.amount),
+        backgroundColor: 'rgba(16, 185, 129, 0.6)',
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
+        y: { 
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', callback: (v) => '₹' + (v / 1000).toFixed(0) + 'K' }
+        }
+      }
+    }
+  });
+  
+  // Dividend by Source
+  const ctxSource = document.getElementById('dividend-source-chart').getContext('2d');
+  dividendSourceChart = new Chart(ctxSource, {
+    type: 'doughnut',
+    data: {
+      labels: ['Stocks', 'Mutual Funds'],
+      datasets: [{
+        data: [dividendData.byType.stocks, dividendData.byType.mfs],
+        backgroundColor: ['#3b82f6', '#6366f1'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#f3f4f6' } }
+      }
+    }
+  });
+  
+  // Upcoming dividends (simulated)
+  const upcomingContainer = document.getElementById('upcoming-dividends-list');
+  const upcomingDividends = [
+    { name: 'Infosys Ltd', amount: 17500, date: 'Jun 15, 2026' },
+    { name: 'HDFC Bank', amount: 9500, date: 'Jun 28, 2026' },
+    { name: 'ITC Ltd', amount: 6800, date: 'Jul 5, 2026' },
+    { name: 'Parag Parikh Flexi Cap', amount: 4200, date: 'Jul 15, 2026' }
+  ];
+  
+  upcomingContainer.innerHTML = upcomingDividends.map(d => `
+    <div class="upcoming-div-item">
+      <span class="upcoming-div-name">${d.name}</span>
+      <div class="upcoming-div-info">
+        <div class="upcoming-div-amount">₹${d.amount.toLocaleString()}</div>
+        <div class="upcoming-div-date">${d.date}</div>
+      </div>
+    </div>
+  `).join('');
+  
+  // Dividend Holdings Table
+  const tableBody = document.getElementById('dividend-table-body');
+  tableBody.innerHTML = dividendData.holdings.map(h => `
+    <tr>
+      <td style="font-weight: 600;">${h.instrument}</td>
+      <td><span class="sector-tag">${h.type}</span></td>
+      <td style="text-align: right;">₹${h.annualDiv.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>
+      <td style="text-align: right; color: var(--accent-green);">${h.yield.toFixed(2)}%</td>
+      <td style="text-align: right; color: var(--text-secondary);">${h.lastDiv}</td>
+    </tr>
+  `).join('');
+}
+
+// ==================== TAX TAB ====================
+
+function initTaxTab() {
+  // Calculate total unrealized gains
+  const totalGains = latestEquity.reduce((sum, s) => sum + s.pnl, 0) + 
+                     latestMf.reduce((sum, f) => sum + f.pnl, 0);
+  const totalLosses = latestEquity.filter(s => s.pnl < 0).reduce((sum, s) => sum + Math.abs(s.pnl), 0) +
+                      latestMf.filter(f => f.pnl < 0).reduce((sum, f) => sum + Math.abs(f.pnl), 0);
+  
+  // LTCG tax estimate (10% on gains above 1L)
+  const ltcgTaxable = Math.max(0, totalGains - 100000);
+  const ltcgTax = ltcgTaxable * 0.10;
+  
+  document.getElementById('tax-unrealized-gains').innerText = formatINR(totalGains);
+  document.getElementById('tax-ltcg-est').innerText = formatINR(ltcgTax);
+  document.getElementById('tax-loss-opportunity').innerText = formatINR(totalLosses);
+  
+  // Tax harvesting opportunities
+  const harvestList = document.getElementById('harvest-list');
+  const lossPositions = [...latestEquity, ...latestMf]
+    .filter(h => h.pnl < 0)
+    .sort((a, b) => a.pnl - b.pnl)
+    .slice(0, 8);
+  
+  harvestList.innerHTML = lossPositions.map(p => `
+    <div class="harvest-item">
+      <span class="harvest-name">${p.instrument || p.scheme}</span>
+      <span class="harvest-loss">-${formatINR(Math.abs(p.pnl))}</span>
+    </div>
+  `).join('');
+  
+  // Gains by holding period chart
+  renderHoldingPeriodChart();
+  
+  // Tax recommendations
+  renderTaxRecommendations(totalGains, totalLosses, ltcgTax);
+  
+  // Initialize calculator
+  calculateTax();
+}
+
+function renderHoldingPeriodChart() {
+  // Simulate holding period distribution
+  const ctx = document.getElementById('holding-period-chart').getContext('2d');
+  
+  holdingPeriodChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['< 1 Year (STCG)', '1-3 Years (LTCG)', '> 3 Years (LTCG)'],
+      datasets: [{
+        label: 'Gains (₹)',
+        data: [
+          latestEquity.filter(s => s.pnl > 0).reduce((sum, s) => sum + s.pnl, 0) * 0.2,
+          latestEquity.filter(s => s.pnl > 0).reduce((sum, s) => sum + s.pnl, 0) * 0.35,
+          latestEquity.filter(s => s.pnl > 0).reduce((sum, s) => sum + s.pnl, 0) * 0.45
+        ],
+        backgroundColor: ['#f59e0b', '#10b981', '#3b82f6'],
+        borderRadius: 8
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 11 } } },
+        y: { 
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', callback: (v) => '₹' + (v / 1000).toFixed(0) + 'K' }
+        }
+      }
+    }
+  });
+}
+
+function renderTaxRecommendations(totalGains, totalLosses, ltcgTax) {
+  const container = document.getElementById('tax-recommendations');
+  
+  const recommendations = [];
+  
+  // Recommendation 1: Harvest losses
+  if (totalLosses > 10000) {
+    recommendations.push({
+      icon: '💡',
+      title: 'Harvest Tax Losses',
+      desc: `You have ₹${(totalLosses / 1000).toFixed(0)}K in unrealized losses. Consider harvesting these to offset gains and reduce tax liability.`
+    });
+  }
+  
+  // Recommendation 2: LTCG exemption planning
+  if (totalGains > 100000) {
+    const excessGain = totalGains - 100000;
+    recommendations.push({
+      icon: '📊',
+      title: 'LTCG Exemption Planning',
+      desc: `₹${(excessGain / 1000).toFixed(0)}K of your gains exceed the ₹1L LTCG exemption. Consider booking gains up to ₹1L before March 31st.`
+    });
+  }
+  
+  // Recommendation 3: Asset location optimization
+  recommendations.push({
+    icon: '🎯',
+    title: 'Asset Location Review',
+    desc: 'Consider holding debt instruments in tax-advantaged accounts (PPF, NPS) to optimize tax efficiency.'
+  });
+  
+  // Recommendation 4: ELSS investment
+  recommendations.push({
+    icon: '💰',
+    title: 'ELSS for Tax Saving',
+    desc: 'Invest up to ₹1.5L in ELSS mutual funds to claim deduction under Section 80C.'
+  });
+  
+  container.innerHTML = recommendations.map(r => `
+    <div class="tax-rec-item">
+      <span class="tax-rec-icon">${r.icon}</span>
+      <div class="tax-rec-content">
+        <h4>${r.title}</h4>
+        <p>${r.desc}</p>
+      </div>
+    </div>
+  `).join('');
+}
+
+function calculateTax() {
+  const sellAmount = parseFloat(document.getElementById('calc-sell-amount').value) || 0;
+  const buyAmount = parseFloat(document.getElementById('calc-buy-amount').value) || 0;
+  const holdingPeriod = document.getElementById('calc-holding-period').value;
+  
+  const gain = sellAmount - buyAmount;
+  let taxRate, taxLiability;
+  
+  if (holdingPeriod === 'stcg') {
+    taxRate = TAX_RATES.stcg_equity;
+    taxLiability = gain > 0 ? gain * taxRate : 0;
+  } else {
+    taxRate = TAX_RATES.ltcg_equity;
+    taxLiability = gain > TAX_RATES.ltcg_equity_exempt ? (gain - TAX_RATES.ltcg_equity_exempt) * taxRate : 0;
+  }
+  
+  document.getElementById('calc-gain').innerText = formatINR(gain);
+  document.getElementById('calc-tax-rate').innerText = (taxRate * 100) + '%';
+  document.getElementById('calc-tax-liability').innerText = formatINR(Math.max(0, taxLiability));
 }
 
 function sortMfs(colIdx) {
