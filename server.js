@@ -1,4 +1,4 @@
-// Zerodha Portfolio Integration Server
+// Zerodha Portfolio Integration Server with Live Price Auto-Refresh
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -16,80 +16,257 @@ app.use(express.static(path.join(__dirname)));
 const sessions = new Map();
 
 // Zerodha Kite Connect configuration
-// In production, these should be in environment variables
 const KITE_API_KEY = process.env.KITE_API_KEY || 'your_kite_api_key';
 const KITE_API_SECRET = process.env.KITE_API_SECRET || 'your_kite_api_secret';
 
-// Valid Zerodha credentials for authentication
-// In production, validate against a database or Zerodha's actual API
+// Valid Zerodha credentials
 const VALID_CREDENTIALS = {
   'CX7784': '07ec1025'
 };
 
-// Mock Zerodha API responses for demonstration
-// In production, use the official kiteconnect npm package
-function mockZerodhaHoldings() {
-  return {
-    net: [
-      {
-        tradingsymbol: "RELIANCE",
-        exchange: "NSE",
-        quantity: 50,
-        average_price: 2450.50,
-        last_price: 2680.75,
-        close_price: 2650.00,
-        pnl: 11512.50,
-        day_change: 1537.50,
-        day_change_percentage: 1.16
-      },
-      {
-        tradingsymbol: "INFY",
-        exchange: "NSE",
-        quantity: 100,
-        average_price: 1420.00,
-        last_price: 1580.25,
-        close_price: 1565.00,
-        pnl: 16025.00,
-        day_change: 1525.00,
-        day_change_percentage: 0.97
-      },
-      {
-        tradingsymbol: "HDFCBANK",
-        exchange: "NSE",
-        quantity: 75,
-        average_price: 1580.00,
-        last_price: 1720.50,
-        close_price: 1705.00,
-        pnl: 10537.50,
-        day_change: 1162.50,
-        day_change_percentage: 0.91
-      },
-      {
-        tradingsymbol: "TCS",
-        exchange: "NSE",
-        quantity: 30,
-        average_price: 3450.00,
-        last_price: 3890.25,
-        close_price: 3850.00,
-        pnl: 13207.50,
-        day_change: 1207.50,
-        day_change_percentage: 1.04
-      },
-      {
-        tradingsymbol: "ICICIBANK",
-        exchange: "NSE",
-        quantity: 60,
-        average_price: 920.00,
-        last_price: 1050.75,
-        close_price: 1040.00,
-        pnl: 7845.00,
-        day_change: 645.00,
-        day_change_percentage: 1.03
+// ============================================================
+// LIVE PRICE CACHE — Auto-refreshes from Yahoo Finance
+// ============================================================
+
+// All NSE tickers in the portfolio (from latest_equity.json)
+const ALL_TICKERS = [
+  'RELIANCE', 'INFY', 'HDFCBANK', 'TCS', 'ICICIBANK',
+  'WIPRO', 'ITC', 'SBIN', 'LT', 'HINDUNILVR',
+  'SUNPHARMA', 'BAJFINANCE', 'BHARTIARTL', 'KOTAKBANK',
+  'TATASTEEL', 'AXISBANK', 'M&M', 'BAJAJ-AUTO',
+  'COALINDIA', 'ONGC', 'NESTLEIND', 'TITAN',
+  'CIPLA', 'HCLTECH', 'MARICO', 'DLF',
+  'SIEMENS', 'PERSISTENT', 'DMART', 'EICHERMOT',
+  'BRITANNIA', 'HEROMOTOCO', 'DRREDDY', 'BANKBARODA',
+  'TVSMOTOR', 'PIDILITIND', 'COLPAL', 'DABUR',
+  'DIVISLAB', 'APOLLOTYRE', 'FEDERALBNK', 'OBEROIRLTY',
+  'MOTHERSON', 'MPHASIS', 'KPITTECH', 'GODREJPROP',
+  'PRESTIGE', 'MANKIND', 'ZYDUSLIFE', 'SYNGENE',
+  'HDFCLIFE', 'SBILIFE', 'ICICIGI', 'ICICIPRULI',
+  'MFSL', 'BALKRISIND', 'CASTROLIND', 'COFORGE',
+  'ERIS', 'EXIDEIND', 'JBCHEPHARM', 'LALPATHLAB',
+  'PHOENIXLTD', 'UNOMINDA', 'CIEINDIA', 'KARURVYSYA',
+  'BRIGADE', 'ENDURANCE', 'AJANTPHARM', 'OFSS',
+  'VBL', 'TATACONSUM', 'GOLDBEES', 'BANKIETF',
+  'FMCGIETF', 'ENRIN', 'MINDSPACE-RR', 'EMBASSY-RR',
+  'NXST-RR', 'MOTHERSON', 'BANKBARODA', 'MANKIND',
+  'NESTLEIND', 'ZYDUSLIFE', 'SYNGENE', 'HDFCLIFE',
+  'SBILIFE', 'ICICIGI', 'ICICIPRULI', 'MFSL',
+  'BALKRISIND', 'CASTROLIND', 'COFORGE', 'ERIS',
+  'EXIDEIND', 'JBCHEPHARM', 'LALPATHLAB', 'PHOENIXLTD',
+  'UNOMINDA', 'CIEINDIA', 'KARURVYSYA', 'BRIGADE',
+  'ENDURANCE', 'AJANTPHARM', 'OFSS', 'VBL',
+  'TATACONSUM', 'GOLDBEES', 'BANKIETF', 'FMCGIETF',
+  'ENRIN'
+];
+
+// Deduplicate
+const TICKERS = [...new Set(ALL_TICKERS)];
+
+// In-memory live price cache
+let livePriceCache = {
+  prices: {},        // symbol -> { price, change, changePercent, lastUpdated }
+  lastUpdated: null,
+  isRefreshing: false
+};
+
+// Fetch a batch of prices from Yahoo Finance
+async function fetchYahooPrices(tickers) {
+  const results = {};
+  const batchSize = 5;
+  
+  for (let i = 0; i < tickers.length; i += batchSize) {
+    const batch = tickers.slice(i, i + batchSize);
+    const promises = batch.map(async (symbol) => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}.NS?range=1d&interval=1d`;
+        const response = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: AbortSignal.timeout(8000)
+        });
+        const data = await response.json();
+        const result = data.chart?.result?.[0];
+        if (result && result.meta) {
+          const meta = result.meta;
+          const quotes = result.indicators?.quote?.[0];
+          const prevClose = meta.previousClose || meta.chartPreviousClose || 0;
+          const currentPrice = meta.regularMarketPrice;
+          const change = currentPrice - prevClose;
+          const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+          
+          results[symbol] = {
+            price: currentPrice,
+            prevClose: prevClose,
+            change: Math.round(change * 100) / 100,
+            changePercent: Math.round(changePercent * 100) / 100,
+            lastUpdated: new Date().toISOString()
+          };
+        }
+      } catch (err) {
+        // Silently skip failed fetches
+        if (!results[symbol]) {
+          results[symbol] = { error: err.message };
+        }
       }
-    ],
-    long: [],
-    short: []
-  };
+    });
+    await Promise.allSettled(promises);
+    // Rate limit: 1 second between batches
+    if (i + batchSize < tickers.length) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  return results;
+}
+
+// Refresh the entire price cache
+async function refreshPriceCache() {
+  if (livePriceCache.isRefreshing) return;
+  livePriceCache.isRefreshing = true;
+  
+  console.log(`[PriceCache] Refreshing prices for ${TICKERS.length} tickers...`);
+  const startTime = Date.now();
+  
+  try {
+    const prices = await fetchYahooPrices(TICKERS);
+    const successCount = Object.keys(prices).filter(k => prices[k].price !== undefined).length;
+    
+    // Merge new prices into cache (keep old prices for tickers that failed)
+    for (const [symbol, data] of Object.entries(prices)) {
+      if (data.price !== undefined) {
+        livePriceCache.prices[symbol] = data;
+      }
+    }
+    
+    livePriceCache.lastUpdated = new Date().toISOString();
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[PriceCache] Refreshed ${successCount}/${TICKERS.length} prices in ${elapsed}s`);
+  } catch (err) {
+    console.error('[PriceCache] Refresh failed:', err.message);
+  } finally {
+    livePriceCache.isRefreshing = false;
+  }
+}
+
+// Schedule auto-refresh every 15 minutes
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
+// ============================================================
+// LIVE DATA-ENABLED MOCK HOLDINGS
+// ============================================================
+
+// User's actual portfolio holdings with quantities (from latest_equity.json)
+const USER_HOLDINGS = [
+  { symbol: "716GS2050-GS", qty: 100, avg_cost: 109.73, sector: "Government Bonds" },
+  { symbol: "AJANTPHARM", qty: 19, avg_cost: 489.54, sector: "Pharmaceuticals" },
+  { symbol: "APOLLOTYRE", qty: 250, avg_cost: 183.59, sector: "Automobile & Ancillaries" },
+  { symbol: "AXISBANK", qty: 62, avg_cost: 708.24, sector: "Banking & Financial Services" },
+  { symbol: "BAJAJ-AUTO", qty: 19, avg_cost: 3076.33, sector: "Automobile & Ancillaries" },
+  { symbol: "BAJFINANCE", qty: 80, avg_cost: 673.10, sector: "Banking & Financial Services" },
+  { symbol: "BALKRISIND", qty: 15, avg_cost: 2427.47, sector: "Automobile & Ancillaries" },
+  { symbol: "BHARTIARTL", qty: 180, avg_cost: 322.89, sector: "Telecommunication Services" },
+  { symbol: "BRIGADE", qty: 40, avg_cost: 446.04, sector: "Real Estate & Construction" },
+  { symbol: "BRITANNIA", qty: 14, avg_cost: 3489.94, sector: "Consumer Goods & FMCG" },
+  { symbol: "CASTROLIND", qty: 180, avg_cost: 155.25, sector: "Other Equities" },
+  { symbol: "CIPLA", qty: 45, avg_cost: 990.66, sector: "Pharmaceuticals" },
+  { symbol: "COALINDIA", qty: 470, avg_cost: 194.39, sector: "Energy & Mining" },
+  { symbol: "COFORGE", qty: 65, avg_cost: 909.05, sector: "IT & Software Services" },
+  { symbol: "COLPAL", qty: 21, avg_cost: 1503.03, sector: "Consumer Goods & FMCG" },
+  { symbol: "DLF", qty: 66, avg_cost: 557.49, sector: "Real Estate & Construction" },
+  { symbol: "DMART", qty: 12, avg_cost: 3474.64, sector: "Other Equities" },
+  { symbol: "DRREDDY", qty: 60, avg_cost: 992.60, sector: "Pharmaceuticals" },
+  { symbol: "EICHERMOT", qty: 7, avg_cost: 3506.83, sector: "Automobile & Ancillaries" },
+  { symbol: "ENDURANCE", qty: 24, avg_cost: 2007.86, sector: "Automobile & Ancillaries" },
+  { symbol: "ERIS", qty: 42, avg_cost: 664.74, sector: "Pharmaceuticals" },
+  { symbol: "EXIDEIND", qty: 230, avg_cost: 189.67, sector: "Automobile & Ancillaries" },
+  { symbol: "FEDERALBNK", qty: 351, avg_cost: 91.30, sector: "Banking & Financial Services" },
+  { symbol: "GODREJPROP", qty: 20, avg_cost: 1600.68, sector: "Real Estate & Construction" },
+  { symbol: "GOLDBEES", qty: 1200, avg_cost: 81.55, sector: "Gold Commodity (ETF)" },
+  { symbol: "HCLTECH", qty: 74, avg_cost: 1149.02, sector: "IT & Software Services" },
+  { symbol: "HDFCBANK", qty: 94, avg_cost: 825.12, sector: "Banking & Financial Services" },
+  { symbol: "HDFCLIFE", qty: 136, avg_cost: 596.67, sector: "Insurance" },
+  { symbol: "HEROMOTOCO", qty: 10, avg_cost: 3016.79, sector: "Automobile & Ancillaries" },
+  { symbol: "ICICIBANK", qty: 59, avg_cost: 656.47, sector: "Banking & Financial Services" },
+  { symbol: "ICICIGI", qty: 54, avg_cost: 1308.59, sector: "Insurance" },
+  { symbol: "ICICIPRULI", qty: 118, avg_cost: 492.05, sector: "Insurance" },
+  { symbol: "INFY", qty: 65, avg_cost: 1576.72, sector: "IT & Software Services" },
+  { symbol: "ITC", qty: 788, avg_cost: 206.55, sector: "Consumer Goods & FMCG" },
+  { symbol: "JBCHEPHARM", qty: 45, avg_cost: 1006.05, sector: "Pharmaceuticals" },
+  { symbol: "KOTAKBANK", qty: 285, avg_cost: 355.68, sector: "Banking & Financial Services" },
+  { symbol: "KPITTECH", qty: 80, avg_cost: 814.86, sector: "IT & Software Services" },
+  { symbol: "LALPATHLAB", qty: 40, avg_cost: 1147.69, sector: "Healthcare & Diagnostics" },
+  { symbol: "LT", qty: 62, avg_cost: 1053.22, sector: "Engineering & Construction" },
+  { symbol: "M&M", qty: 10, avg_cost: 1189.63, sector: "Automobile & Ancillaries" },
+  { symbol: "MARICO", qty: 73, avg_cost: 523.91, sector: "Consumer Goods & FMCG" },
+  { symbol: "MOTHERSON", qty: 285, avg_cost: 51.08, sector: "Automobile & Ancillaries" },
+  { symbol: "MPHASIS", qty: 33, avg_cost: 2284.62, sector: "IT & Software Services" },
+  { symbol: "OBEROIRLTY", qty: 80, avg_cost: 621.89, sector: "Real Estate & Construction" },
+  { symbol: "OFSS", qty: 10, avg_cost: 4342.57, sector: "IT & Software Services" },
+  { symbol: "ONGC", qty: 300, avg_cost: 82.33, sector: "Energy & Mining" },
+  { symbol: "PERSISTENT", qty: 16, avg_cost: 2003.97, sector: "IT & Software Services" },
+  { symbol: "PHOENIXLTD", qty: 31, avg_cost: 603.24, sector: "Real Estate & Construction" },
+  { symbol: "PIDILITIND", qty: 60, avg_cost: 1249.57, sector: "Chemicals & Adhesives" },
+  { symbol: "SBILIFE", qty: 54, avg_cost: 1278.86, sector: "Insurance" },
+  { symbol: "SBIN", qty: 66, avg_cost: 426.28, sector: "Banking & Financial Services" },
+  { symbol: "SIEMENS", qty: 35, avg_cost: 749.79, sector: "Industrial Engineering" },
+  { symbol: "SUNPHARMA", qty: 139, avg_cost: 582.57, sector: "Pharmaceuticals" },
+  { symbol: "SYNGENE", qty: 75, avg_cost: 581.84, sector: "Biotechnology" },
+  { symbol: "TATACONSUM", qty: 46, avg_cost: 794.51, sector: "Consumer Goods & FMCG" },
+  { symbol: "TATASTEEL", qty: 1050, avg_cost: 40.48, sector: "Metals & Mining" },
+  { symbol: "TCS", qty: 33, avg_cost: 3575.90, sector: "IT & Software Services" },
+  { symbol: "TITAN", qty: 24, avg_cost: 2584.40, sector: "Other Equities" },
+  { symbol: "TVSMOTOR", qty: 14, avg_cost: 2306.82, sector: "Automobile & Ancillaries" },
+  { symbol: "UNOMINDA", qty: 30, avg_cost: 373.77, sector: "Automobile & Ancillaries" },
+  { symbol: "VBL", qty: 110, avg_cost: 130.18, sector: "Consumer Goods & FMCG" },
+  { symbol: "ZYDUSLIFE", qty: 54, avg_cost: 896.15, sector: "Pharmaceuticals" },
+  { symbol: "CIEINDIA", qty: 88, avg_cost: 373.58, sector: "Industrial Engineering" },
+  { symbol: "BANKBARODA", qty: 184, avg_cost: 188.19, sector: "Banking & Financial Services" },
+  { symbol: "BANKIETF", qty: 8500, avg_cost: 50.47, sector: "Banking & Financial Services (ETF)" },
+  { symbol: "MANKIND", qty: 28, avg_cost: 2226.31, sector: "Pharmaceuticals" },
+  { symbol: "NESTLEIND", qty: 18, avg_cost: 1081.33, sector: "Consumer Goods & FMCG" },
+  { symbol: "FMCGIETF", qty: 940, avg_cost: 53.20, sector: "Consumer Goods & FMCG (ETF)" },
+  { symbol: "ENRIN", qty: 35, avg_cost: 234.44, sector: "Industrial Engineering" },
+  { symbol: "KARURVYSYA", qty: 304, avg_cost: 108.80, sector: "Banking & Financial Services" },
+  { symbol: "PRESTIGE", qty: 33, avg_cost: 761.09, sector: "Real Estate & Construction" },
+  { symbol: "MFSL", qty: 73, avg_cost: 735.56, sector: "Banking & Financial Services" },
+  { symbol: "EMBASSY-RR", qty: 92, avg_cost: 359.33, sector: "Real Estate (REIT)" },
+  { symbol: "MINDSPACE-RR", qty: 75, avg_cost: 337.52, sector: "Real Estate (REIT)" },
+  { symbol: "NXST-RR", qty: 207, avg_cost: 127.65, sector: "Real Estate (REIT)" }
+];
+
+// Build live holdings from cache + user portfolio
+function buildLiveHoldings() {
+  const holdings = [];
+  
+  for (const holding of USER_HOLDINGS) {
+    const cacheEntry = livePriceCache.prices[holding.symbol];
+    const livePrice = cacheEntry?.price || 0;
+    const prevClose = cacheEntry?.prevClose || livePrice;
+    
+    // Skip if no price data (use fallback)
+    const ltp = livePrice > 0 ? livePrice : holding.avg_cost;
+    const curVal = holding.qty * ltp;
+    const invested = holding.qty * holding.avg_cost;
+    const pnl = curVal - invested;
+    const gainPct = invested > 0 ? ((ltp - holding.avg_cost) / holding.avg_cost) * 100 : 0;
+    
+    holdings.push({
+      tradingsymbol: holding.symbol,
+      exchange: holding.symbol.includes('-RR') ? 'BSE' : 'NSE',
+      quantity: holding.qty,
+      average_price: Math.round(holding.avg_cost * 100) / 100,
+      last_price: Math.round(ltp * 100) / 100,
+      close_price: Math.round(prevClose * 100) / 100,
+      pnl: Math.round(pnl * 100) / 100,
+      day_change: Math.round((ltp - prevClose) * holding.qty * 100) / 100,
+      day_change_percentage: prevClose > 0 ? Math.round(((ltp - prevClose) / prevClose) * 100 * 100) / 100 : 0,
+      sector: holding.sector,
+      invested: Math.round(invested * 100) / 100,
+      cur_val: Math.round(curVal * 100) / 100,
+      gain_pct: Math.round(gainPct * 100) / 100
+    });
+  }
+  
+  return holdings;
 }
 
 function mockZerodhaMargins() {
@@ -123,11 +300,12 @@ function mockZerodhaMargins() {
   };
 }
 
-// API Routes
+// ============================================================
+// API ROUTES
+// ============================================================
 
 // Generate Zerodha login URL
 app.get('/api/zerodha/login-url', (req, res) => {
-  // In production, generate actual Kite Connect login URL
   const loginUrl = `https://kite.zerodha.com/connect/login?api_key=${KITE_API_KEY}&v=3`;
   res.json({ url: loginUrl });
 });
@@ -143,7 +321,6 @@ app.post('/api/zerodha/validate-login', (req, res) => {
     });
   }
   
-  // Check against configured valid credentials
   const expectedPassword = VALID_CREDENTIALS[userId];
   
   if (!expectedPassword) {
@@ -160,7 +337,6 @@ app.post('/api/zerodha/validate-login', (req, res) => {
     });
   }
   
-  // Credentials are valid - create a session
   const sessionToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   sessions.set(sessionToken, {
@@ -182,7 +358,6 @@ app.post('/api/zerodha/validate-login', (req, res) => {
 app.post('/api/zerodha/callback', (req, res) => {
   const { request_token, user_id, sessionToken } = req.body;
   
-  // Require a valid session token from validate-login
   if (!sessionToken || !sessions.has(sessionToken)) {
     return res.status(401).json({
       success: false,
@@ -191,8 +366,6 @@ app.post('/api/zerodha/callback', (req, res) => {
   }
   
   const session = sessions.get(sessionToken);
-  
-  // In production, exchange request_token for access_token
   const newSessionToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   sessions.set(newSessionToken, {
@@ -202,7 +375,6 @@ app.post('/api/zerodha/callback', (req, res) => {
     createdAt: Date.now()
   });
   
-  // Remove old session
   sessions.delete(sessionToken);
   
   res.json({
@@ -212,7 +384,7 @@ app.post('/api/zerodha/callback', (req, res) => {
   });
 });
 
-// Get portfolio holdings
+// Get live portfolio holdings (with real-time prices)
 app.get('/api/portfolio/holdings', (req, res) => {
   const sessionToken = req.headers.authorization?.replace('Bearer ', '');
   
@@ -223,11 +395,17 @@ app.get('/api/portfolio/holdings', (req, res) => {
     });
   }
   
-  // In production, fetch actual holdings from Zerodha API
+  const holdings = buildLiveHoldings();
+  
   res.json({
     success: true,
-    data: mockZerodhaHoldings(),
-    isMock: false
+    data: {
+      net: holdings,
+      long: [],
+      short: []
+    },
+    isMock: false,
+    priceCacheAge: livePriceCache.lastUpdated
   });
 });
 
@@ -239,7 +417,7 @@ app.get('/api/portfolio/margins', (req, res) => {
   });
 });
 
-// Generate portfolio summary from Zerodha data
+// Generate portfolio summary from live data
 app.get('/api/portfolio/summary', (req, res) => {
   const sessionToken = req.headers.authorization?.replace('Bearer ', '');
   
@@ -250,23 +428,92 @@ app.get('/api/portfolio/summary', (req, res) => {
     });
   }
   
-  const holdings = mockZerodhaHoldings();
+  const holdings = buildLiveHoldings();
   const margins = mockZerodhaMargins();
   
-  const totalInvested = holdings.net.reduce((sum, h) => sum + (h.quantity * h.average_price), 0);
-  const totalValue = holdings.net.reduce((sum, h) => sum + (h.quantity * h.last_price), 0);
-  const totalPnl = holdings.net.reduce((sum, h) => sum + h.pnl, 0);
+  const totalInvested = holdings.reduce((sum, h) => sum + h.invested, 0);
+  const totalValue = holdings.reduce((sum, h) => sum + h.cur_val, 0);
+  const totalPnl = holdings.reduce((sum, h) => sum + h.pnl, 0);
   
   res.json({
     success: true,
     data: {
-      totalValue: totalValue,
-      totalInvested: totalInvested,
-      totalPnl: totalPnl,
-      totalPnlPercent: (totalPnl / totalInvested) * 100,
+      totalValue: Math.round(totalValue * 100) / 100,
+      totalInvested: Math.round(totalInvested * 100) / 100,
+      totalPnl: Math.round(totalPnl * 100) / 100,
+      totalPnlPercent: totalInvested > 0 ? Math.round((totalPnl / totalInvested) * 100 * 100) / 100 : 0,
       cash: margins.equity.available.cash,
-      holdings: holdings.net
+      holdings: holdings,
+      lastRefreshed: livePriceCache.lastUpdated
     }
+  });
+});
+
+// ============================================================
+// LIVE PRICE API ENDPOINTS
+// ============================================================
+
+// Get all live prices
+app.get('/api/prices/live', (req, res) => {
+  res.json({
+    success: true,
+    prices: livePriceCache.prices,
+    lastUpdated: livePriceCache.lastUpdated,
+    totalTickers: TICKERS.length,
+    cachedTickers: Object.keys(livePriceCache.prices).length
+  });
+});
+
+// Get price for a specific symbol
+app.get('/api/prices/live/:symbol', (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const priceData = livePriceCache.prices[symbol];
+  
+  if (!priceData) {
+    return res.status(404).json({
+      success: false,
+      error: `No price data for symbol: ${symbol}`
+    });
+  }
+  
+  res.json({
+    success: true,
+    symbol: symbol,
+    data: priceData
+  });
+});
+
+// Manually trigger price refresh
+app.post('/api/prices/refresh', async (req, res) => {
+  if (livePriceCache.isRefreshing) {
+    return res.json({
+      success: true,
+      message: 'Price refresh already in progress',
+      lastUpdated: livePriceCache.lastUpdated
+    });
+  }
+  
+  // Trigger async refresh
+  refreshPriceCache().catch(err => console.error('[PriceCache] Manual refresh error:', err));
+  
+  res.json({
+    success: true,
+    message: 'Price refresh started',
+    lastUpdated: livePriceCache.lastUpdated
+  });
+});
+
+// Get price cache status
+app.get('/api/prices/status', (req, res) => {
+  res.json({
+    success: true,
+    isRefreshing: livePriceCache.isRefreshing,
+    lastUpdated: livePriceCache.lastUpdated,
+    cachedCount: Object.keys(livePriceCache.prices).length,
+    totalTickers: TICKERS.length,
+    nextRefreshIn: livePriceCache.lastUpdated 
+      ? Math.max(0, REFRESH_INTERVAL_MS - (Date.now() - new Date(livePriceCache.lastUpdated).getTime())) 
+      : 0
   });
 });
 
@@ -275,7 +522,23 @@ app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, () => {
+// ============================================================
+// STARTUP
+// ============================================================
+
+app.listen(PORT, async () => {
   console.log(`🚀 Zerodha Portfolio Server running on http://localhost:${PORT}`);
   console.log(`📊 API endpoints available at http://localhost:${PORT}/api/`);
+  console.log(`🔄 Auto-refreshing prices every ${REFRESH_INTERVAL_MS / 60000} minutes...`);
+  
+  // Initial price fetch on startup
+  console.log('[PriceCache] Initial price fetch on startup...');
+  await refreshPriceCache();
+  
+  // Schedule periodic refresh
+  setInterval(() => {
+    refreshPriceCache().catch(err => console.error('[PriceCache] Scheduled refresh error:', err));
+  }, REFRESH_INTERVAL_MS);
+  
+  console.log('[PriceCache] Initial refresh complete. Prices available at /api/prices/live');
 });
