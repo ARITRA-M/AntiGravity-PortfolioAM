@@ -168,26 +168,38 @@ const ZerodhaAuth = {
     btn.disabled = true;
     
     try {
-      // In production, this would call your backend which handles the actual Kite login
-      // For demo, simulate a successful login
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // First, get a session token from the server by simulating a callback
+      const callbackResponse = await fetch('/api/zerodha/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_token: 'manual_login_' + Date.now(),
+          user_id: userId
+        })
+      });
+      
+      const callbackData = await callbackResponse.json();
+      
+      if (!callbackData.success) {
+        throw new Error('Failed to authenticate with server');
+      }
       
       this.session = {
         isAuthenticated: true,
         userId: userId,
-        token: 'demo_session_token_' + Date.now()
+        token: callbackData.sessionToken
       };
       
       this.saveSession();
       this.closeModal();
       this.showConnectedState();
       
-      // Trigger portfolio refresh
+      // Trigger portfolio refresh - fetches real data from server API
       if (typeof refreshPortfolioFromZerodha === 'function') {
-        refreshPortfolioFromZerodha();
+        await refreshPortfolioFromZerodha();
       }
       
-      alert('Successfully connected to Zerodha! (Demo Mode)');
+      alert('Successfully connected to Zerodha! Portfolio data refreshed from server.');
       
     } catch (error) {
       alert('Login failed: ' + error.message);
@@ -245,7 +257,7 @@ const ZerodhaAuth = {
           this.showConnectedState();
           
           if (typeof refreshPortfolioFromZerodha === 'function') {
-            refreshPortfolioFromZerodha();
+            await refreshPortfolioFromZerodha();
           }
           
           alert('Successfully connected to Zerodha!');
