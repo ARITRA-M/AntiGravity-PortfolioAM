@@ -146,10 +146,22 @@ async function refreshPriceCache() {
     livePriceCache.isRefreshing = false;
   }
 }
+// Cache staleness threshold: refresh if cache is older than 15 minutes
+const CACHE_STALE_MS = 15 * 60 * 1000; // 15 minutes
 
-// Schedule auto-refresh every 15 minutes
-const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
-
+// Check if cache is stale and refresh on-demand
+async function ensureFreshCache() {
+  const now = Date.now();
+  const lastUpdated = livePriceCache.lastUpdated ? new Date(livePriceCache.lastUpdated).getTime() : 0;
+  const isStale = (now - lastUpdated) > CACHE_STALE_MS;
+  
+  if (isStale && !livePriceCache.isRefreshing) {
+    console.log('[PriceCache] Cache is stale, refreshing on-demand...');
+    await refreshPriceCache();
+    return true;
+  }
+  return false;
+}
 // ============================================================
 // LIVE DATA-ENABLED MOCK HOLDINGS
 // ============================================================
@@ -385,7 +397,7 @@ app.post('/api/zerodha/callback', (req, res) => {
 });
 
 // Get live portfolio holdings (with real-time prices)
-app.get('/api/portfolio/holdings', (req, res) => {
+app.get('/api/portfolio/holdings', async (req, res) => {
   const sessionToken = req.headers.authorization?.replace('Bearer ', '');
   
   if (!sessionToken || !sessions.has(sessionToken)) {
@@ -394,6 +406,9 @@ app.get('/api/portfolio/holdings', (req, res) => {
       error: 'Not authenticated. Please connect to Zerodha first.'
     });
   }
+  
+  // Refresh cache on-demand if stale
+  await ensureFreshCache();
   
   const holdings = buildLiveHoldings();
   
@@ -418,7 +433,7 @@ app.get('/api/portfolio/margins', (req, res) => {
 });
 
 // Generate portfolio summary from live data
-app.get('/api/portfolio/summary', (req, res) => {
+app.get('/api/portfolio/summary', async (req, res) => {
   const sessionToken = req.headers.authorization?.replace('Bearer ', '');
   
   if (!sessionToken || !sessions.has(sessionToken)) {
@@ -427,6 +442,9 @@ app.get('/api/portfolio/summary', (req, res) => {
       error: 'Not authenticated. Please connect to Zerodha first.'
     });
   }
+  
+  // Refresh cache on-demand if stale
+  await ensureFreshCache();
   
   const holdings = buildLiveHoldings();
   const margins = mockZerodhaMargins();
@@ -505,15 +523,19 @@ app.post('/api/prices/refresh', async (req, res) => {
 
 // Get price cache status
 app.get('/api/prices/status', (req, res) => {
+  const now = Date.now();
+  const lastUpdated = livePriceCache.lastUpdated ? new Date(livePriceCache.lastUpdated).getTime() : 0;
+  const isStale = (now - lastUpdated) > CACHE_STALE_MS;
+  
   res.json({
     success: true,
     isRefreshing: livePriceCache.isRefreshing,
     lastUpdated: livePriceCache.lastUpdated,
     cachedCount: Object.keys(livePriceCache.prices).length,
     totalTickers: TICKERS.length,
-    nextRefreshIn: livePriceCache.lastUpdated 
-      ? Math.max(0, REFRESH_INTERVAL_MS - (Date.now() - new Date(livePriceCache.lastUpdated).getTime())) 
-      : 0
+    isStale: isStale,
+    refreshMode: 'on-demand',
+    staleAfterMs: CACHE_STALE_MS
   });
 });
 
@@ -529,16 +551,12 @@ app.get('/{*path}', (req, res) => {
 app.listen(PORT, async () => {
   console.log(`🚀 Zerodha Portfolio Server running on http://localhost:${PORT}`);
   console.log(`📊 API endpoints available at http://localhost:${PORT}/api/`);
-  console.log(`🔄 Auto-refreshing prices every ${REFRESH_INTERVAL_MS / 60000} minutes...`);
+  console.log(`🔄 Price refresh mode: ON-DEMAND (refreshed when user accesses portfolio)`);
   
-  // Initial price fetch on startup
+  // Initial price fetch on startup (so first user doesn't wait)
   console.log('[PriceCache] Initial price fetch on startup...');
   await refreshPriceCache();
   
-  // Schedule periodic refresh
-  setInterval(() => {
-    refreshPriceCache().catch(err => console.error('[PriceCache] Scheduled refresh error:', err));
-  }, REFRESH_INTERVAL_MS);
-  
   console.log('[PriceCache] Initial refresh complete. Prices available at /api/prices/live');
+  console.log('[PriceCache] Subsequent refreshes happen on-demand when portfolio endpoints are accessed.');
 });
