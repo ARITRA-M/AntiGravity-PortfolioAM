@@ -249,6 +249,11 @@ function updateKpis() {
 
 // ==================== OVERVIEW TAB ====================
 function initOverviewTab() {
+  // Destroy existing charts before re-creating
+  if (allocationChart) allocationChart.destroy();
+  if (componentXirrChart) componentXirrChart.destroy();
+  if (allocationShiftChart) allocationShiftChart.destroy();
+
   // 1. Current Asset Allocation Donut
   const allocData = portfolioSummary.allocation_pct;
   const ctxAlloc = document.getElementById('allocation-donut-chart').getContext('2d');
@@ -383,6 +388,10 @@ function initOverviewTab() {
 
 // ==================== HISTORICAL GROWTH TAB ====================
 function initGrowthTab() {
+  // Destroy existing charts before re-creating
+  if (netWorthGrowthChart) netWorthGrowthChart.destroy();
+  if (capitalVsValuationChart) capitalVsValuationChart.destroy();
+
   const dates = breakupSummary.dates;
   const nwSec = breakupSummary.net_worth;
   const nwDatasets = [];
@@ -511,6 +520,10 @@ function filterGrowthChart() {
 
 // ==================== STOCKS TAB ====================
 function initStocksTab() {
+  // Destroy existing chart before re-creating
+  if (sectorChart) sectorChart.destroy();
+  if (stockHistoricalChart) stockHistoricalChart.destroy();
+
   // Normalize gain_pct: compute from pnl/invested if missing or zero
   latestEquity.forEach(s => {
     if (!s.gain_pct || s.gain_pct === 0) {
@@ -789,6 +802,11 @@ function sortStocks(colIdx) {
 
 // ==================== MUTUAL FUNDS TAB ====================
 function initMfsTab() {
+  // Destroy existing charts before re-creating
+  if (mfCategoryChart) mfCategoryChart.destroy();
+  if (mfValuationChart) mfValuationChart.destroy();
+  if (mfHistoricalChart) mfHistoricalChart.destroy();
+
   // 1. Category Donut
   const catSums = {};
   latestMf.forEach(f => {
@@ -1116,6 +1134,10 @@ function generateDividendData() {
 // ==================== BENCHMARK TAB ====================
 
 function initBenchmarkTab() {
+  // Destroy existing charts before re-creating
+  if (benchmarkComparisonChart) benchmarkComparisonChart.destroy();
+  if (rollingReturnsChart) rollingReturnsChart.destroy();
+
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
   updateBenchmarkStats('nifty50');
@@ -1282,6 +1304,10 @@ function renderRollingReturnsChart() {
 // ==================== DIVIDEND TAB ====================
 
 function initDividendTab() {
+  // Destroy existing charts before re-creating
+  if (dividendHistoryChart) dividendHistoryChart.destroy();
+  if (dividendSourceChart) dividendSourceChart.destroy();
+
   // Update KPIs
   document.getElementById('div-ttm-value').innerText = formatLakhs(dividendData.ttm / 100000);
   document.getElementById('div-yield-value').innerText = dividendData.yield.toFixed(2) + '%';
@@ -1370,6 +1396,9 @@ function initDividendTab() {
 // ==================== TAX TAB ====================
 
 function initTaxTab() {
+  // Destroy existing chart before re-creating
+  if (holdingPeriodChart) holdingPeriodChart.destroy();
+
   // Calculate total unrealized gains
   const totalGains = latestEquity.reduce((sum, s) => sum + s.pnl, 0) + 
                      latestMf.reduce((sum, f) => sum + f.pnl, 0);
@@ -1522,6 +1551,10 @@ let heatmapSelectedIndices = new Set();
 let heatmapMonthData = []; // Stores the full month data for the heatmap
 
 function initMonthlyTab() {
+  // Destroy existing charts before re-creating
+  if (monthlyChangeChart) monthlyChangeChart.destroy();
+  if (monthlyActivityChart) monthlyActivityChart.destroy();
+
   // Build heatmap data first (needed for selection state)
   buildHeatmapData();
   renderMonthlyHeatmap();
