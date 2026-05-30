@@ -109,6 +109,67 @@ async function loadData() {
   }
 }
 
+// Refresh portfolio data from Zerodha API (called by zerodha-login.js after login)
+async function refreshPortfolioFromZerodha() {
+  try {
+    console.log('Refreshing portfolio from Zerodha...');
+    
+    // Fetch holdings and summary from the local Express server API
+    const [resHoldings, resSummary] = await Promise.all([
+      fetch('/api/portfolio/holdings'),
+      fetch('/api/portfolio/summary')
+    ]);
+    
+    const holdingsData = await resHoldings.json();
+    const summaryData = await resSummary.json();
+    
+    if (holdingsData.success && holdingsData.data) {
+      // Transform Zerodha holdings format to app's latestEquity format
+      const zerodhaHoldings = holdingsData.data.net;
+      
+      // Update latestEquity with real Zerodha data
+      latestEquity = zerodhaHoldings.map(h => ({
+        instrument: h.tradingsymbol,
+        sector: h.exchange === 'NSE' ? 'Equity' : 'Other',
+        qty: h.quantity,
+        avg_cost: h.average_price,
+        ltp: h.last_price,
+        cur_val: h.quantity * h.last_price,
+        invested: h.quantity * h.average_price,
+        pnl: h.pnl,
+        gain_pct: ((h.last_price - h.average_price) / h.average_price) * 100
+      }));
+      
+      // Update portfolioSummary with Zerodha summary data
+      if (summaryData.success && summaryData.data) {
+        portfolioSummary = {
+          ...portfolioSummary,
+          total_current_value: summaryData.data.totalValue,
+          total_invested: summaryData.data.totalInvested,
+          total_pnl: summaryData.data.totalPnl,
+          total_pnl_pct: summaryData.data.totalPnlPercent,
+          cash_balance: summaryData.data.cash
+        };
+      }
+      
+      // Re-initialize all UI tabs with updated data
+      updateKpis();
+      initOverviewTab();
+      initGrowthTab();
+      initStocksTab();
+      initMfsTab();
+      initBenchmarkTab();
+      initDividendTab();
+      initTaxTab();
+      initMonthlyTab();
+      
+      console.log('Portfolio refreshed successfully from Zerodha!');
+    }
+  } catch (error) {
+    console.error('Failed to refresh portfolio from Zerodha:', error);
+  }
+}
+
 // Helpers
 function formatLakhs(value) {
   return '₹' + parseFloat(value).toFixed(2) + ' L';
