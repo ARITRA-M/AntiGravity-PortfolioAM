@@ -1,5 +1,5 @@
 // Tab IDs
-const tabIds = ['overview', 'growth', 'stocks', 'mfs', 'benchmark', 'dividends', 'tax'];
+const tabIds = ['overview', 'growth', 'stocks', 'mfs', 'benchmark', 'dividends', 'tax', 'monthly'];
 
 // Global state
 let portfolioSummary = null;
@@ -58,7 +58,11 @@ const TAX_RATES = {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
-  loadData();
+  // Only load data if auth is not required or already authenticated
+  // auth.js handles the auth gate and calls loadData() after successful login
+  if (typeof isAuthenticated !== 'function' || isAuthenticated()) {
+    loadData();
+  }
 });
 
 async function loadData() {
@@ -97,6 +101,7 @@ async function loadData() {
     initBenchmarkTab();
     initDividendTab();
     initTaxTab();
+    initMonthlyTab();
   } catch (error) {
     console.error("Error loading portfolio data:", error);
     document.getElementById('live-time-badge').innerText = "Error loading data!";
@@ -161,6 +166,12 @@ function switchTab(tabId) {
   // Re-render charts on visible tab to ensure proper sizing
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));
+    
+    // Re-initialize monthly tab charts if switching to it
+    if (tabId === 'monthly') {
+      renderMonthlyChangeChart();
+      renderMonthlyActivityChart();
+    }
   }, 100);
 }
 
@@ -439,6 +450,13 @@ function filterGrowthChart() {
 
 // ==================== STOCKS TAB ====================
 function initStocksTab() {
+  // Normalize gain_pct: compute from pnl/invested if missing or zero
+  latestEquity.forEach(s => {
+    if (!s.gain_pct || s.gain_pct === 0) {
+      s.gain_pct = s.invested > 0 ? (s.pnl / s.invested) * 100 : 0;
+    }
+  });
+
   // 1. Winners & Losers lists
   const sortedEq = [...latestEquity];
   const winners = sortedEq.sort((a, b) => b.pnl - a.pnl).slice(0, 5);
@@ -503,12 +521,14 @@ function initStocksTab() {
   const sortedByVal = [...latestEquity].sort((a, b) => b.cur_val - a.cur_val);
   const explorerList = document.getElementById('explorer-stock-list');
   
-  explorerList.innerHTML = sortedByVal.map((s, idx) => `
-    <div class="explorer-item ${idx === 0 ? 'active' : ''}" onclick="selectStockExplorer('${s.instrument}', this)">
-      <span class="name">${s.instrument}</span>
+  explorerList.innerHTML = sortedByVal.map((s, idx) => {
+    const escapedInstrument = s.instrument.replace(/'/g, "\\'").replace(/&/g, '&').replace(/"/g, '"');
+    return `
+    <div class="explorer-item ${idx === 0 ? 'active' : ''}" onclick="selectStockExplorer('${escapedInstrument}', this)">
+      <span class="name">${escapedInstrument}</span>
       <span class="val">${formatINR(s.cur_val)}</span>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   // Populate Stock Sector Dropdown
   const sectors = [...new Set(latestEquity.map(s => s.sector))].sort();
@@ -532,7 +552,15 @@ function selectStockExplorer(symbol, element) {
 }
 
 function renderStockHistoricalChart(symbol) {
-  const stock = historicalHoldings.stocks[symbol];
+  // Build a lookup map from ticker symbols to historical holdings names
+  // historical_holdings uses full names (e.g. "Ajanta Pharma Ltd.") while
+  // latest_equity uses ticker symbols (e.g. "AJANTPHARM")
+  const stockKey = Object.keys(historicalHoldings.stocks).find(
+    key => key.toUpperCase().replace(/[^A-Z0-9]/g, '') === symbol.toUpperCase().replace(/[^A-Z0-9]/g, '') ||
+           key.toUpperCase().includes(symbol.toUpperCase()) ||
+           symbol.toUpperCase().includes(key.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+  );
+  const stock = stockKey ? historicalHoldings.stocks[stockKey] : historicalHoldings.stocks[symbol];
   if (!stock) return;
   
   const history = stock.history;
@@ -952,7 +980,7 @@ function generateBenchmarkData() {
 }
 
 function generateDividendData() {
-  // Generate simulated dividend data based on holdings
+  // Generate deterministic dividend data based on holdings
   const dividendHistory = [];
   const dividendByType = { stocks: 0, mfs: 0 };
   const dividendHoldings = [];
@@ -972,10 +1000,16 @@ function generateDividendData() {
     }
   });
   
-  // Generate dividend-paying holdings
-  latestEquity.slice(0, 15).forEach(stock => {
-    if (Math.random() > 0.3) { // 70% pay dividends
-      const yield_ = 0.5 + Math.random() * 2.5; // 0.5% to 3% yield
+  // Generate dividend-paying holdings (deterministic - based on PnL performance)
+  // Stocks with positive PnL are more likely to pay dividends
+  latestEquity.slice(0, 15).forEach((stock, idx) => {
+    // Deterministic: use stock name hash and PnL to decide if dividend-paying
+    const nameHash = stock.instrument.length + stock.pnl;
+    const paysDividend = (nameHash % 10) > 2; // ~70% pay dividends, deterministic
+    if (paysDividend) {
+      // Yield based on sector: stable sectors get higher yield
+      const baseYield = stock.sector.includes('Bank') || stock.sector.includes('Oil') ? 2.5 : 1.5;
+      const yield_ = baseYield + (idx % 3) * 0.5; // Deterministic variation
       dividendHoldings.push({
         instrument: stock.instrument,
         type: 'Stock',
@@ -986,9 +1020,12 @@ function generateDividendData() {
     }
   });
   
-  latestMf.slice(0, 10).forEach(fund => {
-    if (Math.random() > 0.4) { // 60% pay dividends
-      const yield_ = 0.8 + Math.random() * 2;
+  latestMf.slice(0, 10).forEach((fund, idx) => {
+    // Deterministic: use scheme name hash
+    const nameHash = fund.scheme.length + fund.pnl;
+    const paysDividend = (nameHash % 10) > 3; // ~60% pay dividends, deterministic
+    if (paysDividend) {
+      const yield_ = 1.0 + (idx % 4) * 0.5; // Deterministic: 1.0%, 1.5%, 2.0%, 2.5%
       dividendHoldings.push({
         instrument: fund.scheme.substring(0, 30),
         type: 'Mutual Fund',
@@ -1412,6 +1449,553 @@ function calculateTax() {
   document.getElementById('calc-gain').innerText = formatINR(gain);
   document.getElementById('calc-tax-rate').innerText = (taxRate * 100) + '%';
   document.getElementById('calc-tax-liability').innerText = formatINR(Math.max(0, taxLiability));
+}
+
+// ==================== MONTHLY CHANGES TAB ====================
+
+let monthlyChangeChart = null;
+let monthlyActivityChart = null;
+
+// Heatmap selection state: stores indices of selected heatmap cells
+let heatmapSelectedIndices = new Set();
+let heatmapMonthData = []; // Stores the full month data for the heatmap
+
+function initMonthlyTab() {
+  // Build heatmap data first (needed for selection state)
+  buildHeatmapData();
+  renderMonthlyHeatmap();
+  // Render all sections with default (no filter = all data)
+  renderMonthlySummary();
+  renderMonthlyChangeChart();
+  renderMonthlyMovers();
+  renderMonthlyActivityChart();
+  renderTradingActivityLog();
+}
+
+// Build the heatmap month data array (used for selection and filtering)
+function buildHeatmapData() {
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  heatmapMonthData = [];
+  
+  for (let i = 0; i < nwTotal.length; i++) {
+    const change = i > 0 ? ((nwTotal[i] - nwTotal[i-1]) / nwTotal[i-1]) * 100 : 0;
+    heatmapMonthData.push({
+      label: formatDateString(dates[i]),
+      change: change,
+      value: nwTotal[i],
+      index: i,
+      date: dates[i]
+    });
+  }
+}
+
+// Get the selected range from heatmap selection
+function getSelectedRange() {
+  if (heatmapSelectedIndices.size === 0) {
+    return { startIndex: 0, endIndex: heatmapMonthData.length - 1, isFiltered: false };
+  }
+  
+  const sorted = [...heatmapSelectedIndices].sort((a, b) => a - b);
+  return {
+    startIndex: sorted[0],
+    endIndex: sorted[sorted.length - 1],
+    isFiltered: true
+  };
+}
+
+// Toggle a heatmap cell selection (multi-select)
+function toggleHeatmapCell(index) {
+  if (heatmapSelectedIndices.has(index)) {
+    heatmapSelectedIndices.delete(index);
+  } else {
+    heatmapSelectedIndices.add(index);
+  }
+  
+  // Re-render heatmap with updated selection
+  renderMonthlyHeatmap();
+  
+  // Update all sections based on selection
+  updateAllSections();
+}
+
+// Clear all heatmap selections
+function clearHeatmapSelection() {
+  heatmapSelectedIndices.clear();
+  renderMonthlyHeatmap();
+  updateAllSections();
+}
+
+// Select all heatmap cells
+function selectAllHeatmap() {
+  heatmapSelectedIndices = new Set(heatmapMonthData.map(d => d.index));
+  renderMonthlyHeatmap();
+  updateAllSections();
+}
+
+// Update all sections based on current heatmap selection
+function updateAllSections() {
+  const range = getSelectedRange();
+  const startIndex = range.startIndex;
+  const endIndex = range.endIndex;
+  const count = endIndex - startIndex + 1;
+  
+  renderMonthlySummary(count, startIndex, endIndex);
+  renderMonthlyChangeChart(count, startIndex, endIndex);
+  renderMonthlyMovers(count, startIndex, endIndex);
+  renderMonthlyActivityChart(count, startIndex, endIndex);
+  renderTradingActivityLog(count, startIndex, endIndex);
+}
+
+function renderMonthlySummary(count = 12, startIndex = 0, endIndex = null) {
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  const newInvTotal = breakupSummary.new_investment["Total Investment"].values;
+  
+  // If endIndex not provided, use the last available index
+  if (endIndex === null) endIndex = nwTotal.length - 1;
+  
+  const currentValue = nwTotal[endIndex];
+  const periodStartValue = nwTotal[startIndex];
+  const monthChange = currentValue - periodStartValue;
+  const monthChangePct = (monthChange / periodStartValue) * 100;
+  
+  // Calculate new investments (sum of monthly investments in the selected range)
+  let newInvestment = 0;
+  for (let i = startIndex; i <= endIndex; i++) {
+    newInvestment += newInvTotal[i];
+  }
+  
+  // Calculate returns (change - new investment)
+  const returns = monthChange - newInvestment;
+  const returnsPct = (returns / periodStartValue) * 100;
+  
+  const container = document.getElementById('monthly-summary-cards');
+  container.innerHTML = `
+    <div class="monthly-kpi-card">
+      <div class="monthly-kpi-icon ${monthChange >= 0 ? 'positive' : 'negative'}">
+        ${monthChange >= 0 ? '📈' : '📉'}
+      </div>
+      <div class="monthly-kpi-content">
+        <div class="monthly-kpi-label">Net Worth Change</div>
+        <div class="monthly-kpi-value ${monthChange >= 0 ? 'trend-up' : 'trend-down'}">
+          ${monthChange >= 0 ? '+' : ''}${formatINR(monthChange)}
+        </div>
+        <div class="monthly-kpi-sub">${monthChangePct >= 0 ? '+' : ''}${monthChangePct.toFixed(2)}%</div>
+      </div>
+    </div>
+    
+    <div class="monthly-kpi-card">
+      <div class="monthly-kpi-icon positive">💰</div>
+      <div class="monthly-kpi-content">
+        <div class="monthly-kpi-label">New Investments</div>
+        <div class="monthly-kpi-value">+${formatINR(newInvestment)}</div>
+        <div class="monthly-kpi-sub">Added capital</div>
+      </div>
+    </div>
+    
+    <div class="monthly-kpi-card">
+      <div class="monthly-kpi-icon ${returns >= 0 ? 'positive' : 'negative'}">
+        ${returns >= 0 ? '📊' : '⚠️'}
+      </div>
+      <div class="monthly-kpi-content">
+        <div class="monthly-kpi-label">Market Returns</div>
+        <div class="monthly-kpi-value ${returns >= 0 ? 'trend-up' : 'trend-down'}">
+          ${returns >= 0 ? '+' : ''}${formatINR(returns)}
+        </div>
+        <div class="monthly-kpi-sub">${returnsPct >= 0 ? '+' : ''}${returnsPct.toFixed(2)}%</div>
+      </div>
+    </div>
+    
+    <div class="monthly-kpi-card">
+      <div class="monthly-kpi-icon positive">🎯</div>
+      <div class="monthly-kpi-content">
+        <div class="monthly-kpi-label">Current Net Worth</div>
+        <div class="monthly-kpi-value">${formatLakhs(currentValue)}</div>
+        <div class="monthly-kpi-sub">Total portfolio value</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderMonthlyChangeChart(count = 12, startIndex = 0, endIndex = null) {
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  
+  // If endIndex not provided, use the last available index
+  if (endIndex === null) endIndex = nwTotal.length - 1;
+  
+  // Calculate month-over-month changes
+  const labels = [];
+  const changes = [];
+  const colors = [];
+  
+  // Need at least one prior month for change calculation, so start from startIndex + 1
+  for (let i = Math.max(startIndex + 1, 1); i <= endIndex; i++) {
+    const change = nwTotal[i] - nwTotal[i - 1];
+    changes.push(change);
+    labels.push(formatDateString(dates[i]));
+    colors.push(change >= 0 ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)');
+  }
+  
+  const ctx = document.getElementById('monthly-change-chart').getContext('2d');
+  
+  if (monthlyChangeChart) monthlyChangeChart.destroy();
+  
+  monthlyChangeChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Monthly Change (₹)',
+        data: changes,
+        backgroundColor: colors,
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
+        y: { 
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', callback: (v) => formatINR(v) }
+        }
+      }
+    }
+  });
+}
+
+function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  
+  // If endIndex not provided, use the last available index
+  if (endIndex === null) endIndex = nwTotal.length - 1;
+  
+  // Calculate monthly changes for each holding from historical data
+  const gainers = [];
+  const losers = [];
+  
+  // Determine which historical data indices correspond to the selected date range
+  // We need the latest month's data within the selected range for comparison
+  const selectedEndDate = dates[endIndex];
+  
+  latestEquity.forEach(stock => {
+    // Try to find matching historical data
+    const stockKey = Object.keys(historicalHoldings.stocks).find(
+      key => key.toUpperCase().replace(/[^A-Z0-9]/g, '') === stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '') ||
+             key.toUpperCase().includes(stock.instrument.toUpperCase()) ||
+             stock.instrument.toUpperCase().includes(key.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+    );
+    
+    let monthlyChange = 0;
+    if (stockKey) {
+      const history = historicalHoldings.stocks[stockKey].history;
+      // Find the entry closest to the selected end date and the entry before it
+      let latestEntry = null;
+      let prevEntry = null;
+      let latestIdx = -1;
+      for (let h = history.length - 1; h >= 0; h--) {
+        if (history[h].date <= selectedEndDate) {
+          latestEntry = history[h];
+          latestIdx = h;
+          break;
+        }
+      }
+      // Get the entry just before latestEntry
+      if (latestEntry && latestIdx > 0) {
+        prevEntry = history[latestIdx - 1];
+      }
+      // Fallback to last two entries if no match found
+      if (!latestEntry && history.length >= 1) latestEntry = history[history.length - 1];
+      if (!prevEntry && history.length >= 2) prevEntry = history[history.length - 2];
+      
+      if (latestEntry && prevEntry) {
+        monthlyChange = prevEntry.cur_val > 0 ? ((latestEntry.cur_val - prevEntry.cur_val) / prevEntry.cur_val) * 100 : 0;
+      }
+    }
+    
+    const changeObj = {
+      name: stock.instrument,
+      sector: stock.sector,
+      change: monthlyChange,
+      value: stock.cur_val
+    };
+    
+    if (monthlyChange >= 0) {
+      gainers.push(changeObj);
+    } else {
+      losers.push(changeObj);
+    }
+  });
+  
+  gainers.sort((a, b) => b.change - a.change);
+  losers.sort((a, b) => a.change - b.change);
+  
+  // Render gainers
+  const gainersContainer = document.getElementById('monthly-gainers-list');
+  gainersContainer.innerHTML = gainers.slice(0, 5).map(g => `
+    <div class="mover-item">
+      <div class="mover-info">
+        <div class="mover-name">${g.name}</div>
+        <div class="mover-sector">${g.sector}</div>
+      </div>
+      <div class="mover-change trend-up">+${g.change.toFixed(2)}%</div>
+    </div>
+  `).join('');
+  
+  // Render losers
+  const losersContainer = document.getElementById('monthly-losers-list');
+  losersContainer.innerHTML = losers.slice(0, 5).map(l => `
+    <div class="mover-item">
+      <div class="mover-info">
+        <div class="mover-name">${l.name}</div>
+        <div class="mover-sector">${l.sector}</div>
+      </div>
+      <div class="mover-change trend-down">${l.change.toFixed(2)}%</div>
+    </div>
+  `).join('');
+}
+
+function renderMonthlyHeatmap() {
+  const container = document.getElementById('monthly-heatmap');
+  const infoBar = document.getElementById('heatmap-selection-info');
+  
+  if (heatmapMonthData.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">No data available</div>';
+    return;
+  }
+  
+  container.innerHTML = `
+    <div class="heatmap-grid">
+      ${heatmapMonthData.map(m => {
+        const intensity = Math.min(Math.abs(m.change) / 5, 1); // Normalize to 0-1
+        const color = m.change >= 0
+          ? `rgba(16, 185, 129, ${0.3 + intensity * 0.7})`
+          : `rgba(239, 68, 68, ${0.3 + intensity * 0.7})`;
+        
+        const isSelected = heatmapSelectedIndices.has(m.index);
+        const selectedClass = isSelected ? 'selected' : '';
+        
+        return `
+          <div class="heatmap-cell ${selectedClass}" style="background: ${color}"
+               onclick="toggleHeatmapCell(${m.index})"
+               title="${m.label}: ${m.change >= 0 ? '+' : ''}${m.change.toFixed(1)}% — Click to toggle selection">
+            <div class="heatmap-month">${m.label.split(' ')[0]}</div>
+            <div class="heatmap-change">${m.change >= 0 ? '+' : ''}${m.change.toFixed(1)}%</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div class="heatmap-legend">
+      <span class="legend-label">Negative</span>
+      <div class="legend-gradient">
+        <div class="legend-bar"></div>
+      </div>
+      <span class="legend-label">Positive</span>
+    </div>
+  `;
+  
+  // Update selection info bar
+  if (infoBar) {
+    if (heatmapSelectedIndices.size === 0) {
+      infoBar.innerHTML = '<span>No period selected — showing <strong class="selected-range">all data</strong></span>';
+    } else {
+      const sorted = [...heatmapSelectedIndices].sort((a, b) => a - b);
+      const startLabel = heatmapMonthData[sorted[0]]?.label || 'N/A';
+      const endLabel = heatmapMonthData[sorted[sorted.length - 1]]?.label || 'N/A';
+      const monthCount = sorted.length;
+      infoBar.innerHTML = `<span>Selected: <strong class="selected-range">${startLabel} — ${endLabel}</strong> (${monthCount} month${monthCount > 1 ? 's' : ''})</span>`;
+    }
+  }
+}
+
+function renderMonthlyActivityChart(count = 12, startIndex = 0, endIndex = null) {
+  const dates = breakupSummary.dates;
+  const newInvSection = breakupSummary.new_investment;
+  const newInvTotal = newInvSection["Total Investment"].values;
+  
+  // If endIndex not provided, use the last available index
+  if (endIndex === null) endIndex = newInvTotal.length - 1;
+  
+  const labels = [];
+  const investments = [];
+  
+  for (let i = startIndex; i <= endIndex; i++) {
+    labels.push(formatDateString(dates[i]));
+    investments.push(newInvTotal[i]);
+  }
+  
+  const ctx = document.getElementById('monthly-activity-chart').getContext('2d');
+  
+  if (monthlyActivityChart) monthlyActivityChart.destroy();
+  
+  monthlyActivityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Monthly Investment (₹)',
+        data: investments,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 4,
+        pointBackgroundColor: '#3b82f6'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
+        y: { 
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', callback: (v) => formatINR(v) }
+        }
+      }
+    }
+  });
+}
+
+// Generate Trading Activity Log
+function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
+  const dates = breakupSummary.dates;
+  
+  // If endIndex not provided, use the last available index
+  if (endIndex === null) endIndex = dates.length - 1;
+  
+  const trades = [];
+  
+  // Generate simulated trading activity from historical holdings data
+  const stockHistory = historicalHoldings.stocks;
+  const mfHistory = historicalHoldings.mfs;
+  
+  // Process stock transactions
+  Object.keys(stockHistory).forEach(symbol => {
+    const stock = stockHistory[symbol];
+    const history = stock.history;
+    
+    for (let i = 1; i < history.length; i++) {
+      const prev = history[i - 1];
+      const curr = history[i];
+      
+      // Detect buys (invested increased)
+      if (curr.invested > prev.invested) {
+        const buyAmount = curr.invested - prev.invested;
+        const qty = curr.qty - prev.qty;
+        if (qty > 0) {
+          trades.push({
+            date: curr.date,
+            instrument: symbol,
+            type: 'BUY',
+            quantity: qty,
+            price: curr.ltp,
+            total: buyAmount,
+            category: stock.sector || 'Equity'
+          });
+        }
+      }
+      
+      // Detect sells (qty decreased)
+      if (curr.qty < prev.qty && curr.qty >= 0) {
+        const sellQty = prev.qty - curr.qty;
+        const sellAmount = sellQty * curr.ltp;
+        trades.push({
+          date: curr.date,
+          instrument: symbol,
+          type: 'SELL',
+          quantity: sellQty,
+          price: curr.ltp,
+          total: sellAmount,
+          category: stock.sector || 'Equity'
+        });
+      }
+    }
+  });
+  
+  // Process MF transactions
+  Object.keys(mfHistory).forEach(scheme => {
+    const mf = mfHistory[scheme];
+    const history = mf.history;
+    
+    for (let i = 1; i < history.length; i++) {
+      const prev = history[i - 1];
+      const curr = history[i];
+      
+      // Detect buys
+      if (curr.invested > prev.invested) {
+        const buyAmount = curr.invested - prev.invested;
+        const qty = curr.qty - prev.qty;
+        if (qty > 0) {
+          trades.push({
+            date: curr.date,
+            instrument: scheme.length > 30 ? scheme.substring(0, 30) + '...' : scheme,
+            type: 'BUY',
+            quantity: qty,
+            price: curr.ltp,
+            total: buyAmount,
+            category: 'Mutual Fund'
+          });
+        }
+      }
+      
+      // Detect sells
+      if (curr.qty < prev.qty && curr.qty >= 0) {
+        const sellQty = prev.qty - curr.qty;
+        const sellAmount = sellQty * curr.ltp;
+        trades.push({
+          date: curr.date,
+          instrument: scheme.length > 30 ? scheme.substring(0, 30) + '...' : scheme,
+          type: 'SELL',
+          quantity: sellQty,
+          price: curr.ltp,
+          total: sellAmount,
+          category: 'Mutual Fund'
+        });
+      }
+    }
+  });
+  
+  // Sort by date (newest first)
+  trades.sort((a, b) => new Date(b.date) - new Date(a.date));
+  
+  // Filter by selected date range
+  const startDate = dates[startIndex];
+  const endDate = dates[endIndex];
+  const filteredTrades = trades.filter(t => t.date >= startDate && t.date <= endDate);
+  
+  // Render table
+  const tbody = document.getElementById('trading-activity-body');
+  tbody.innerHTML = filteredTrades.map(trade => `
+    <tr>
+      <td>${formatDateString(trade.date)}</td>
+      <td style="font-weight: 600;">${trade.instrument}</td>
+      <td>
+        <span class="trade-type ${trade.type.toLowerCase()}">${trade.type}</span>
+      </td>
+      <td style="text-align: right;">${trade.quantity.toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
+      <td style="text-align: right;">₹${trade.price.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+      <td style="text-align: right; font-weight: 600;">${formatINR(trade.total)}</td>
+      <td><span class="sector-tag">${trade.category}</span></td>
+    </tr>
+  `).join('');
+  
+  // Show message if no trades
+  if (filteredTrades.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+          No trading activity found for the selected period
+        </td>
+      </tr>
+    `;
+  }
 }
 
 function sortMfs(colIdx) {
