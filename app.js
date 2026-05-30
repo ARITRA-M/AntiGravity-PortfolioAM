@@ -134,22 +134,23 @@ async function refreshPortfolioFromZerodha() {
     
     if (holdingsData.success && holdingsData.data) {
       // Transform Zerodha holdings format to app's latestEquity format
+      // Server now returns live prices from Yahoo Finance with sector info
       const zerodhaHoldings = holdingsData.data.net;
       
-      // Update latestEquity with real Zerodha data
+      // Update latestEquity with live data from server
       latestEquity = zerodhaHoldings.map(h => ({
         instrument: h.tradingsymbol,
-        sector: h.exchange === 'NSE' ? 'Equity' : 'Other',
+        sector: h.sector || (h.exchange === 'NSE' ? 'Equity' : 'Other'),
         qty: h.quantity,
         avg_cost: h.average_price,
         ltp: h.last_price,
-        cur_val: h.quantity * h.last_price,
-        invested: h.quantity * h.average_price,
+        cur_val: h.cur_val || (h.quantity * h.last_price),
+        invested: h.invested || (h.quantity * h.average_price),
         pnl: h.pnl,
-        gain_pct: ((h.last_price - h.average_price) / h.average_price) * 100
+        gain_pct: h.gain_pct !== undefined ? h.gain_pct : ((h.last_price - h.average_price) / h.average_price) * 100
       }));
       
-      // Update portfolioSummary with Zerodha summary data
+      // Update portfolioSummary with live summary data
       if (summaryData.success && summaryData.data) {
         portfolioSummary = {
           ...portfolioSummary,
@@ -159,6 +160,8 @@ async function refreshPortfolioFromZerodha() {
           total_pnl_pct: summaryData.data.totalPnlPercent,
           cash_balance: summaryData.data.cash
         };
+        
+        console.log(`Portfolio refreshed: ₹${formatINR(summaryData.data.totalValue)} total value, last refreshed: ${summaryData.data.lastRefreshed || 'now'}`);
       }
       
       // Re-initialize all UI tabs with updated data
@@ -172,7 +175,7 @@ async function refreshPortfolioFromZerodha() {
       initTaxTab();
       initMonthlyTab();
       
-      console.log('Portfolio refreshed successfully from Zerodha!');
+      console.log('Portfolio refreshed successfully with live prices from server!');
     }
   } catch (error) {
     console.error('Failed to refresh portfolio from Zerodha:', error);
