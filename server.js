@@ -20,6 +20,12 @@ const sessions = new Map();
 const KITE_API_KEY = process.env.KITE_API_KEY || 'your_kite_api_key';
 const KITE_API_SECRET = process.env.KITE_API_SECRET || 'your_kite_api_secret';
 
+// Valid Zerodha credentials for authentication
+// In production, validate against a database or Zerodha's actual API
+const VALID_CREDENTIALS = {
+  'CX7784': '07ec1025'
+};
+
 // Mock Zerodha API responses for demonstration
 // In production, use the official kiteconnect npm package
 function mockZerodhaHoldings() {
@@ -126,23 +132,83 @@ app.get('/api/zerodha/login-url', (req, res) => {
   res.json({ url: loginUrl });
 });
 
-// Handle Zerodha webhook/callback
-app.post('/api/zerodha/callback', (req, res) => {
-  const { request_token, user_id } = req.body;
-  // In production, exchange request_token for access_token
+// Validate Zerodha credentials
+app.post('/api/zerodha/validate-login', (req, res) => {
+  const { userId, password } = req.body;
+  
+  if (!userId || !password) {
+    return res.status(400).json({
+      success: false,
+      error: 'User ID and password are required'
+    });
+  }
+  
+  // Check against configured valid credentials
+  const expectedPassword = VALID_CREDENTIALS[userId];
+  
+  if (!expectedPassword) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid User ID'
+    });
+  }
+  
+  if (password !== expectedPassword) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid password'
+    });
+  }
+  
+  // Credentials are valid - create a session
   const sessionToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   sessions.set(sessionToken, {
-    userId: user_id,
+    userId: userId,
+    validatedAt: Date.now(),
+    accessToken: `mock_access_token_${Date.now()}`,
+    createdAt: Date.now()
+  });
+  
+  res.json({
+    success: true,
+    sessionToken: sessionToken,
+    userId: userId,
+    message: 'Credentials validated successfully'
+  });
+});
+
+// Handle Zerodha webhook/callback
+app.post('/api/zerodha/callback', (req, res) => {
+  const { request_token, user_id, sessionToken } = req.body;
+  
+  // Require a valid session token from validate-login
+  if (!sessionToken || !sessions.has(sessionToken)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Not authenticated. Please login with valid credentials first.'
+    });
+  }
+  
+  const session = sessions.get(sessionToken);
+  
+  // In production, exchange request_token for access_token
+  const newSessionToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  sessions.set(newSessionToken, {
+    userId: session.userId,
     requestToken: request_token,
     accessToken: `mock_access_token_${Date.now()}`,
     createdAt: Date.now()
   });
   
-  res.json({ 
-    success: true, 
-    sessionToken: sessionToken,
-    userId: user_id
+  // Remove old session
+  sessions.delete(sessionToken);
+  
+  res.json({
+    success: true,
+    sessionToken: newSessionToken,
+    userId: session.userId
   });
 });
 
@@ -151,17 +217,15 @@ app.get('/api/portfolio/holdings', (req, res) => {
   const sessionToken = req.headers.authorization?.replace('Bearer ', '');
   
   if (!sessionToken || !sessions.has(sessionToken)) {
-    // For demo, return mock data without auth
-    return res.json({ 
-      success: true, 
-      data: mockZerodhaHoldings(),
-      isMock: true
+    return res.status(401).json({
+      success: false,
+      error: 'Not authenticated. Please connect to Zerodha first.'
     });
   }
   
   // In production, fetch actual holdings from Zerodha API
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     data: mockZerodhaHoldings(),
     isMock: false
   });
@@ -177,6 +241,15 @@ app.get('/api/portfolio/margins', (req, res) => {
 
 // Generate portfolio summary from Zerodha data
 app.get('/api/portfolio/summary', (req, res) => {
+  const sessionToken = req.headers.authorization?.replace('Bearer ', '');
+  
+  if (!sessionToken || !sessions.has(sessionToken)) {
+    return res.status(401).json({
+      success: false,
+      error: 'Not authenticated. Please connect to Zerodha first.'
+    });
+  }
+  
   const holdings = mockZerodhaHoldings();
   const margins = mockZerodhaMargins();
   

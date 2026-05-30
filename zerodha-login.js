@@ -168,13 +168,30 @@ const ZerodhaAuth = {
     btn.disabled = true;
     
     try {
-      // First, get a session token from the server by simulating a callback
+      // Step 1: Validate credentials against the server
+      const validateResponse = await fetch('/api/zerodha/validate-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userId,
+          password: password
+        })
+      });
+      
+      const validateData = await validateResponse.json();
+      
+      if (!validateData.success) {
+        throw new Error(validateData.error || 'Invalid credentials');
+      }
+      
+      // Step 2: Exchange validated session for a callback session
       const callbackResponse = await fetch('/api/zerodha/callback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           request_token: 'manual_login_' + Date.now(),
-          user_id: userId
+          user_id: userId,
+          sessionToken: validateData.sessionToken
         })
       });
       
