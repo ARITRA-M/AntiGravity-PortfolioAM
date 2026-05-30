@@ -629,12 +629,40 @@ function renderStockHistoricalChart(symbol) {
   // Build a lookup map from ticker symbols to historical holdings names
   // historical_holdings uses full names (e.g. "Ajanta Pharma Ltd.") while
   // latest_equity uses ticker symbols (e.g. "AJANTPHARM")
-  const stockKey = Object.keys(historicalHoldings.stocks).find(
-    key => key.toUpperCase().replace(/[^A-Z0-9]/g, '') === symbol.toUpperCase().replace(/[^A-Z0-9]/g, '') ||
-           key.toUpperCase().includes(symbol.toUpperCase()) ||
-           symbol.toUpperCase().includes(key.toUpperCase().replace(/[^A-Z0-9]/g, ''))
-  );
-  const stock = stockKey ? historicalHoldings.stocks[stockKey] : historicalHoldings.stocks[symbol];
+  // Build the mapping once and cache it
+  if (!window._stockNameMap) {
+    window._stockNameMap = {};
+    const stockKeys = Object.keys(historicalHoldings.stocks);
+    stockKeys.forEach(key => {
+      const upper = key.toUpperCase();
+      const clean = upper.replace(/[^A-Z0-9]/g, '');
+      // Exact clean match (e.g., "SUNPHARMA" -> "SUNPHARMA")
+      window._stockNameMap[clean] = key;
+      // Without "LTD" or "LIMITED" suffix (e.g., "HDFCBANK" -> "HDFC Bank Ltd.")
+      const withoutLtd = clean.replace(/LTD$/, '').replace(/LIMITED$/, '').trim();
+      if (withoutLtd && withoutLtd !== clean) window._stockNameMap[withoutLtd] = key;
+      // First significant word of multi-word names (e.g., "APOLLO" -> "Apollo Tyres Ltd.")
+      const words = upper.split(/[^A-Z0-9]+/).filter(w => w.length > 2);
+      if (words.length > 1) {
+        if (!window._stockNameMap[words[0]]) {
+          window._stockNameMap[words[0]] = key;
+        }
+      }
+      // For names with "&", map each part (e.g., "M&M" -> "Mahindra & Mahindra Ltd.")
+      if (upper.includes('&')) {
+        upper.split('&').forEach(p => {
+          const trimmed = p.replace(/[^A-Z0-9]/g, '').trim();
+          if (trimmed.length >= 3 && !window._stockNameMap[trimmed]) {
+            window._stockNameMap[trimmed] = key;
+          }
+        });
+      }
+    });
+  }
+  
+  const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const stockKey = window._stockNameMap[cleanSymbol] || symbol;
+  const stock = historicalHoldings.stocks[stockKey];
   if (!stock) return;
   
   const history = stock.history;
