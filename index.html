@@ -37,6 +37,7 @@
       <button class="tab-btn" onclick="switchTab('benchmark')">Benchmark</button>
       <button class="tab-btn" onclick="switchTab('dividends')">Dividends</button>
       <button class="tab-btn" onclick="switchTab('tax')">Tax Optimizer</button>
+      <button class="tab-btn" onclick="switchTab('monthly')">Monthly Changes</button>
     </div>
 
     <!-- KPI Section (Common across tabs) -->
@@ -253,7 +254,7 @@
           <div class="chart-header">
             <h3>Top Mutual Fund Schemes by Valuation</h3>
           </div>
-          <div class="chart-container" style="style: 320px;">
+          <div class="chart-container" style="height: 320px;">
             <canvas id="mf-valuation-bar-chart"></canvas>
           </div>
         </div>
@@ -436,6 +437,102 @@
       </div>
     </div>
 
+    <!-- ==================== MONTHLY CHANGES TAB ==================== -->
+    <div id="monthly-tab" class="tab-content">
+      <!-- Monthly Performance Heatmap Filter Bar (Top) -->
+      <div class="chart-card full-width-card heatmap-filter-card">
+        <div class="chart-header">
+          <h3>📅 Select Period — Click heatmap cells to filter</h3>
+          <div class="time-filters">
+            <button class="heatmap-clear-btn" onclick="clearHeatmapSelection()">Clear Selection</button>
+            <button class="heatmap-select-all-btn" onclick="selectAllHeatmap()">All Time</button>
+          </div>
+        </div>
+        <div class="heatmap-container" id="monthly-heatmap">
+          <!-- Dynamically populated -->
+        </div>
+        <div class="heatmap-selection-info" id="heatmap-selection-info">
+          <span>No period selected — showing all data</span>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Monthly Summary Cards -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Portfolio Changes</h3>
+          </div>
+          <div class="monthly-summary-grid" id="monthly-summary-cards">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Monthly Net Worth Change Chart -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Monthly Net Worth Change</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="monthly-change-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Top Monthly Gainers & Losers -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Top Monthly Gainers</h3>
+          </div>
+          <div class="monthly-movers-list" id="monthly-gainers-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Top Monthly Losers</h3>
+          </div>
+          <div class="monthly-movers-list" id="monthly-losers-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Monthly Transaction Summary -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Monthly Investment Activity</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="monthly-activity-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Trading Activity Log -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Trading Activity Log</h3>
+          </div>
+          <div class="table-wrapper">
+            <table id="trading-activity-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Instrument</th>
+                  <th>Type</th>
+                  <th style="text-align: right;">Quantity</th>
+                  <th style="text-align: right;">Price (₹)</th>
+                  <th style="text-align: right;">Total (₹)</th>
+                  <th>Category</th>
+                </tr>
+              </thead>
+              <tbody id="trading-activity-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ==================== TAX OPTIMIZER TAB ==================== -->
     <div id="tax-tab" class="tab-content">
       <div class="kpi-grid" style="margin-bottom: 2rem;">
@@ -537,6 +634,7 @@
   </div>
 
   <script src="auth.js"></script>
+  <script src="zerodha-login.js"></script>
   <script src="app.js"></script>
   <script>
     // Service Worker Registration for PWA

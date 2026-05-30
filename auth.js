@@ -57,7 +57,12 @@ function showLogin() {
       localStorage.setItem(AUTH_CONFIG.storageKey, generateToken());
       overlay.remove();
       document.body.style.overflow = '';
-      // Initialize the app
+      // Show the app container that was hidden
+      const appContainer = document.querySelector('.app-container');
+      if (appContainer) {
+        appContainer.style.display = '';
+      }
+      // Initialize the app - loadData is defined in app.js which is loaded after auth.js
       if (typeof loadData === 'function') {
         loadData();
       }
@@ -84,10 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Override the original loadData to be called after auth
-const originalLoadData = window.loadData;
-window.loadData = function() {
-  if (isAuthenticated()) {
-    if (originalLoadData) originalLoadData();
-  }
-};
+// loadData is defined in app.js (loaded after auth.js)
+// On successful auth, showLogin() calls loadData() directly
+// This override is not needed since auth.js loads before app.js
+// and would capture undefined instead of the real loadData function
