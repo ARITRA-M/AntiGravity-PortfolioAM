@@ -114,10 +114,19 @@ async function refreshPortfolioFromZerodha() {
   try {
     console.log('Refreshing portfolio from Zerodha...');
     
+    // Get the session token from ZerodhaAuth if available
+    const sessionToken = typeof ZerodhaAuth !== 'undefined' && ZerodhaAuth.session && ZerodhaAuth.session.token
+      ? ZerodhaAuth.session.token
+      : '';
+    
+    const authHeaders = sessionToken ? {
+      'Authorization': 'Bearer ' + sessionToken
+    } : {};
+    
     // Fetch holdings and summary from the local Express server API
     const [resHoldings, resSummary] = await Promise.all([
-      fetch('/api/portfolio/holdings'),
-      fetch('/api/portfolio/summary')
+      fetch('/api/portfolio/holdings', { headers: authHeaders }),
+      fetch('/api/portfolio/summary', { headers: authHeaders })
     ]);
     
     const holdingsData = await resHoldings.json();
