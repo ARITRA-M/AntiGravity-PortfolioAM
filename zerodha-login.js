@@ -182,7 +182,7 @@ const ZerodhaAuth = {
         })
       });
       
-      const validateData = await validateResponse.json();
+      const validateData = await this.readJsonResponse(validateResponse);
       
       if (!validateData.success) {
         throw new Error(validateData.error || 'Invalid credentials');
@@ -199,7 +199,7 @@ const ZerodhaAuth = {
         })
       });
       
-      const callbackData = await callbackResponse.json();
+      const callbackData = await this.readJsonResponse(callbackResponse);
       
       if (!callbackData.success) {
         throw new Error('Failed to authenticate with server');
@@ -223,7 +223,11 @@ const ZerodhaAuth = {
       alert('Successfully connected to Zerodha! Portfolio data refreshed from server.');
       
     } catch (error) {
-      alert('Login failed: ' + error.message);
+      if (this.isApiUnavailable(error)) {
+        this.useDemoData('Zerodha API is not available on GitHub Pages. Demo mode is active.');
+      } else {
+        alert('Login failed: ' + error.message);
+      }
     } finally {
       btnText.style.display = 'inline';
       btnLoader.style.display = 'none';
@@ -246,14 +250,18 @@ const ZerodhaAuth = {
       // Generate login URL
       try {
         const response = await fetch('/api/zerodha/login-url');
-        const data = await response.json();
+        const data = await this.readJsonResponse(response);
         
         if (data.url) {
           window.open(data.url, '_blank');
           alert('Please login on the opened Zerodha page and copy the request_token from the redirect URL.');
         }
       } catch (error) {
-        alert('Failed to generate login URL. Please check your API key.');
+        if (this.isApiUnavailable(error)) {
+          this.useDemoData('Zerodha API is not available on GitHub Pages. Demo mode is active.');
+        } else {
+          alert('Failed to generate login URL. Please check your API key.');
+        }
       }
     } else {
       // Exchange request token for access token
@@ -264,7 +272,7 @@ const ZerodhaAuth = {
           body: JSON.stringify({ request_token: requestToken })
         });
         
-        const data = await response.json();
+        const data = await this.readJsonResponse(response);
         if (!response.ok || !data.success) {
           throw new Error(data.error || 'Failed to connect');
         }
@@ -286,13 +294,17 @@ const ZerodhaAuth = {
         
         alert('Connected to local Zerodha demo session.');
       } catch (error) {
-        alert('Failed to connect: ' + error.message);
+        if (this.isApiUnavailable(error)) {
+          this.useDemoData('Zerodha API is not available on GitHub Pages. Demo mode is active.');
+        } else {
+          alert('Failed to connect: ' + error.message);
+        }
       }
     }
   },
 
   // Use demo data
-  useDemoData() {
+  useDemoData(message = 'Demo Mode activated! You can now view sample portfolio data. This session will end when you close the browser.') {
     this.session = {
       isAuthenticated: true,
       userId: 'DEMO_USER',
@@ -305,7 +317,22 @@ const ZerodhaAuth = {
     this.showConnectedState();
     
     // Show success message
-    alert('Demo Mode activated! You can now view sample portfolio data. This session will end when you close the browser.');
+    alert(message);
+  },
+
+  async readJsonResponse(response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      await response.text();
+      const error = new Error('API_UNAVAILABLE');
+      error.code = 'API_UNAVAILABLE';
+      throw error;
+    }
+    return response.json();
+  },
+
+  isApiUnavailable(error) {
+    return error?.code === 'API_UNAVAILABLE' || error instanceof TypeError;
   },
 
   // Show connected state
