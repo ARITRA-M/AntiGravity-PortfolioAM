@@ -1,24 +1,21 @@
 {
   "name": "antigravity-portfolio-analytics",
   "version": "2.0.0",
-  "description": "Portfolio Intelligence and Analytics Dashboard with Zerodha Integration",
+  "description": "Static portfolio intelligence and analytics dashboard",
   "main": "server.js",
   "scripts": {
     "dev": "npx -y http-server -p 8080 -o",
-    "start": "node server.js",
-    "zerodha": "node server.js"
+    "start": "node server.js"
   },
   "keywords": [
     "portfolio",
     "analytics",
-    "zerodha",
-    "kite-connect"
+    "dashboard"
   ],
   "author": "Antigravity Pair Programmer",
   "license": "ISC",
   "dependencies": {
     "chart.js": "^4.5.1",
-    "cors": "^2.8.6",
     "express": "^5.2.1"
   }
 }

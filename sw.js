@@ -1,12 +1,11 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v3';
+const CACHE_NAME = 'portfolio-analytics-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/auth.js',
-  '/zerodha-login.js',
   '/manifest.json'
 ];
 
