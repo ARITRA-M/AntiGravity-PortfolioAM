@@ -57,9 +57,43 @@ const TAX_RATES = {
   ltcg_equity_exempt: 100000 // LTCG exemption limit for equity
 };
 
+const SECTOR_MAP = {
+  AJANTPHARM: 'Pharmaceuticals', CIPLA: 'Pharmaceuticals', DRREDDY: 'Pharmaceuticals', ERIS: 'Pharmaceuticals',
+  JBCHEPHARM: 'Pharmaceuticals', LALPATHLAB: 'Healthcare & Diagnostics', MANKIND: 'Pharmaceuticals',
+  SUNPHARMA: 'Pharmaceuticals', SYNGENE: 'Biotechnology', ZYDUSLIFE: 'Pharmaceuticals',
+  APOLLOTYRE: 'Automobile & Ancillaries', 'BAJAJ-AUTO': 'Automobile & Ancillaries',
+  BALKRISIND: 'Automobile & Ancillaries', EICHERMOT: 'Automobile & Ancillaries',
+  ENDURANCE: 'Automobile & Ancillaries', EXIDEIND: 'Automobile & Ancillaries',
+  HEROMOTOCO: 'Automobile & Ancillaries', 'M&M': 'Automobile & Ancillaries',
+  MOTHERSON: 'Automobile & Ancillaries', TVSMOTOR: 'Automobile & Ancillaries',
+  UNOMINDA: 'Automobile & Ancillaries', AXISBANK: 'Banking & Financial Services',
+  BAJFINANCE: 'Banking & Financial Services', BANKBARODA: 'Banking & Financial Services',
+  BANKIETF: 'Banking & Financial Services (ETF)', FEDERALBNK: 'Banking & Financial Services',
+  HDFCBANK: 'Banking & Financial Services', HDFCLIFE: 'Insurance', ICICIBANK: 'Banking & Financial Services',
+  ICICIGI: 'Insurance', ICICIPRULI: 'Insurance', KARURVYSYA: 'Banking & Financial Services',
+  KOTAKBANK: 'Banking & Financial Services', MFSL: 'Banking & Financial Services',
+  SBILIFE: 'Insurance', SBIN: 'Banking & Financial Services', BRIGADE: 'Real Estate & Construction',
+  DLF: 'Real Estate & Construction', 'EMBASSY-RR': 'Real Estate (REIT)', GODREJPROP: 'Real Estate & Construction',
+  'MINDSPACE-RR': 'Real Estate (REIT)', 'NXST-RR': 'Real Estate (REIT)', OBEROIRLTY: 'Real Estate & Construction',
+  PHOENIXLTD: 'Real Estate & Construction', PRESTIGE: 'Real Estate & Construction',
+  BRITANNIA: 'Consumer Goods & FMCG', COLPAL: 'Consumer Goods & FMCG',
+  FMCGIETF: 'Consumer Goods & FMCG (ETF)', ITC: 'Consumer Goods & FMCG', MARICO: 'Consumer Goods & FMCG',
+  NESTLEIND: 'Consumer Goods & FMCG', TATACONSUM: 'Consumer Goods & FMCG', VBL: 'Consumer Goods & FMCG',
+  COFORGE: 'IT & Software Services', HCLTECH: 'IT & Software Services', INFY: 'IT & Software Services',
+  KPITTECH: 'IT & Software Services', MPHASIS: 'IT & Software Services', OFSS: 'IT & Software Services',
+  PERSISTENT: 'IT & Software Services', TCS: 'IT & Software Services', BHARTIARTL: 'Telecommunication Services',
+  CIEINDIA: 'Industrial Engineering', COALINDIA: 'Energy & Mining', LT: 'Engineering & Construction',
+  ONGC: 'Energy & Mining', PIDILITIND: 'Chemicals & Adhesives', SIEMENS: 'Industrial Engineering',
+  TATASTEEL: 'Metals & Mining', GOLDBEES: 'Gold Commodity (ETF)', SGBAUG28V: 'Sovereign Gold Bonds',
+  'SGBJUL28IV-GB': 'Sovereign Gold Bonds', 'SGBSEP28VI-GB': 'Sovereign Gold Bonds',
+  '716GS2050-GS': 'Government Bonds', '738REC27TF': 'Corporate Bonds', TVSMNCRPS: 'Debt Instrument',
+  ENRIN: 'Industrial Engineering'
+};
+
 window.addEventListener('DOMContentLoaded', () => {
   // Only load data if auth is not required or already authenticated
   // auth.js handles the auth gate and calls loadData() after successful login
+  initPortfolioUpload();
   if (typeof isAuthenticated !== 'function' || isAuthenticated()) {
     loadData();
   }
@@ -71,16 +105,12 @@ async function loadData() {
       throw new Error('Chart.js could not be loaded. Check your network connection or bundle Chart.js locally.');
     }
 
-    const authOptions = typeof getAuthHeaders === 'function'
-      ? { headers: getAuthHeaders() }
-      : {};
-
     const [resSummary, resBreakup, resEquity, resMf, resHist] = await Promise.all([
-      fetch('data/portfolio_summary.json', authOptions),
-      fetch('data/breakup_summary.json', authOptions),
-      fetch('data/latest_equity.json', authOptions),
-      fetch('data/latest_mf.json', authOptions),
-      fetch('data/historical_holdings.json', authOptions)
+      fetch('data/portfolio_summary.json'),
+      fetch('data/breakup_summary.json'),
+      fetch('data/latest_equity.json'),
+      fetch('data/latest_mf.json'),
+      fetch('data/historical_holdings.json')
     ]);
 
     const responses = [resSummary, resBreakup, resEquity, resMf, resHist];
@@ -129,90 +159,69 @@ async function loadData() {
   }
 }
 
-// Refresh portfolio data from Zerodha API (called by zerodha-login.js after login)
-async function refreshPortfolioFromZerodha() {
-  try {
-    console.log('Refreshing portfolio from Zerodha...');
-    
-    // Get the session token from ZerodhaAuth if available
-    const sessionToken = typeof ZerodhaAuth !== 'undefined' && ZerodhaAuth.session && ZerodhaAuth.session.token
-      ? ZerodhaAuth.session.token
-      : '';
-    
-    const authHeaders = sessionToken ? {
-      'Authorization': 'Bearer ' + sessionToken
-    } : {};
-    
-    // Fetch holdings and summary from the local Express server API
-    const [resHoldings, resSummary] = await Promise.all([
-      fetch('/api/portfolio/holdings', { headers: authHeaders }),
-      fetch('/api/portfolio/summary', { headers: authHeaders })
-    ]);
-    
-    const holdingsData = await resHoldings.json();
-    const summaryData = await resSummary.json();
-    
-    if (holdingsData.success && holdingsData.data) {
-      // Transform Zerodha holdings format to app's latestEquity format
-      // Server now returns live prices from Yahoo Finance with sector info
-      const zerodhaHoldings = holdingsData.data.net;
-      const previousEquity = latestEquity || [];
-      const previousStocksLakhs = sumValue(previousEquity, 'cur_val') / 100000;
-      
-      // Update latestEquity with live data from server
-      latestEquity = zerodhaHoldings.map(h => ({
-        instrument: h.tradingsymbol,
-        sector: h.sector || (h.exchange === 'NSE' ? 'Equity' : 'Other'),
-        qty: h.quantity,
-        avg_cost: h.average_price,
-        ltp: h.last_price,
-        cur_val: h.cur_val || (h.quantity * h.last_price),
-        invested: h.invested || (h.quantity * h.average_price),
-        pnl: h.pnl,
-        gain_pct: h.gain_pct !== undefined ? h.gain_pct : ((h.last_price - h.average_price) / h.average_price) * 100
-      }));
-      const liveStocksLakhs = sumValue(latestEquity, 'cur_val') / 100000;
-      
-      // Update portfolioSummary with live summary data
-      if (summaryData.success && summaryData.data) {
-        const oldEquityLakhs = Number(portfolioSummary.equity_lakhs) || 0;
-        const oldTotalLakhs = Number(portfolioSummary.total_net_worth_lakhs) || 0;
-        const stockDeltaLakhs = liveStocksLakhs - previousStocksLakhs;
-        const nextEquityLakhs = Math.max(0, oldEquityLakhs + stockDeltaLakhs);
-        const nextTotalLakhs = Math.max(0, oldTotalLakhs + stockDeltaLakhs);
+function initPortfolioUpload() {
+  const input = document.getElementById('portfolio-upload');
+  if (!input) return;
 
-        portfolioSummary = {
-          ...portfolioSummary,
-          total_current_value: nextTotalLakhs * 100000,
-          live_equity_value: summaryData.data.totalValue,
-          live_equity_invested: summaryData.data.totalInvested,
-          total_pnl: summaryData.data.totalPnl,
-          total_pnl_pct: summaryData.data.totalPnlPercent,
-          cash_balance: summaryData.data.cash,
-          total_net_worth_lakhs: nextTotalLakhs,
-          equity_lakhs: nextEquityLakhs
-        };
-        portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
-        
-        console.log(`Equity refreshed: ${formatLakhs(liveStocksLakhs)} live stock value. Portfolio total preserved at ${formatLakhs(nextTotalLakhs)}.`);
-      }
-      
-      // Re-initialize all UI tabs with updated data
-      updateKpis();
-      initOverviewTab();
-      initGrowthTab();
-      initStocksTab();
-      initMfsTab();
-      initBenchmarkTab();
-      initDividendTab();
-      initTaxTab();
-      initMonthlyTab();
-      
-      console.log('Portfolio refreshed successfully with live prices from server!');
+  input.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await loadWorkbookFile(file);
+    input.value = '';
+  });
+}
+
+async function loadWorkbookFile(file) {
+  const status = document.getElementById('upload-status');
+  try {
+    if (typeof XLSX === 'undefined') {
+      throw new Error('Excel parser could not be loaded. Check your network connection and retry.');
     }
+
+    if (status) status.textContent = `Reading ${file.name}...`;
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+    const parsed = parsePortfolioWorkbook(workbook);
+
+    portfolioSummary = parsed.portfolioSummary;
+    breakupSummary = parsed.breakupSummary;
+    latestEquity = parsed.latestEquity;
+    latestMf = parsed.latestMf;
+    historicalHoldings = parsed.historicalHoldings;
+
+    resetDerivedState();
+    refreshAllTabs();
+
+    const latestDate = breakupSummary.dates[breakupSummary.dates.length - 1];
+    document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
+    if (status) status.textContent = `Loaded ${file.name}`;
   } catch (error) {
-    console.error('Failed to refresh portfolio from Zerodha:', error);
+    console.error('Failed to load uploaded workbook:', error);
+    if (status) status.textContent = error.message || 'Upload failed';
   }
+}
+
+function resetDerivedState() {
+  dividendData = null;
+  benchmarkData.nifty50.history = [];
+  benchmarkData.spx.history = [];
+  benchmarkData.gold.history = [];
+  window._stockNameMap = null;
+  heatmapSelectedIndices.clear();
+  generateDividendData();
+  generateBenchmarkData();
+}
+
+function refreshAllTabs() {
+  updateKpis();
+  initOverviewTab();
+  initGrowthTab();
+  initStocksTab();
+  initMfsTab();
+  initBenchmarkTab();
+  initDividendTab();
+  initTaxTab();
+  initMonthlyTab();
 }
 
 // Helpers
@@ -259,6 +268,258 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value);
+}
+
+function cleanFloat(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const normalized = String(value).trim().replace(/%/g, '').replace(/\n/g, '').replace(/\s/g, '').replace(/,/g, '');
+  if (!normalized || normalized === '-' || normalized.toLowerCase() === 'nan') return 0;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatWorkbookDate(value, fallback) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'number' && XLSX?.SSF) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+    }
+  }
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return fallback;
+}
+
+function sheetRows(workbook, sheetName) {
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) throw new Error(`Missing sheet: ${sheetName}`);
+  return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+}
+
+function rowsToObjects(rows) {
+  const headers = (rows[0] || []).map(h => String(h ?? '').trim());
+  return rows.slice(1).map(row => {
+    const item = {};
+    headers.forEach((header, index) => {
+      if (header) item[header] = row[index];
+    });
+    return normalizeRow(item);
+  });
+}
+
+function normalizeRow(row) {
+  const mapping = {
+    Company: 'Instrument',
+    Quantity: 'Qty.',
+    'Current Price': 'LTP',
+    'Average Buy Price': 'Avg. cost',
+    'Average Buy NAV': 'Avg. cost',
+    'Amount Invested': 'Invested',
+    'Total Investment': 'Invested',
+    'Current Price ': 'LTP',
+    'Current Valuation': 'Cur. val',
+    'Gain/Loss': 'P&L',
+    'Gain/ Loss': 'P&L',
+    'Unrealised Gain/Loss': 'P&L',
+    'Gain %': 'Gain %',
+    'Gain/ Loss %': 'Gain %',
+    Scheme: 'Instrument',
+    'Scheme Type': 'Category'
+  };
+
+  const normalized = {};
+  Object.entries(row).forEach(([key, value]) => {
+    const cleanKey = String(key).trim();
+    normalized[mapping[cleanKey] || cleanKey] = value;
+  });
+  return normalized;
+}
+
+function parsePortfolioWorkbook(workbook) {
+  const eSheets = [];
+  const mfSheets = [];
+  workbook.SheetNames.forEach(name => {
+    const eMatch = name.match(/^(\d{8})\s+E$/);
+    const mfMatch = name.match(/^(\d{8})\s+MF$/);
+    if (eMatch) eSheets.push([eMatch[1], name]);
+    if (mfMatch) mfSheets.push([mfMatch[1], name]);
+  });
+  eSheets.sort((a, b) => a[0].localeCompare(b[0]));
+  mfSheets.sort((a, b) => a[0].localeCompare(b[0]));
+
+  if (!eSheets.length || !mfSheets.length) {
+    throw new Error('Workbook must include dated equity and mutual fund sheets.');
+  }
+
+  const breakupSummary = parseBreakupSheet(workbook);
+  const historicalHoldings = parseHistoricalHoldings(workbook, eSheets, mfSheets);
+  const latestEquity = buildLatestEquity(historicalHoldings, eSheets[eSheets.length - 1][0]);
+  const latestMf = buildLatestMf(historicalHoldings, mfSheets[mfSheets.length - 1][0]);
+  const portfolioSummary = buildPortfolioSummary(breakupSummary);
+
+  return { breakupSummary, historicalHoldings, latestEquity, latestMf, portfolioSummary };
+}
+
+function parseBreakupSheet(workbook) {
+  const rows = sheetRows(workbook, 'Breakup');
+  const headerRow = rows[0] || [];
+  const dateCols = [];
+  for (let index = 2; index < 67; index++) {
+    dateCols.push([index, formatWorkbookDate(headerRow[index], `Period_${index}`)]);
+  }
+
+  const sections = {
+    net_worth: [3, 15],
+    contribution: [17, 27],
+    new_investment: [29, 41],
+    returns: [43, 55],
+    net_change: [57, 69],
+    net_cashflows: [71, 83],
+    xirr: [85, 97],
+    pct_returns: [101, 113]
+  };
+
+  const data = {};
+  Object.entries(sections).forEach(([name, [start, end]]) => {
+    const section = {};
+    for (let rowIndex = start; rowIndex < end; rowIndex++) {
+      const row = rows[rowIndex] || [];
+      const label = row[0] === null || row[0] === undefined || row[0] === '' ? 'Total' : String(row[0]).trim();
+      const assetType = row[1] === null || row[1] === undefined || row[1] === '' ? null : String(row[1]).trim();
+      const values = dateCols.map(([colIndex]) => cleanFloat(row[colIndex]));
+      const key = assetType ? `${label} (${assetType})` : label;
+      section[key] = { label, asset_type: assetType, values };
+    }
+    data[name] = section;
+  });
+
+  data.dates = dateCols.map(([, date]) => date);
+  return data;
+}
+
+function parseHistoricalHoldings(workbook, eSheets, mfSheets) {
+  const historical = { stocks: {}, mfs: {} };
+
+  eSheets.forEach(([dateStr, sheetName]) => {
+    const date = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+    rowsToObjects(sheetRows(workbook, sheetName)).forEach(row => {
+      const instrument = String(row.Instrument ?? '').trim();
+      if (!instrument || instrument === 'Total') return;
+      const gainPct = normalizeGainPct(cleanFloat(row['Gain %']));
+      const sector = SECTOR_MAP[instrument] || 'Other Equities';
+      if (!historical.stocks[instrument]) {
+        historical.stocks[instrument] = { instrument, sector, history: [] };
+      }
+      historical.stocks[instrument].history.push(buildHistoryPoint(row, date, gainPct));
+    });
+  });
+
+  mfSheets.forEach(([dateStr, sheetName]) => {
+    const date = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+    rowsToObjects(sheetRows(workbook, sheetName)).forEach(row => {
+      const instrument = String(row.Instrument ?? '').trim();
+      if (!instrument || instrument === 'Total') return;
+      const category = String(row.Category ?? 'Other').trim();
+      const gainPct = normalizeGainPct(cleanFloat(row['Gain %']));
+      if (!historical.mfs[instrument]) {
+        historical.mfs[instrument] = { instrument, category, history: [] };
+      }
+      historical.mfs[instrument].history.push(buildHistoryPoint(row, date, gainPct));
+    });
+  });
+
+  return historical;
+}
+
+function normalizeGainPct(value) {
+  return Math.abs(value) < 10 && value !== 0 ? value * 100 : value;
+}
+
+function buildHistoryPoint(row, date, gainPct) {
+  return {
+    date,
+    qty: cleanFloat(row['Qty.']),
+    avg_cost: cleanFloat(row['Avg. cost']),
+    ltp: cleanFloat(row.LTP),
+    invested: cleanFloat(row.Invested),
+    cur_val: cleanFloat(row['Cur. val']),
+    pnl: cleanFloat(row['P&L']),
+    gain_pct: gainPct
+  };
+}
+
+function buildLatestEquity(historical, latestDateStr) {
+  const latestDate = `${latestDateStr.slice(0, 4)}-${latestDateStr.slice(4, 6)}-${latestDateStr.slice(6, 8)}`;
+  return Object.values(historical.stocks).flatMap(info => {
+    const last = info.history[info.history.length - 1];
+    if (!last || last.date !== latestDate || last.qty <= 0) return [];
+    return [{
+      instrument: info.instrument,
+      sector: info.sector,
+      qty: last.qty,
+      avg_cost: last.avg_cost,
+      ltp: last.ltp,
+      invested: last.invested,
+      cur_val: last.cur_val,
+      pnl: last.pnl,
+      gain_pct: last.gain_pct
+    }];
+  });
+}
+
+function buildLatestMf(historical, latestDateStr) {
+  const latestDate = `${latestDateStr.slice(0, 4)}-${latestDateStr.slice(4, 6)}-${latestDateStr.slice(6, 8)}`;
+  return Object.values(historical.mfs).flatMap(info => {
+    const last = info.history[info.history.length - 1];
+    if (!last || last.date !== latestDate || last.qty <= 0) return [];
+    return [{
+      scheme: info.instrument,
+      scheme_type: info.category,
+      qty: last.qty,
+      price: last.ltp,
+      avg_nav: last.avg_cost,
+      invested: last.invested,
+      cur_val: last.cur_val,
+      pnl: last.pnl,
+      gain_pct: last.gain_pct
+    }];
+  });
+}
+
+function buildPortfolioSummary(breakup) {
+  const latest = -1;
+  const nw = breakup.net_worth;
+  const get = key => {
+    const values = nw[key]?.values || [];
+    return values[values.length - 1] || 0;
+  };
+  const total = get('Total');
+  const equity = get('Stocks (Equity)') + get('Mutual Funds (Equity)') + get('NPS E (Equity)');
+  const debt = get('NPS C (Debt)') + get('NPS G (Debt)') + get('PF (Debt)') + get('PPF (Debt)') + get('Bonds (Debt)');
+  const gold = get('Gold (Gold)');
+  const liquid = get('Cash (Liquid)');
+  const alternate = get('Crypto (Alternate)');
+
+  let running = 0;
+  const investments = (breakup.new_investment['Total Investment']?.values || []).map(value => {
+    running += value;
+    return running;
+  });
+
+  const summary = {
+    total_net_worth_lakhs: total,
+    equity_lakhs: equity,
+    debt_lakhs: debt,
+    gold_lakhs: gold,
+    liquid_lakhs: liquid,
+    alternate_lakhs: alternate,
+    cumulative_investment_history: investments
+  };
+  summary.allocation_pct = recomputeAllocation(summary);
+  return summary;
 }
 
 function getAssetColor(label) {

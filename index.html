@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js" onerror="this.onerror=null;this.src='node_modules/chart.js/dist/chart.umd.js';"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -21,6 +22,11 @@
       <div class="brand-section">
         <h1>Portfolio Analytics</h1>
         <p>Interactive long-term performance & asset intelligence dashboard</p>
+        <div class="header-actions">
+          <label class="upload-btn" for="portfolio-upload">Upload Portfolio Analysis.xlsx</label>
+          <input type="file" id="portfolio-upload" accept=".xlsx,.xls" hidden>
+          <span class="upload-status" id="upload-status">Using bundled portfolio file</span>
+        </div>
       </div>
       <div class="time-badge" id="live-time-badge">
         Loading Portfolio Date...
@@ -633,12 +639,11 @@
   </div>
 
   <script src="auth.js"></script>
-  <script src="zerodha-login.js"></script>
   <script src="app.js"></script>
   <script>
     // Service Worker Registration for PWA
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
+      navigator.serviceWorker.register('sw.js')
         .then((registration) => {
           console.log('ServiceWorker registration successful:', registration.scope);
         })
