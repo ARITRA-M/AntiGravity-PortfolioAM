@@ -8,10 +8,16 @@
     "start": "node server.js",
     "zerodha": "node server.js"
   },
-  "keywords": ["portfolio", "analytics", "zerodha", "kite-connect"],
+  "keywords": [
+    "portfolio",
+    "analytics",
+    "zerodha",
+    "kite-connect"
+  ],
   "author": "Antigravity Pair Programmer",
   "license": "ISC",
   "dependencies": {
+    "chart.js": "^4.5.1",
     "cors": "^2.8.6",
     "express": "^5.2.1"
   }

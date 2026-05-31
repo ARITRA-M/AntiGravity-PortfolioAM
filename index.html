@@ -11,8 +11,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="node_modules/chart.js/dist/chart.umd.js"></script>
 </head>
 <body>
 
@@ -319,7 +318,7 @@
         <!-- Benchmark Comparison Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Portfolio vs Benchmark Comparison</h3>
+            <h3>Portfolio vs Benchmark Comparison (Model)</h3>
             <div class="time-filters">
               <select id="benchmark-select" class="select-filter" onchange="updateBenchmarkChart()">
                 <option value="nifty50">Nifty 50</option>
@@ -385,7 +384,7 @@
         <!-- Dividend History Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Dividend Income History</h3>
+            <h3>Dividend Income History (Estimate)</h3>
           </div>
           <div class="chart-container">
             <canvas id="dividend-history-chart"></canvas>
@@ -405,7 +404,7 @@
         <!-- Upcoming Dividends -->
         <div class="chart-card">
           <div class="chart-header">
-            <h3>Expected Upcoming Dividends</h3>
+            <h3>Expected Upcoming Dividends (Estimate)</h3>
           </div>
           <div class="upcoming-dividends-list" id="upcoming-dividends-list">
             <!-- Dynamically populated -->
@@ -415,7 +414,7 @@
         <!-- Dividend Holdings Table -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Dividend Paying Holdings</h3>
+            <h3>Dividend Paying Holdings (Estimate)</h3>
           </div>
           <div class="table-wrapper">
             <table id="dividend-table">
@@ -509,7 +508,7 @@
         <!-- Trading Activity Log -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Trading Activity Log</h3>
+            <h3>Trading Activity Log (Derived)</h3>
           </div>
           <div class="table-wrapper">
             <table id="trading-activity-table">

@@ -1,31 +1,99 @@
 // Simple Client-Side Authentication for Portfolio Analytics
 const AUTH_CONFIG = {
-  password: 'Portfolio2026!', // Default password - change before deployment
   storageKey: 'portfolio_auth_token',
-  tokenExpiry: 7 * 24 * 60 * 60 * 1000 // 7 days
+  expiryKey: 'portfolio_auth_expires_at',
+  modeKey: 'portfolio_auth_mode',
+  localDemoPrefix: 'local_demo_',
+  localDemoExpiry: 7 * 24 * 60 * 60 * 1000
 };
 
 // Check if user is authenticated
 function isAuthenticated() {
   const token = localStorage.getItem(AUTH_CONFIG.storageKey);
   if (!token) return false;
-  
-  try {
-    const data = JSON.parse(atob(token));
-    if (Date.now() > data.expiry) {
-      localStorage.removeItem(AUTH_CONFIG.storageKey);
-      return false;
-    }
-    return true;
-  } catch (e) {
+
+  const expiresAt = Number(localStorage.getItem(AUTH_CONFIG.expiryKey) || 0);
+  if (expiresAt && Date.now() > expiresAt) {
+    clearAuthToken();
     return false;
+  }
+
+  return true;
+}
+
+function getAuthToken() {
+  return localStorage.getItem(AUTH_CONFIG.storageKey) || '';
+}
+
+function getAuthHeaders() {
+  const token = getAuthToken();
+  if (isLocalDemoSession()) return {};
+  return token ? { Authorization: 'Bearer ' + token } : {};
+}
+
+function clearAuthToken() {
+  localStorage.removeItem(AUTH_CONFIG.storageKey);
+  localStorage.removeItem(AUTH_CONFIG.expiryKey);
+  localStorage.removeItem(AUTH_CONFIG.modeKey);
+}
+
+function isLocalDemoSession() {
+  return localStorage.getItem(AUTH_CONFIG.modeKey) === 'local-demo' ||
+    getAuthToken().startsWith(AUTH_CONFIG.localDemoPrefix);
+}
+
+function startLocalDemoSession() {
+  const expiresAt = Date.now() + AUTH_CONFIG.localDemoExpiry;
+  localStorage.setItem(AUTH_CONFIG.storageKey, AUTH_CONFIG.localDemoPrefix + Date.now());
+  localStorage.setItem(AUTH_CONFIG.expiryKey, String(expiresAt));
+  localStorage.setItem(AUTH_CONFIG.modeKey, 'local-demo');
+}
+
+function unlockApp(overlay) {
+  overlay.remove();
+  document.body.style.overflow = '';
+
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer) {
+    appContainer.style.display = '';
+  }
+
+  if (typeof loadData === 'function') {
+    loadData();
   }
 }
 
-// Generate auth token
-function generateToken() {
-  const expiry = Date.now() + AUTH_CONFIG.tokenExpiry;
-  return btoa(JSON.stringify({ expiry }));
+async function verifyAuthSession() {
+  if (!isAuthenticated()) return false;
+  if (isLocalDemoSession()) return true;
+
+  try {
+    const response = await fetch('/api/auth/session', {
+      headers: getAuthHeaders()
+    });
+    const data = await response.json();
+    if (!data.success) {
+      clearAuthToken();
+      return false;
+    }
+    if (data.expiresAt) {
+      localStorage.setItem(AUTH_CONFIG.expiryKey, String(data.expiresAt));
+    }
+    return true;
+  } catch (error) {
+    return isAuthenticated();
+  }
+}
+
+async function readJsonResponse(response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    await response.text();
+    const error = new Error('API_UNAVAILABLE');
+    error.code = 'API_UNAVAILABLE';
+    throw error;
+  }
+  return response.json();
 }
 
 // Show login overlay
@@ -49,25 +117,40 @@ function showLogin() {
   `;
   document.body.insertBefore(overlay, document.body.firstChild);
   
-  document.getElementById('auth-form').addEventListener('submit', (e) => {
+  document.getElementById('auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const password = document.getElementById('auth-password').value;
+    const error = document.getElementById('auth-error');
+    const button = e.target.querySelector('.auth-btn');
     
-    if (password === AUTH_CONFIG.password) {
-      localStorage.setItem(AUTH_CONFIG.storageKey, generateToken());
-      overlay.remove();
-      document.body.style.overflow = '';
-      // Show the app container that was hidden
-      const appContainer = document.querySelector('.app-container');
-      if (appContainer) {
-        appContainer.style.display = '';
+    button.disabled = true;
+    error.textContent = '';
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const data = await readJsonResponse(response);
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Incorrect password');
       }
-      // Initialize the app - loadData is defined in app.js which is loaded after auth.js
-      if (typeof loadData === 'function') {
-        loadData();
+
+      localStorage.setItem(AUTH_CONFIG.storageKey, data.token);
+      localStorage.setItem(AUTH_CONFIG.expiryKey, String(data.expiresAt || 0));
+      localStorage.setItem(AUTH_CONFIG.modeKey, 'server');
+      unlockApp(overlay);
+    } catch (err) {
+      if (err.code === 'API_UNAVAILABLE' || err instanceof TypeError) {
+        startLocalDemoSession();
+        unlockApp(overlay);
+      } else {
+        error.textContent = err.message || 'Unable to unlock portfolio.';
       }
-    } else {
-      document.getElementById('auth-error').textContent = 'Incorrect password. Please try again.';
+    } finally {
+      button.disabled = false;
     }
   });
   
@@ -76,11 +159,7 @@ function showLogin() {
 
 // Initialize auth on page load
 document.addEventListener('DOMContentLoaded', () => {
-  // Remove the original DOMContentLoaded listener that calls loadData
-  // We'll call it after authentication
-  
   if (!isAuthenticated()) {
-    // Hide the app content
     const appContainer = document.querySelector('.app-container');
     if (appContainer) {
       appContainer.style.display = 'none';
@@ -88,8 +167,3 @@ document.addEventListener('DOMContentLoaded', () => {
     showLogin();
   }
 });
-
-// loadData is defined in app.js (loaded after auth.js)
-// On successful auth, showLogin() calls loadData() directly
-// This override is not needed since auth.js loads before app.js
-// and would capture undefined instead of the real loadData function
