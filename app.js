@@ -67,13 +67,33 @@ window.addEventListener('DOMContentLoaded', () => {
 
 async function loadData() {
   try {
+    if (typeof Chart === 'undefined') {
+      throw new Error('Chart.js could not be loaded. Check your network connection or bundle Chart.js locally.');
+    }
+
+    const authOptions = typeof getAuthHeaders === 'function'
+      ? { headers: getAuthHeaders() }
+      : {};
+
     const [resSummary, resBreakup, resEquity, resMf, resHist] = await Promise.all([
-      fetch('data/portfolio_summary.json'),
-      fetch('data/breakup_summary.json'),
-      fetch('data/latest_equity.json'),
-      fetch('data/latest_mf.json'),
-      fetch('data/historical_holdings.json')
+      fetch('data/portfolio_summary.json', authOptions),
+      fetch('data/breakup_summary.json', authOptions),
+      fetch('data/latest_equity.json', authOptions),
+      fetch('data/latest_mf.json', authOptions),
+      fetch('data/historical_holdings.json', authOptions)
     ]);
+
+    const responses = [resSummary, resBreakup, resEquity, resMf, resHist];
+    if (responses.some(res => res.status === 401)) {
+      if (typeof clearAuthToken === 'function') clearAuthToken();
+      const appContainer = document.querySelector('.app-container');
+      if (appContainer) appContainer.style.display = 'none';
+      if (typeof showLogin === 'function' && !document.getElementById('auth-overlay')) showLogin();
+      throw new Error('Session expired. Please unlock the portfolio again.');
+    }
+    if (responses.some(res => !res.ok)) {
+      throw new Error('One or more portfolio data files could not be loaded.');
+    }
 
     portfolioSummary = await resSummary.json();
     breakupSummary = await resBreakup.json();
@@ -136,6 +156,8 @@ async function refreshPortfolioFromZerodha() {
       // Transform Zerodha holdings format to app's latestEquity format
       // Server now returns live prices from Yahoo Finance with sector info
       const zerodhaHoldings = holdingsData.data.net;
+      const previousEquity = latestEquity || [];
+      const previousStocksLakhs = sumValue(previousEquity, 'cur_val') / 100000;
       
       // Update latestEquity with live data from server
       latestEquity = zerodhaHoldings.map(h => ({
@@ -149,19 +171,30 @@ async function refreshPortfolioFromZerodha() {
         pnl: h.pnl,
         gain_pct: h.gain_pct !== undefined ? h.gain_pct : ((h.last_price - h.average_price) / h.average_price) * 100
       }));
+      const liveStocksLakhs = sumValue(latestEquity, 'cur_val') / 100000;
       
       // Update portfolioSummary with live summary data
       if (summaryData.success && summaryData.data) {
+        const oldEquityLakhs = Number(portfolioSummary.equity_lakhs) || 0;
+        const oldTotalLakhs = Number(portfolioSummary.total_net_worth_lakhs) || 0;
+        const stockDeltaLakhs = liveStocksLakhs - previousStocksLakhs;
+        const nextEquityLakhs = Math.max(0, oldEquityLakhs + stockDeltaLakhs);
+        const nextTotalLakhs = Math.max(0, oldTotalLakhs + stockDeltaLakhs);
+
         portfolioSummary = {
           ...portfolioSummary,
-          total_current_value: summaryData.data.totalValue,
-          total_invested: summaryData.data.totalInvested,
+          total_current_value: nextTotalLakhs * 100000,
+          live_equity_value: summaryData.data.totalValue,
+          live_equity_invested: summaryData.data.totalInvested,
           total_pnl: summaryData.data.totalPnl,
           total_pnl_pct: summaryData.data.totalPnlPercent,
-          cash_balance: summaryData.data.cash
+          cash_balance: summaryData.data.cash,
+          total_net_worth_lakhs: nextTotalLakhs,
+          equity_lakhs: nextEquityLakhs
         };
+        portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
         
-        console.log(`Portfolio refreshed: ₹${formatINR(summaryData.data.totalValue)} total value, last refreshed: ${summaryData.data.lastRefreshed || 'now'}`);
+        console.log(`Equity refreshed: ${formatLakhs(liveStocksLakhs)} live stock value. Portfolio total preserved at ${formatLakhs(nextTotalLakhs)}.`);
       }
       
       // Re-initialize all UI tabs with updated data
@@ -195,10 +228,37 @@ function formatINR(value) {
   }).format(value);
 }
 
+function sumValue(rows, key) {
+  return rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
+}
+
+function recomputeAllocation(summary) {
+  const total = Number(summary.total_net_worth_lakhs) || 0;
+  const allocation = {};
+  ['Equity', 'Debt', 'Gold', 'Liquid', 'Alternate'].forEach(asset => {
+    const key = asset.toLowerCase() + '_lakhs';
+    allocation[asset] = total > 0 ? ((Number(summary[key]) || 0) / total) * 100 : 0;
+  });
+  return allocation;
+}
+
 function formatDateString(dateStr) {
   if (!dateStr || dateStr.startsWith('Period')) return dateStr;
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
 }
 
 function getAssetColor(label) {
@@ -551,7 +611,7 @@ function initStocksTab() {
   const winContainer = document.getElementById('stock-winners-list');
   winContainer.innerHTML = winners.map(w => `
     <div class="performer-item">
-      <span class="performer-name">${w.instrument} <span style="font-weight:normal; font-size:0.75rem; color:var(--text-muted)">(${w.sector})</span></span>
+      <span class="performer-name">${escapeHtml(w.instrument)} <span style="font-weight:normal; font-size:0.75rem; color:var(--text-muted)">(${escapeHtml(w.sector)})</span></span>
       <span class="performer-pnl trend-up">+${formatINR(w.pnl)} (+${w.gain_pct.toFixed(1)}%)</span>
     </div>
   `).join('');
@@ -559,7 +619,7 @@ function initStocksTab() {
   const loseContainer = document.getElementById('stock-losers-list');
   loseContainer.innerHTML = losers.map(l => `
     <div class="performer-item">
-      <span class="performer-name">${l.instrument} <span style="font-weight:normal; font-size:0.75rem; color:var(--text-muted)">(${l.sector})</span></span>
+      <span class="performer-name">${escapeHtml(l.instrument)} <span style="font-weight:normal; font-size:0.75rem; color:var(--text-muted)">(${escapeHtml(l.sector)})</span></span>
       <span class="performer-pnl trend-down">${formatINR(l.pnl)} (${l.gain_pct.toFixed(1)}%)</span>
     </div>
   `).join('');
@@ -607,20 +667,22 @@ function initStocksTab() {
   const sortedByVal = [...latestEquity].sort((a, b) => b.cur_val - a.cur_val);
   const explorerList = document.getElementById('explorer-stock-list');
   
-  explorerList.innerHTML = sortedByVal.map((s, idx) => {
-    const escapedInstrument = s.instrument.replace(/'/g, "\\'").replace(/&/g, '&').replace(/"/g, '"');
-    return `
-    <div class="explorer-item ${idx === 0 ? 'active' : ''}" onclick="selectStockExplorer('${escapedInstrument}', this)">
-      <span class="name">${escapedInstrument}</span>
+  explorerList.innerHTML = sortedByVal.map((s, idx) => `
+    <div class="explorer-item ${idx === 0 ? 'active' : ''}" data-symbol="${escapeAttr(s.instrument)}">
+      <span class="name">${escapeHtml(s.instrument)}</span>
       <span class="val">${formatINR(s.cur_val)}</span>
-    </div>`;
-  }).join('');
+    </div>
+  `).join('');
+
+  explorerList.querySelectorAll('.explorer-item').forEach(item => {
+    item.addEventListener('click', () => selectStockExplorer(item.dataset.symbol, item));
+  });
 
   // Populate Stock Sector Dropdown
   const sectors = [...new Set(latestEquity.map(s => s.sector))].sort();
   const sectorDropdown = document.getElementById('stock-sector-filter');
   sectorDropdown.innerHTML = '<option value="ALL">All Sectors</option>' + 
-    sectors.map(s => `<option value="${s}">${s}</option>`).join('');
+    sectors.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
 
   // Load first stock history
   if (sortedByVal.length > 0) {
@@ -760,8 +822,8 @@ function renderStocksTable(data) {
   const body = document.getElementById('stocks-table-body');
   body.innerHTML = data.map(s => `
     <tr>
-      <td class="instrument-cell">${s.instrument}</td>
-      <td><span class="sector-tag">${s.sector}</span></td>
+      <td class="instrument-cell">${escapeHtml(s.instrument)}</td>
+      <td><span class="sector-tag">${escapeHtml(s.sector)}</span></td>
       <td style="text-align: right;">${s.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${s.avg_cost.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">₹${s.ltp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
@@ -919,17 +981,21 @@ function initMfsTab() {
   const explorerList = document.getElementById('explorer-mf-list');
   
   explorerList.innerHTML = sortedMFsByVal.map((f, idx) => `
-    <div class="explorer-item ${idx === 0 ? 'active' : ''}" onclick="selectMfExplorer('${f.scheme}', this)">
-      <span class="name">${f.scheme.substring(0, 25) + '...'}</span>
+    <div class="explorer-item ${idx === 0 ? 'active' : ''}" data-scheme="${escapeAttr(f.scheme)}">
+      <span class="name">${escapeHtml(f.scheme.substring(0, 25) + '...')}</span>
       <span class="val">${formatINR(f.cur_val)}</span>
     </div>
   `).join('');
+
+  explorerList.querySelectorAll('.explorer-item').forEach(item => {
+    item.addEventListener('click', () => selectMfExplorer(item.dataset.scheme, item));
+  });
 
   // Populate MF Category dropdown filter
   const categories = [...new Set(latestMf.map(f => f.scheme_type))].sort();
   const typeDropdown = document.getElementById('mf-type-filter');
   typeDropdown.innerHTML = '<option value="ALL">All Categories</option>' + 
-    categories.map(c => `<option value="${c}">${c}</option>`).join('');
+    categories.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
 
   // Load first MF history
   if (sortedMFsByVal.length > 0) {
@@ -1033,8 +1099,8 @@ function renderMfsTable(data) {
   const body = document.getElementById('mfs-table-body');
   body.innerHTML = data.map(f => `
     <tr>
-      <td class="instrument-cell" title="${f.scheme}">${f.scheme}</td>
-      <td><span class="category-tag">${f.scheme_type.replace('Equity : ', '')}</span></td>
+      <td class="instrument-cell" title="${escapeAttr(f.scheme)}">${escapeHtml(f.scheme)}</td>
+      <td><span class="category-tag">${escapeHtml(f.scheme_type.replace('Equity : ', ''))}</span></td>
       <td style="text-align: right;">${f.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${f.price.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
       <td style="text-align: right;">₹${f.avg_nav.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
@@ -1279,7 +1345,7 @@ function updateBenchmarkStats(benchmarkKey) {
       <span class="benchmark-stat-value trend-up">+${portfolioReturn.toFixed(1)}%</span>
     </div>
     <div class="benchmark-stat-item">
-      <span class="benchmark-stat-label">${benchmark.name} Total Return</span>
+      <span class="benchmark-stat-label">${escapeHtml(benchmark.name)} Total Return</span>
       <span class="benchmark-stat-value">+${benchmarkReturn.toFixed(1)}%</span>
     </div>
     <div class="benchmark-stat-item">
@@ -1293,7 +1359,7 @@ function updateBenchmarkStats(benchmarkKey) {
       <span class="benchmark-stat-value trend-up">${portfolioAnn.toFixed(1)}%</span>
     </div>
     <div class="benchmark-stat-item">
-      <span class="benchmark-stat-label">${benchmark.name} Annualized</span>
+      <span class="benchmark-stat-label">${escapeHtml(benchmark.name)} Annualized</span>
       <span class="benchmark-stat-value">${benchmarkAnn.toFixed(1)}%</span>
     </div>
   `;
@@ -1412,7 +1478,7 @@ function initDividendTab() {
   
   upcomingContainer.innerHTML = upcomingDividends.map(d => `
     <div class="upcoming-div-item">
-      <span class="upcoming-div-name">${d.name}</span>
+      <span class="upcoming-div-name">${escapeHtml(d.name)}</span>
       <div class="upcoming-div-info">
         <div class="upcoming-div-amount">₹${d.amount.toLocaleString()}</div>
         <div class="upcoming-div-date">${d.date}</div>
@@ -1424,11 +1490,11 @@ function initDividendTab() {
   const tableBody = document.getElementById('dividend-table-body');
   tableBody.innerHTML = dividendData.holdings.map(h => `
     <tr>
-      <td style="font-weight: 600;">${h.instrument}</td>
-      <td><span class="sector-tag">${h.type}</span></td>
+      <td style="font-weight: 600;">${escapeHtml(h.instrument)}</td>
+      <td><span class="sector-tag">${escapeHtml(h.type)}</span></td>
       <td style="text-align: right;">₹${h.annualDiv.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>
       <td style="text-align: right; color: var(--accent-green);">${h.yield.toFixed(2)}%</td>
-      <td style="text-align: right; color: var(--text-secondary);">${h.lastDiv}</td>
+      <td style="text-align: right; color: var(--text-secondary);">${escapeHtml(h.lastDiv)}</td>
     </tr>
   `).join('');
 }
@@ -1462,7 +1528,7 @@ function initTaxTab() {
   
   harvestList.innerHTML = lossPositions.map(p => `
     <div class="harvest-item">
-      <span class="harvest-name">${p.instrument || p.scheme}</span>
+      <span class="harvest-name">${escapeHtml(p.instrument || p.scheme)}</span>
       <span class="harvest-loss">-${formatINR(Math.abs(p.pnl))}</span>
     </div>
   `).join('');
@@ -1553,8 +1619,8 @@ function renderTaxRecommendations(totalGains, totalLosses, ltcgTax) {
     <div class="tax-rec-item">
       <span class="tax-rec-icon">${r.icon}</span>
       <div class="tax-rec-content">
-        <h4>${r.title}</h4>
-        <p>${r.desc}</p>
+        <h4>${escapeHtml(r.title)}</h4>
+        <p>${escapeHtml(r.desc)}</p>
       </div>
     </div>
   `).join('');
@@ -1874,8 +1940,8 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
   gainersContainer.innerHTML = gainers.slice(0, 5).map(g => `
     <div class="mover-item">
       <div class="mover-info">
-        <div class="mover-name">${g.name}</div>
-        <div class="mover-sector">${g.sector}</div>
+        <div class="mover-name">${escapeHtml(g.name)}</div>
+        <div class="mover-sector">${escapeHtml(g.sector)}</div>
       </div>
       <div class="mover-change trend-up">+${g.change.toFixed(2)}%</div>
     </div>
@@ -1886,8 +1952,8 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
   losersContainer.innerHTML = losers.slice(0, 5).map(l => `
     <div class="mover-item">
       <div class="mover-info">
-        <div class="mover-name">${l.name}</div>
-        <div class="mover-sector">${l.sector}</div>
+        <div class="mover-name">${escapeHtml(l.name)}</div>
+        <div class="mover-sector">${escapeHtml(l.sector)}</div>
       </div>
       <div class="mover-change trend-down">${l.change.toFixed(2)}%</div>
     </div>
@@ -1939,8 +2005,8 @@ function renderMonthlyHeatmap() {
       infoBar.innerHTML = '<span>No period selected — showing <strong class="selected-range">all data</strong></span>';
     } else {
       const sorted = [...heatmapSelectedIndices].sort((a, b) => a - b);
-      const startLabel = heatmapMonthData[sorted[0]]?.label || 'N/A';
-      const endLabel = heatmapMonthData[sorted[sorted.length - 1]]?.label || 'N/A';
+      const startLabel = escapeHtml(heatmapMonthData[sorted[0]]?.label || 'N/A');
+      const endLabel = escapeHtml(heatmapMonthData[sorted[sorted.length - 1]]?.label || 'N/A');
       const monthCount = sorted.length;
       infoBar.innerHTML = `<span>Selected: <strong class="selected-range">${startLabel} — ${endLabel}</strong> (${monthCount} month${monthCount > 1 ? 's' : ''})</span>`;
     }
@@ -2109,14 +2175,14 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   tbody.innerHTML = filteredTrades.map(trade => `
     <tr>
       <td>${formatDateString(trade.date)}</td>
-      <td style="font-weight: 600;">${trade.instrument}</td>
+      <td style="font-weight: 600;">${escapeHtml(trade.instrument)}</td>
       <td>
         <span class="trade-type ${trade.type.toLowerCase()}">${trade.type}</span>
       </td>
       <td style="text-align: right;">${trade.quantity.toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
       <td style="text-align: right;">₹${trade.price.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
       <td style="text-align: right; font-weight: 600;">${formatINR(trade.total)}</td>
-      <td><span class="sector-tag">${trade.category}</span></td>
+      <td><span class="sector-tag">${escapeHtml(trade.category)}</span></td>
     </tr>
   `).join('');
   

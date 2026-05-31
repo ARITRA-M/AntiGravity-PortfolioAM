@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,10 +11,89 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
 
 // In-memory session storage (use Redis/DB in production)
 const sessions = new Map();
+const appSessions = new Map();
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const APP_PASSWORD = process.env.PORTFOLIO_PASSWORD || 'Portfolio2026!';
+
+function createSession(store, payload = {}) {
+  const token = `session_${crypto.randomUUID()}`;
+  store.set(token, {
+    ...payload,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SESSION_TTL_MS
+  });
+  return token;
+}
+
+function getValidSession(store, token) {
+  if (!token || !store.has(token)) return null;
+  const session = store.get(token);
+  if (Date.now() > session.expiresAt) {
+    store.delete(token);
+    return null;
+  }
+  return session;
+}
+
+function bearerToken(req) {
+  const header = req.headers.authorization || '';
+  return header.startsWith('Bearer ') ? header.slice(7) : '';
+}
+
+function requireAppAuth(req, res, next) {
+  const session = getValidSession(appSessions, bearerToken(req));
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required'
+    });
+  }
+  req.appSession = session;
+  next();
+}
+
+// App auth endpoints must be public so the login screen can obtain a token.
+app.post('/api/auth/login', (req, res) => {
+  const { password } = req.body;
+  if (!password || password !== APP_PASSWORD) {
+    return res.status(401).json({
+      success: false,
+      error: 'Incorrect password'
+    });
+  }
+
+  const token = createSession(appSessions, { scope: 'portfolio' });
+  res.json({
+    success: true,
+    token,
+    expiresAt: appSessions.get(token).expiresAt
+  });
+});
+
+app.get('/api/auth/session', (req, res) => {
+  const session = getValidSession(appSessions, bearerToken(req));
+  res.json({
+    success: Boolean(session),
+    expiresAt: session?.expiresAt || null
+  });
+});
+
+// Portfolio JSON contains private holdings. Serve it only after app auth.
+app.use('/data', requireAppAuth, express.static(path.join(__dirname, 'data')));
+app.use('/data', (req, res) => {
+  res.status(404).json({ success: false, error: 'Data file not found' });
+});
+app.use(express.static(path.join(__dirname), {
+  setHeaders(res, filePath) {
+    if (filePath.includes(`${path.sep}data${path.sep}`)) {
+      res.statusCode = 404;
+    }
+  }
+}));
 
 // Zerodha Kite Connect configuration
 const KITE_API_KEY = process.env.KITE_API_KEY || 'your_kite_api_key';
@@ -355,7 +435,8 @@ app.post('/api/zerodha/validate-login', (req, res) => {
     userId: userId,
     validatedAt: Date.now(),
     accessToken: `mock_access_token_${Date.now()}`,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SESSION_TTL_MS
   });
   
   res.json({
@@ -370,37 +451,55 @@ app.post('/api/zerodha/validate-login', (req, res) => {
 app.post('/api/zerodha/callback', (req, res) => {
   const { request_token, user_id, sessionToken } = req.body;
   
-  if (!sessionToken || !sessions.has(sessionToken)) {
+  if (!request_token) {
+    return res.status(400).json({
+      success: false,
+      error: 'Request token is required'
+    });
+  }
+
+  const session = getValidSession(sessions, sessionToken);
+  if (sessionToken && !session) {
     return res.status(401).json({
       success: false,
-      error: 'Not authenticated. Please login with valid credentials first.'
+      error: 'Session expired. Please login again.'
     });
   }
   
-  const session = sessions.get(sessionToken);
   const newSessionToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   sessions.set(newSessionToken, {
-    userId: session.userId,
+    userId: session?.userId || user_id || 'API_USER',
     requestToken: request_token,
     accessToken: `mock_access_token_${Date.now()}`,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SESSION_TTL_MS
   });
   
-  sessions.delete(sessionToken);
+  if (sessionToken) sessions.delete(sessionToken);
   
   res.json({
     success: true,
     sessionToken: newSessionToken,
-    userId: session.userId
+    userId: session?.userId || user_id || 'API_USER',
+    isMock: true
+  });
+});
+
+app.get('/api/zerodha/session', (req, res) => {
+  const session = getValidSession(sessions, bearerToken(req));
+  res.json({
+    success: Boolean(session),
+    userId: session?.userId || null,
+    expiresAt: session?.expiresAt || null
   });
 });
 
 // Get live portfolio holdings (with real-time prices)
 app.get('/api/portfolio/holdings', async (req, res) => {
-  const sessionToken = req.headers.authorization?.replace('Bearer ', '');
+  const sessionToken = bearerToken(req);
   
-  if (!sessionToken || !sessions.has(sessionToken)) {
+  if (!getValidSession(sessions, sessionToken)) {
     return res.status(401).json({
       success: false,
       error: 'Not authenticated. Please connect to Zerodha first.'
@@ -434,9 +533,9 @@ app.get('/api/portfolio/margins', (req, res) => {
 
 // Generate portfolio summary from live data
 app.get('/api/portfolio/summary', async (req, res) => {
-  const sessionToken = req.headers.authorization?.replace('Bearer ', '');
+  const sessionToken = bearerToken(req);
   
-  if (!sessionToken || !sessions.has(sessionToken)) {
+  if (!getValidSession(sessions, sessionToken)) {
     return res.status(401).json({
       success: false,
       error: 'Not authenticated. Please connect to Zerodha first.'

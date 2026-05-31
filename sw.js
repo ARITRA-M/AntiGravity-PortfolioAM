@@ -1,17 +1,13 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v2';
+const CACHE_NAME = 'portfolio-analytics-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/auth.js',
-  '/manifest.json',
-  '/data/portfolio_summary.json',
-  '/data/breakup_summary.json',
-  '/data/latest_equity.json',
-  '/data/latest_mf.json',
-  '/data/historical_holdings.json'
+  '/zerodha-login.js',
+  '/manifest.json'
 ];
 
 // Install event - cache assets
@@ -46,22 +42,16 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
 
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/data/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((cachedResponse) => {
         if (cachedResponse) {
-          // Return cached version, but also fetch fresh data in background
-          if (event.request.url.includes('/data/')) {
-            fetch(event.request).then((response) => {
-              if (response.ok) {
-                caches.open(CACHE_NAME).then((cache) => {
-                  cache.put(event.request, response);
-                });
-              }
-            }).catch(() => {
-              // Offline, cached data will be used
-            });
-          }
           return cachedResponse;
         }
 

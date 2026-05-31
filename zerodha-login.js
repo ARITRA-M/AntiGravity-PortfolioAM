@@ -16,13 +16,17 @@ const ZerodhaAuth = {
   },
 
   // Initialize Zerodha auth
-  init() {
+  async init() {
     this.loadSession();
     this.createLoginModal();
     
     if (this.session.isAuthenticated) {
-      this.showConnectedState();
-      // Don't show modal if already authenticated
+      const valid = await this.verifySession();
+      if (valid) {
+        this.showConnectedState();
+      } else {
+        this.clearSession();
+      }
     }
   },
 
@@ -41,7 +45,7 @@ const ZerodhaAuth = {
             </svg>
           </div>
           <h2>Connect Zerodha</h2>
-          <p>Securely connect your Zerodha Kite account to view real-time portfolio</p>
+          <p>Connect to the local portfolio API for live price refreshes</p>
           <button class="modal-close" onclick="ZerodhaAuth.closeModal()">&times;</button>
         </div>
         
@@ -120,8 +124,8 @@ const ZerodhaAuth = {
         </div>
         
         <div class="zerodha-modal-footer">
-          <p>🔒 Your credentials are encrypted and never stored</p>
-          <p>Powered by Zerodha Kite Connect API</p>
+          <p>Local demo connector. Use a backend Kite exchange before production.</p>
+          <p>Live prices are refreshed by the local server</p>
         </div>
       </div>
     `;
@@ -261,24 +265,26 @@ const ZerodhaAuth = {
         });
         
         const data = await response.json();
-        
-        if (data.success) {
-          this.session = {
-            isAuthenticated: true,
-            userId: data.userId,
-            token: data.sessionToken
-          };
-          
-          this.saveSession();
-          this.closeModal();
-          this.showConnectedState();
-          
-          if (typeof refreshPortfolioFromZerodha === 'function') {
-            await refreshPortfolioFromZerodha();
-          }
-          
-          alert('Successfully connected to Zerodha!');
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Failed to connect');
         }
+        
+        this.session = {
+          isAuthenticated: true,
+          userId: data.userId,
+          token: data.sessionToken,
+          isMock: Boolean(data.isMock)
+        };
+        
+        this.saveSession();
+        this.closeModal();
+        this.showConnectedState();
+        
+        if (typeof refreshPortfolioFromZerodha === 'function') {
+          await refreshPortfolioFromZerodha();
+        }
+        
+        alert('Connected to local Zerodha demo session.');
       } catch (error) {
         alert('Failed to connect: ' + error.message);
       }
@@ -309,7 +315,7 @@ const ZerodhaAuth = {
       badge.style.display = 'flex';
       badge.innerHTML = `
         <span class="status-dot connected"></span>
-        <span>Zerodha Connected${this.session.isDemo ? ' (Demo)' : ''}</span>
+        <span>Zerodha ${this.session.isMock || this.session.isDemo ? 'Demo' : 'Connected'}</span>
         <button onclick="ZerodhaAuth.disconnect()" class="disconnect-btn">Disconnect</button>
       `;
     }
@@ -317,13 +323,7 @@ const ZerodhaAuth = {
 
   // Disconnect Zerodha
   disconnect() {
-    this.session = {
-      isAuthenticated: false,
-      token: null,
-      userId: null
-    };
-    
-    localStorage.removeItem('zerodha_session');
+    this.clearSession();
     
     const badge = document.getElementById('zerodha-status');
     if (badge) {
@@ -339,6 +339,15 @@ const ZerodhaAuth = {
     localStorage.setItem('zerodha_session', JSON.stringify(this.session));
   },
 
+  clearSession() {
+    this.session = {
+      isAuthenticated: false,
+      token: null,
+      userId: null
+    };
+    localStorage.removeItem('zerodha_session');
+  },
+
   // Load session from localStorage
   loadSession() {
     const saved = localStorage.getItem('zerodha_session');
@@ -346,8 +355,23 @@ const ZerodhaAuth = {
       try {
         this.session = JSON.parse(saved);
       } catch (e) {
-        this.session = { isAuthenticated: false, token: null, userId: null };
+        this.clearSession();
       }
+    }
+  },
+
+  async verifySession() {
+    if (this.session.isDemo) return true;
+    if (!this.session.token) return false;
+
+    try {
+      const response = await fetch('/api/zerodha/session', {
+        headers: { Authorization: 'Bearer ' + this.session.token }
+      });
+      const data = await response.json();
+      return Boolean(response.ok && data.success);
+    } catch (error) {
+      return false;
     }
   },
 
@@ -355,6 +379,7 @@ const ZerodhaAuth = {
   showLoginModal() {
     // Don't show modal if already authenticated
     if (this.session.isAuthenticated) {
+      this.showConnectedState();
       return;
     }
     const modal = document.getElementById('zerodha-login-modal');
