@@ -94,9 +94,12 @@ window.addEventListener('DOMContentLoaded', () => {
   // Only load data if auth is not required or already authenticated
   // auth.js handles the auth gate and calls loadData() after successful login
   initPortfolioUpload();
-  if (typeof isAuthenticated !== 'function' || isAuthenticated()) {
-    loadData();
-  }
+  // Small delay to ensure auth.js has loaded and isAuthenticated is available
+  setTimeout(() => {
+    if (typeof isAuthenticated !== 'function' || isAuthenticated()) {
+      loadData();
+    }
+  }, 50);
 });
 
 async function loadData() {
@@ -116,9 +119,11 @@ async function loadData() {
     const responses = [resSummary, resBreakup, resEquity, resMf, resHist];
     if (responses.some(res => res.status === 401)) {
       if (typeof clearAuthToken === 'function') clearAuthToken();
-      const appContainer = document.querySelector('.app-container');
-      if (appContainer) appContainer.style.display = 'none';
-      if (typeof showLogin === 'function' && !document.getElementById('auth-overlay')) showLogin();
+      if (typeof showLogin === 'function') {
+        const appContainer = document.querySelector('.app-container');
+        if (appContainer) appContainer.style.display = 'none';
+        if (!document.getElementById('auth-overlay')) showLogin();
+      }
       throw new Error('Session expired. Please unlock the portfolio again.');
     }
     if (responses.some(res => !res.ok)) {
@@ -367,8 +372,16 @@ function parseBreakupSheet(workbook) {
   const rows = sheetRows(workbook, 'Breakup');
   const headerRow = rows[0] || [];
   const dateCols = [];
-  for (let index = 2; index < 67; index++) {
-    dateCols.push([index, formatWorkbookDate(headerRow[index], `Period_${index}`)]);
+  for (let index = 2; index < headerRow.length; index++) {
+    const val = headerRow[index];
+    if (val === null || val === undefined || String(val).trim() === '') {
+      break;
+    }
+    const valStr = String(val ?? '').trim().toLowerCase();
+    if (valStr === 'total' || valStr === 'cagr' || valStr === 'average') {
+      break;
+    }
+    dateCols.push([index, formatWorkbookDate(val, `Period_${index}`)]);
   }
 
   const sections = {
@@ -408,7 +421,9 @@ function parseHistoricalHoldings(workbook, eSheets, mfSheets) {
     rowsToObjects(sheetRows(workbook, sheetName)).forEach(row => {
       const instrument = String(row.Instrument ?? '').trim();
       if (!instrument || instrument === 'Total') return;
-      const gainPct = normalizeGainPct(cleanFloat(row['Gain %']));
+      const invested = cleanFloat(row.Invested);
+      const pnl = cleanFloat(row['P&L']);
+      const gainPct = invested > 0 ? (pnl / invested) * 100 : 0;
       const sector = SECTOR_MAP[instrument] || 'Other Equities';
       if (!historical.stocks[instrument]) {
         historical.stocks[instrument] = { instrument, sector, history: [] };
@@ -423,7 +438,9 @@ function parseHistoricalHoldings(workbook, eSheets, mfSheets) {
       const instrument = String(row.Instrument ?? '').trim();
       if (!instrument || instrument === 'Total') return;
       const category = String(row.Category ?? 'Other').trim();
-      const gainPct = normalizeGainPct(cleanFloat(row['Gain %']));
+      const invested = cleanFloat(row.Invested);
+      const pnl = cleanFloat(row['P&L']);
+      const gainPct = invested > 0 ? (pnl / invested) * 100 : 0;
       if (!historical.mfs[instrument]) {
         historical.mfs[instrument] = { instrument, category, history: [] };
       }
@@ -435,7 +452,8 @@ function parseHistoricalHoldings(workbook, eSheets, mfSheets) {
 }
 
 function normalizeGainPct(value) {
-  return Math.abs(value) < 10 && value !== 0 ? value * 100 : value;
+  // Retained for compatibility, but gain_pct is now computed mathematically from pnl and invested
+  return value;
 }
 
 function buildHistoryPoint(row, date, gainPct) {
@@ -995,22 +1013,25 @@ function renderStockHistoricalChart(symbol) {
     });
   }
   
+  if (stockHistoricalChart) {
+    stockHistoricalChart.destroy();
+    stockHistoricalChart = null;
+  }
+  
   const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const stockKey = window._stockNameMap[cleanSymbol] || symbol;
   const stock = historicalHoldings.stocks[stockKey];
   if (!stock) return;
   
   const history = stock.history;
+  
+  // Build chart data arrays from history
   const labels = history.map(h => formatDateString(h.date));
   const valuations = history.map(h => h.cur_val);
   const investments = history.map(h => h.invested);
   const ltps = history.map(h => h.ltp);
-
-  const ctxStockHist = document.getElementById('stock-historical-chart').getContext('2d');
   
-  if (stockHistoricalChart) {
-    stockHistoricalChart.destroy();
-  }
+  const ctxStockHist = document.getElementById('stock-historical-chart').getContext('2d');
   
   stockHistoricalChart = new Chart(ctxStockHist, {
     type: 'line',
@@ -1274,20 +1295,23 @@ function selectMfExplorer(scheme, element) {
 }
 
 function renderMfHistoricalChart(scheme) {
+  if (mfHistoricalChart) {
+    mfHistoricalChart.destroy();
+    mfHistoricalChart = null;
+  }
+
   const mf = historicalHoldings.mfs[scheme];
   if (!mf) return;
   
   const history = mf.history;
+  
+  // Build chart data arrays from history
   const labels = history.map(h => formatDateString(h.date));
   const valuations = history.map(h => h.cur_val);
   const investments = history.map(h => h.invested);
   const navs = history.map(h => h.ltp);
-
-  const ctxMfHist = document.getElementById('mf-historical-chart').getContext('2d');
   
-  if (mfHistoricalChart) {
-    mfHistoricalChart.destroy();
-  }
+  const ctxMfHist = document.getElementById('mf-historical-chart').getContext('2d');
   
   mfHistoricalChart = new Chart(ctxMfHist, {
     type: 'line',
@@ -1916,6 +1940,8 @@ let monthlyActivityChart = null;
 // Heatmap selection state: stores indices of selected heatmap cells
 let heatmapSelectedIndices = new Set();
 let heatmapMonthData = []; // Stores the full month data for the heatmap
+let rangeStartIdx = null;
+let rangeEndIdx = null;
 
 function initMonthlyTab() {
   // Destroy existing charts before re-creating
@@ -1965,12 +1991,21 @@ function getSelectedRange() {
   };
 }
 
-// Toggle a heatmap cell selection (multi-select)
-function toggleHeatmapCell(index) {
-  if (heatmapSelectedIndices.has(index)) {
-    heatmapSelectedIndices.delete(index);
-  } else {
+// Set a continuous range of selected heatmap cells (start and end click)
+function selectHeatmapRange(index) {
+  if (rangeStartIdx === null || (rangeStartIdx !== null && rangeEndIdx !== null)) {
+    rangeStartIdx = index;
+    rangeEndIdx = null;
+    heatmapSelectedIndices.clear();
     heatmapSelectedIndices.add(index);
+  } else {
+    rangeEndIdx = index;
+    const start = Math.min(rangeStartIdx, rangeEndIdx);
+    const end = Math.max(rangeStartIdx, rangeEndIdx);
+    heatmapSelectedIndices.clear();
+    for (let i = start; i <= end; i++) {
+      heatmapSelectedIndices.add(i);
+    }
   }
   
   // Re-render heatmap with updated selection
@@ -1982,6 +2017,8 @@ function toggleHeatmapCell(index) {
 
 // Clear all heatmap selections
 function clearHeatmapSelection() {
+  rangeStartIdx = null;
+  rangeEndIdx = null;
   heatmapSelectedIndices.clear();
   renderMonthlyHeatmap();
   updateAllSections();
@@ -1989,6 +2026,8 @@ function clearHeatmapSelection() {
 
 // Select all heatmap cells
 function selectAllHeatmap() {
+  rangeStartIdx = 0;
+  rangeEndIdx = heatmapMonthData.length - 1;
   heatmapSelectedIndices = new Set(heatmapMonthData.map(d => d.index));
   renderMonthlyHeatmap();
   updateAllSections();
@@ -2136,57 +2175,92 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
   // If endIndex not provided, use the last available index
   if (endIndex === null) endIndex = nwTotal.length - 1;
   
-  // Calculate monthly changes for each holding from historical data
+  // Calculate total change over the entire selected period for each holding
   const gainers = [];
   const losers = [];
   
-  // Determine which historical data indices correspond to the selected date range
-  // We need the latest month's data within the selected range for comparison
+  // Determine the start and end dates for the selected period
+  const selectedStartDate = dates[startIndex];
   const selectedEndDate = dates[endIndex];
   
+  // Build a cached name-to-key map for faster lookups (reuse if already built)
+  if (!window._stockNameMap) {
+    window._stockNameMap = {};
+    const stockKeys = Object.keys(historicalHoldings.stocks);
+    stockKeys.forEach(key => {
+      const upper = key.toUpperCase();
+      const clean = upper.replace(/[^A-Z0-9]/g, '');
+      window._stockNameMap[clean] = key;
+      const withoutLtd = clean.replace(/LTD$/, '').replace(/LIMITED$/, '').trim();
+      if (withoutLtd && withoutLtd !== clean) window._stockNameMap[withoutLtd] = key;
+      const words = upper.split(/[^A-Z0-9]+/).filter(w => w.length > 2);
+      if (words.length > 1) {
+        if (!window._stockNameMap[words[0]]) {
+          window._stockNameMap[words[0]] = key;
+        }
+      }
+      if (upper.includes('&')) {
+        upper.split('&').forEach(p => {
+          const trimmed = p.replace(/[^A-Z0-9]/g, '').trim();
+          if (trimmed.length >= 3 && !window._stockNameMap[trimmed]) {
+            window._stockNameMap[trimmed] = key;
+          }
+        });
+      }
+    });
+  }
+  
   latestEquity.forEach(stock => {
-    // Try to find matching historical data
-    const stockKey = Object.keys(historicalHoldings.stocks).find(
-      key => key.toUpperCase().replace(/[^A-Z0-9]/g, '') === stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '') ||
-             key.toUpperCase().includes(stock.instrument.toUpperCase()) ||
-             stock.instrument.toUpperCase().includes(key.toUpperCase().replace(/[^A-Z0-9]/g, ''))
-    );
+    // Use the cached name map for fast lookup
+    const cleanSymbol = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const stockKey = window._stockNameMap[cleanSymbol] || stock.instrument;
+    const histStock = historicalHoldings.stocks[stockKey];
     
-    let monthlyChange = 0;
-    if (stockKey) {
-      const history = historicalHoldings.stocks[stockKey].history;
-      // Find the entry closest to the selected end date and the entry before it
-      let latestEntry = null;
-      let prevEntry = null;
-      let latestIdx = -1;
-      for (let h = history.length - 1; h >= 0; h--) {
-        if (history[h].date <= selectedEndDate) {
-          latestEntry = history[h];
-          latestIdx = h;
+    let periodChange = 0;
+    if (histStock) {
+      const history = histStock.history;
+      
+      // Find the entry closest to the selected start date (first entry at or after start)
+      let startEntry = null;
+      for (let h = 0; h < history.length; h++) {
+        if (history[h].date >= selectedStartDate) {
+          startEntry = history[h];
           break;
         }
       }
-      // Get the entry just before latestEntry
-      if (latestEntry && latestIdx > 0) {
-        prevEntry = history[latestIdx - 1];
+      // If no entry at or after start, use the first available entry
+      if (!startEntry && history.length > 0) {
+        startEntry = history[0];
       }
-      // Fallback to last two entries if no match found
-      if (!latestEntry && history.length >= 1) latestEntry = history[history.length - 1];
-      if (!prevEntry && history.length >= 2) prevEntry = history[history.length - 2];
       
-      if (latestEntry && prevEntry) {
-        monthlyChange = prevEntry.cur_val > 0 ? ((latestEntry.cur_val - prevEntry.cur_val) / prevEntry.cur_val) * 100 : 0;
+      // Find the entry closest to the selected end date (last entry at or before end)
+      let endEntry = null;
+      for (let h = history.length - 1; h >= 0; h--) {
+        if (history[h].date <= selectedEndDate) {
+          endEntry = history[h];
+          break;
+        }
+      }
+      
+      // Calculate total percentage change over the selected period
+      if (startEntry && endEntry && startEntry !== endEntry) {
+        periodChange = startEntry.cur_val > 0
+          ? ((endEntry.cur_val - startEntry.cur_val) / startEntry.cur_val) * 100
+          : 0;
+      } else if (startEntry && endEntry && startEntry === endEntry) {
+        // Only one data point in range — change is 0
+        periodChange = 0;
       }
     }
     
     const changeObj = {
       name: stock.instrument,
       sector: stock.sector,
-      change: monthlyChange,
+      change: periodChange,
       value: stock.cur_val
     };
     
-    if (monthlyChange >= 0) {
+    if (periodChange >= 0) {
       gainers.push(changeObj);
     } else {
       losers.push(changeObj);
@@ -2233,8 +2307,9 @@ function renderMonthlyHeatmap() {
   container.innerHTML = `
     <div class="heatmap-grid">
       ${heatmapMonthData.map(m => {
-        const intensity = Math.min(Math.abs(m.change) / 5, 1); // Normalize to 0-1
-        const color = m.change >= 0
+        const change = Number.isFinite(m.change) ? m.change : 0;
+        const intensity = Math.min(Math.abs(change) / 5, 1); // Normalize to 0-1
+        const color = change >= 0
           ? `rgba(16, 185, 129, ${0.3 + intensity * 0.7})`
           : `rgba(239, 68, 68, ${0.3 + intensity * 0.7})`;
         
@@ -2243,10 +2318,10 @@ function renderMonthlyHeatmap() {
         
         return `
           <div class="heatmap-cell ${selectedClass}" style="background: ${color}"
-               onclick="toggleHeatmapCell(${m.index})"
-               title="${m.label}: ${m.change >= 0 ? '+' : ''}${m.change.toFixed(1)}% — Click to toggle selection">
+               onclick="selectHeatmapRange(${m.index})"
+               title="${m.label}: ${change >= 0 ? '+' : ''}${change.toFixed(1)}% — Click to select range">
             <div class="heatmap-month">${m.label.split(' ')[0]}</div>
-            <div class="heatmap-change">${m.change >= 0 ? '+' : ''}${m.change.toFixed(1)}%</div>
+            <div class="heatmap-change">${change >= 0 ? '+' : ''}${change.toFixed(1)}%</div>
           </div>
         `;
       }).join('')}

@@ -182,11 +182,16 @@ print(f"Found {len(e_sheets)} equity sheets and {len(mf_sheets)} mutual fund she
 print("Processing Breakup sheet...")
 df_b = pd.read_excel(excel_file, sheet_name='Breakup', header=None)
 
-# The date columns are from index 2 to index 66
+# The date columns start from index 2 onwards
 header_row = df_b.iloc[0].tolist()
 date_cols = []
-for idx in range(2, 67):
+for idx in range(2, len(header_row)):
     val = header_row[idx]
+    if pd.isna(val) or val is None or str(val).strip() == '':
+        break
+    val_str = str(val).strip().lower() if val is not None else ''
+    if val_str in ['total', 'cagr', 'average']:
+        break
     if isinstance(val, (pd.Timestamp, datetime.datetime)):
         date_cols.append((idx, val.strftime('%Y-%m-%d')))
     elif isinstance(val, str):
@@ -260,13 +265,8 @@ for date_str, sheet_name in e_sheets:
         invested = clean_float(row.get('Invested', 0))
         cur_val = clean_float(row.get('Cur. val', 0))
         pnl = clean_float(row.get('P&L', 0))
-        gain_pct = clean_float(row.get('Gain %', 0))
-        
-        # If gain_pct is a fraction (e.g. 1.22 for 122%), multiply by 100
-        # If it is already a large percentage (>10 for example), we leave it
-        if abs(gain_pct) < 10.0 and gain_pct != 0.0:
-            # Let's verify: gain_pct * 100.
-            gain_pct = gain_pct * 100
+        # Calculate gain percentage mathematically to avoid arbitrary threshold bugs
+        gain_pct = (pnl / invested) * 100 if invested > 0 else 0.0
             
         sector = SECTOR_MAP.get(inst_name, "Other Equities")
         
@@ -306,10 +306,8 @@ for date_str, sheet_name in mf_sheets:
         invested = clean_float(row.get('Invested', 0))
         cur_val = clean_float(row.get('Cur. val', 0))
         pnl = clean_float(row.get('P&L', 0))
-        gain_pct = clean_float(row.get('Gain %', 0))
-        
-        if abs(gain_pct) < 10.0 and gain_pct != 0.0:
-            gain_pct = gain_pct * 100
+        # Calculate gain percentage mathematically to avoid arbitrary threshold bugs
+        gain_pct = (pnl / invested) * 100 if invested > 0 else 0.0
             
         if inst_name not in historical_holdings["mfs"]:
             historical_holdings["mfs"][inst_name] = {
