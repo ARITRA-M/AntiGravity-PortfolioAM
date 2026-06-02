@@ -42,8 +42,28 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/data/')) {
+  if (url.pathname.startsWith('/api/')) {
     event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Network-First strategy for data directory to support offline mode
+  if (url.pathname.startsWith('/data/')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return response;
+        })
+        .catch(() => {
+          return caches.match(event.request);
+        })
+    );
     return;
   }
 
@@ -85,10 +105,7 @@ self.addEventListener('fetch', (event) => {
 // Background sync for when app comes back online
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-data') {
-    event.waitUntil(
-      // Sync data with server when online
-      console.log('Background sync triggered')
-    );
+    console.log('Background sync triggered');
   }
 });
 
