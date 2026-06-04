@@ -136,6 +136,27 @@ async function loadData() {
     latestMf = await resMf.json();
     historicalHoldings = await resHist.json();
 
+    // Calculate this month's gain for each stock and MF
+    // Uses current cur_val (may be refreshed) minus previous month's cur_val from historical data
+    latestEquity.forEach(s => {
+      const hist = historicalHoldings.stocks[s.instrument];
+      if (hist && hist.history && hist.history.length >= 2) {
+        const prev = hist.history[hist.history.length - 2];
+        s.thisMonthGain = s.cur_val - prev.cur_val;
+      } else {
+        s.thisMonthGain = 0;
+      }
+    });
+    latestMf.forEach(f => {
+      const hist = historicalHoldings.mfs[f.scheme];
+      if (hist && hist.history && hist.history.length >= 2) {
+        const prev = hist.history[hist.history.length - 2];
+        f.thisMonthGain = f.cur_val - prev.cur_val;
+      } else {
+        f.thisMonthGain = 0;
+      }
+    });
+
     // Generate simulated dividend data
     generateDividendData();
 
@@ -162,6 +183,292 @@ async function loadData() {
     document.getElementById('live-time-badge').innerText = "Error loading data!";
     document.getElementById('live-time-badge').style.borderColor = "#ef4444";
   }
+}
+
+// ── MF Scheme Name → Scheme Code Mapping ────────────────────────────────────
+// These codes are used with mfapi.in to fetch live NAVs.
+// If a scheme is not found in this map, the app will attempt a dynamic search
+// via the /api/search-mf-scheme endpoint (mfapi.in search API).
+// Correct scheme codes verified against mfapi.in search API.
+const MF_SCHEME_CODES = {
+  "Axis Small Cap Fund Direct-Growth": 125354,
+  "HDFC Small Cap Fund Direct- Growth": 130503,
+  "UTI Nifty Next 50 Index Fund Direct - Growth": 143341,
+  "Axis Midcap Direct Plan-Growth": 120505,
+  "Parag Parikh Flexi Cap Fund Direct-Growth": 122639,
+  "Motilal Oswal Nasdaq 100 FOF Direct - Growth": 145552,
+  "Navi Nifty 50 Index Fund Direct - Growth": 149039,
+  "Quant Mid Cap Fund Direct-Growth": 120841,
+  "Canara Robeco Small Cap Fund Direct - Growth": 146130,
+  "Navi Nifty Next 50 Index Fund Direct - Growth": 149447,
+  "Axis Greater China Equity FoF Direct-Growth": 148699,
+  "HDFC BSE Sensex Index Fund Direct-Growth": 119065,
+  "Edelweiss US Technology Equity FoF Direct - Growth": 148063,
+  "Quant Small Cap Fund Direct Plan-Growth": 120828,
+  "Kotak Midcap Fund Direct-Growth": 119775,
+  "PGIM India Global Equity Opportunities FoF Direct-Growth": 138528,
+  "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth": 149910
+};
+
+// Cache for dynamically discovered MF scheme codes (persists across refreshes)
+let dynamicMfSchemeCodes = {};
+
+// ── Helper: Check if an instrument can be refreshed via a live price source ──
+// Returns false for instruments that have no known live price source
+// (e.g., government bonds, corporate bonds, SGBs, debt instruments).
+function hasLivePriceSource(instrument) {
+  // Bonds and debt instruments (start with digits, contain -GS, or known debt symbols)
+  if (/^\d/.test(instrument)) return false;
+  if (instrument.includes('-GS')) return false; // Government Securities
+  if (instrument === 'TVSMNCRPS') return false; // Debt instrument
+  if (instrument === '738REC27TF') return false; // Corporate bond
+  // SGBs (Sovereign Gold Bonds) - not available on any free API
+  if (instrument.startsWith('SGB')) return false;
+  // Everything else can be tried: ETFs (GOLDBEES, BANKIETF, FMCGIETF),
+  // REITs (EMBASSY-RR, MINDSPACE-RR, NXST-RR), and regular equity tickers
+  return true;
+}
+
+// ── Helper: Determine which API source to use for a given instrument ──
+function getPriceSource(instrument) {
+  // REITs (have -RR suffix) - not on Google Finance, use Yahoo Finance
+  if (instrument.includes('-RR')) return 'yahoo';
+  // ETFs and regular stocks - try Google Finance first
+  return 'google';
+}
+
+// ── Live Price Refresh ──────────────────────────────────────────────────────
+let isRefreshing = false;
+
+// ── Helpers for cross-origin API access (GitHub Pages support) ──────────────
+// On GitHub Pages there is no backend proxy, so we try direct API calls
+// with a CORS proxy as fallback.
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
+async function fetchWithFallback(url, options = {}) {
+  // First try the URL directly (works on local server with proxy)
+  try {
+    const resp = await fetch(url, options);
+    if (resp.ok) return resp;
+  } catch (_) { /* fall through */ }
+  // If that fails, try via CORS proxy (for GitHub Pages)
+  try {
+    const proxyUrl = CORS_PROXY + encodeURIComponent(url);
+    const resp = await fetch(proxyUrl, options);
+    if (resp.ok) return resp;
+  } catch (_) { /* fall through */ }
+  throw new Error('All fetch attempts failed');
+}
+
+async function refreshPrices() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+
+  const btn = document.getElementById('refresh-prices-btn');
+  const status = document.getElementById('refresh-status');
+  const badge = document.getElementById('live-time-badge');
+
+  btn.classList.add('loading');
+  btn.disabled = true;
+  status.className = 'refresh-status visible';
+  status.textContent = 'Fetching latest prices...';
+
+  let stockSuccess = 0;
+  let stockFail = 0;
+  let mfSuccess = 0;
+  let mfFail = 0;
+
+  try {
+    const now = new Date();
+    const refreshDateStr = now.toLocaleString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+
+    // 1. Refresh Stock Prices (via Google Finance proxy, with Yahoo Finance fallback)
+    const stockPromises = latestEquity.map(async (stock) => {
+      const ticker = stock.instrument;
+
+      // Skip instruments with no known live price source (bonds, SGBs, debt)
+      if (!hasLivePriceSource(ticker)) {
+        return;
+      }
+
+      // Save the original uploaded price before overwriting (only on first refresh)
+      if (stock.lastUploadedPrice === undefined) {
+        stock.lastUploadedPrice = stock.ltp;
+      }
+
+      const source = getPriceSource(ticker);
+      const endpoint = source === 'yahoo' ? '/api/live-stock-price-yahoo/' : '/api/live-stock-price/';
+
+      try {
+        const resp = await fetchWithFallback(`${endpoint}${encodeURIComponent(ticker)}`);
+        const data = await resp.json();
+        if (data.price && data.price > 0) {
+          stock.ltp = data.price;
+          stock.cur_val = stock.qty * data.price;
+          stock.pnl = stock.cur_val - stock.invested;
+          stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
+          stock.lastRefreshDate = refreshDateStr;
+          stockSuccess++;
+        } else {
+          stockFail++;
+        }
+      } catch (e) {
+        // If Google Finance fails, try Yahoo Finance as fallback
+        if (source === 'google') {
+          try {
+            const fallbackResp = await fetchWithFallback(`/api/live-stock-price-yahoo/${encodeURIComponent(ticker)}`);
+            const data = await fallbackResp.json();
+            if (data.price && data.price > 0) {
+              stock.ltp = data.price;
+              stock.cur_val = stock.qty * data.price;
+              stock.pnl = stock.cur_val - stock.invested;
+              stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
+              stock.lastRefreshDate = refreshDateStr;
+              stockSuccess++;
+              return;
+            }
+          } catch (fallbackErr) {
+            // Fallback also failed
+          }
+        }
+        stockFail++;
+      }
+    });
+
+    await Promise.allSettled(stockPromises);
+
+    // 2. Refresh MF NAVs (via mfapi.in proxy, with dynamic lookup fallback)
+    const mfPromises = latestMf.map(async (fund) => {
+      let schemeCode = MF_SCHEME_CODES[fund.scheme];
+
+      // If not in the static map, try the dynamic cache
+      if (!schemeCode) {
+        schemeCode = dynamicMfSchemeCodes[fund.scheme];
+      }
+
+      // If still not found, try a dynamic search via mfapi.in search API
+      if (!schemeCode) {
+        try {
+          // Extract key terms from the scheme name for searching
+          const searchQuery = fund.scheme
+            .replace(/Direct\s*-?\s*Growth$/i, '')
+            .replace(/Fund\s*Direct\s*-?\s*Growth$/i, '')
+            .replace(/\s*-\s*/g, ' ')
+            .trim();
+          const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(searchQuery)}`);
+          const searchData = await searchResp.json();
+          if (searchData.results && searchData.results.length > 0) {
+            // Find the best match: prefer Direct-Growth plans
+            const directGrowth = searchData.results.find(r =>
+              r.schemeName.toLowerCase().includes('direct') &&
+              r.schemeName.toLowerCase().includes('growth')
+            );
+            const bestMatch = directGrowth || searchData.results[0];
+            schemeCode = bestMatch.schemeCode;
+            // Cache it for future refreshes
+            dynamicMfSchemeCodes[fund.scheme] = schemeCode;
+          }
+        } catch (searchErr) {
+          // Search failed, will be counted as fail below
+        }
+      }
+
+      if (!schemeCode) {
+        mfFail++;
+        return;
+      }
+
+      // Save the original uploaded NAV before overwriting (only on first refresh)
+      if (fund.lastUploadedPrice === undefined) {
+        fund.lastUploadedPrice = fund.price;
+      }
+      try {
+        const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
+        const data = await resp.json();
+        if (data.nav && data.nav > 0) {
+          fund.price = data.nav;
+          fund.cur_val = fund.qty * data.nav;
+          fund.pnl = fund.cur_val - fund.invested;
+          fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
+          fund.lastRefreshDate = refreshDateStr;
+          mfSuccess++;
+        } else {
+          mfFail++;
+        }
+      } catch (e) {
+        mfFail++;
+      }
+    });
+
+    await Promise.allSettled(mfPromises);
+
+    // 3. Recompute portfolio summary totals from updated data
+    recomputePortfolioFromLiveData();
+
+    // 4. Re-render all tabs
+    refreshAllTabs();
+
+    // 5. Update badge and status
+    badge.innerText = `Live: ${refreshDateStr}`;
+    badge.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+
+    const totalStocks = latestEquity.filter(s => hasLivePriceSource(s.instrument)).length;
+    const totalMfs = latestMf.length;
+    const mappedMfs = latestMf.filter(f => MF_SCHEME_CODES[f.scheme] || dynamicMfSchemeCodes[f.scheme]).length;
+    const skippedStocks = latestEquity.length - totalStocks;
+
+    let statusMsg = `Stocks: ${stockSuccess}/${totalStocks} | MFs: ${mfSuccess}/${mappedMfs} updated`;
+    if (skippedStocks > 0) {
+      statusMsg += ` (${skippedStocks} bonds/SGBs skipped)`;
+    }
+    const missingMfs = totalMfs - mappedMfs;
+    if (missingMfs > 0) {
+      statusMsg += ` | ${missingMfs} MFs not found on mfapi.in`;
+    }
+
+    status.className = 'refresh-status visible success';
+    status.textContent = statusMsg;
+  } catch (error) {
+    console.error('Price refresh failed:', error);
+    status.className = 'refresh-status visible error';
+    status.textContent = 'Refresh failed. Check console for details.';
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    isRefreshing = false;
+
+    // Auto-hide status after 8 seconds
+    setTimeout(() => {
+      status.className = 'refresh-status';
+    }, 8000);
+  }
+}
+
+function recomputePortfolioFromLiveData() {
+  // Recompute total equity value from live stock + MF data
+  const totalStockVal = latestEquity.reduce((sum, s) => sum + s.cur_val, 0);
+  const totalMfVal = latestMf.reduce((sum, f) => sum + f.cur_val, 0);
+
+  // breakup_summary values are in lakhs (1 lakh = 100,000)
+  const breakupNw = breakupSummary.net_worth;
+  const originalTotalLakhs = breakupNw["Total"]?.values?.slice(-1)?.[0] || 0;
+  const origStockLakhs = breakupNw["Stocks (Equity)"]?.values?.slice(-1)?.[0] || 0;
+  const origMfLakhs = breakupNw["Mutual Funds (Equity)"]?.values?.slice(-1)?.[0] || 0;
+  const origNpsELakhs = breakupNw["NPS E (Equity)"]?.values?.slice(-1)?.[0] || 0;
+
+  // Convert original stock+MF from lakhs to rupees for delta calculation
+  const origStockMfRupees = (origStockLakhs + origMfLakhs) * 100000;
+  const liveStockMfRupees = totalStockVal + totalMfVal;
+  const deltaLakhs = (liveStockMfRupees - origStockMfRupees) / 100000;
+
+  // Update portfolioSummary with live-adjusted values
+  portfolioSummary.total_net_worth_lakhs = originalTotalLakhs + deltaLakhs;
+  // equity_lakhs = stocks_lakhs + mfs_lakhs + nps_e_lakhs (original formula)
+  portfolioSummary.equity_lakhs = (liveStockMfRupees / 100000) + origNpsELakhs;
+  portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
 }
 
 function initPortfolioUpload() {
@@ -596,6 +903,50 @@ function updateKpis() {
   document.getElementById('kpi-debt-pct').innerText = portfolioSummary.allocation_pct.Debt.toFixed(1) + '%';
   document.getElementById('kpi-gold-val').innerText = formatLakhs(portfolioSummary.gold_lakhs);
   document.getElementById('kpi-gold-pct').innerText = portfolioSummary.allocation_pct.Gold.toFixed(1) + '%';
+
+  // Calculate last uploaded total value (sum of invested amounts across all holdings)
+  // and this month's gain from breakup_summary net_worth values
+  const nw = breakupSummary.net_worth;
+  const dates = breakupSummary.dates;
+  const latestIdx = dates.length - 1;
+  const prevIdx = dates.length - 2;
+
+  // Helper: get this month's change in lakhs for a category
+  const getMonthlyChangeLakhs = (key) => {
+    const vals = nw[key]?.values || [];
+    if (vals.length >= 2) {
+      return vals[vals.length - 1] - vals[vals.length - 2];
+    }
+    return 0;
+  };
+
+  // Stocks: last uploaded = sum of invested in latestEquity, gain = change in Stocks (Equity) net_worth
+  const stocksInvestedLakhs = latestEquity.reduce((sum, s) => sum + s.invested, 0) / 100000;
+  const stocksGainLakhs = getMonthlyChangeLakhs('Stocks (Equity)');
+  document.getElementById('kpi-stocks-uploaded').innerText = formatLakhs(stocksInvestedLakhs);
+  document.getElementById('kpi-stocks-gain').innerText = (stocksGainLakhs >= 0 ? '+' : '') + stocksGainLakhs.toFixed(2) + ' L';
+  document.getElementById('kpi-stocks-gain').className = stocksGainLakhs >= 0 ? 'trend-up' : 'trend-down';
+
+  // MFs: last uploaded = sum of invested in latestMf, gain = change in Mutual Funds (Equity) net_worth
+  const mfInvestedLakhs = latestMf.reduce((sum, f) => sum + f.invested, 0) / 100000;
+  const mfGainLakhs = getMonthlyChangeLakhs('Mutual Funds (Equity)');
+  document.getElementById('kpi-mfs-uploaded').innerText = formatLakhs(mfInvestedLakhs);
+  document.getElementById('kpi-mfs-gain').innerText = (mfGainLakhs >= 0 ? '+' : '') + mfGainLakhs.toFixed(2) + ' L';
+  document.getElementById('kpi-mfs-gain').className = mfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
+
+  // PF: current value + this month's gain
+  const pfCurrentLakhs = nw['PF (Debt)']?.values?.slice(-1)?.[0] || 0;
+  const pfGainLakhs = getMonthlyChangeLakhs('PF (Debt)');
+  document.getElementById('kpi-pf-value').innerText = formatLakhs(pfCurrentLakhs);
+  document.getElementById('kpi-pf-gain').innerText = (pfGainLakhs >= 0 ? '+' : '') + pfGainLakhs.toFixed(2) + ' L';
+  document.getElementById('kpi-pf-gain').className = pfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
+
+  // PPF: current value + this month's gain
+  const ppfCurrentLakhs = nw['PPF (Debt)']?.values?.slice(-1)?.[0] || 0;
+  const ppfGainLakhs = getMonthlyChangeLakhs('PPF (Debt)');
+  document.getElementById('kpi-ppf-value').innerText = formatLakhs(ppfCurrentLakhs);
+  document.getElementById('kpi-ppf-gain').innerText = (ppfGainLakhs >= 0 ? '+' : '') + ppfGainLakhs.toFixed(2) + ' L';
+  document.getElementById('kpi-ppf-gain').className = ppfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
 }
 
 // ==================== OVERVIEW TAB ====================
@@ -968,8 +1319,16 @@ function initStocksTab() {
     renderStockHistoricalChart(sortedByVal[0].instrument);
   }
 
-  // Populate Table
-  renderStocksTable(latestEquity);
+  // Populate Table - default sort by This Month Gain (col 10) descending
+  stockSortColumn = 10;
+  stockSortAsc = false;
+  const stockThs = document.querySelectorAll('#stocks-table th');
+  stockThs.forEach((th, idx) => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (idx === 10) th.classList.add('sort-desc');
+  });
+  const sortedStocks = [...latestEquity].sort((a, b) => (b.thisMonthGain ?? 0) - (a.thisMonthGain ?? 0));
+  renderStocksTable(sortedStocks);
 }
 
 function selectStockExplorer(symbol, element) {
@@ -1102,7 +1461,10 @@ function renderStockHistoricalChart(symbol) {
 
 function renderStocksTable(data) {
   const body = document.getElementById('stocks-table-body');
-  body.innerHTML = data.map(s => `
+  body.innerHTML = data.map(s => {
+    const uploadedPrice = s.lastUploadedPrice !== undefined ? `₹${s.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—';
+    const gain = s.thisMonthGain || 0;
+    return `
     <tr>
       <td class="instrument-cell">${escapeHtml(s.instrument)}</td>
       <td><span class="sector-tag">${escapeHtml(s.sector)}</span></td>
@@ -1117,8 +1479,12 @@ function renderStocksTable(data) {
       <td style="text-align: right;" class="${s.gain_pct >= 0 ? 'trend-up' : 'trend-down'}">
         ${s.gain_pct >= 0 ? '+' : ''}${s.gain_pct.toFixed(2)}%
       </td>
+      <td style="text-align: right;">${uploadedPrice}</td>
+      <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
+        ${gain >= 0 ? '+' : ''}${formatINR(gain)}
+      </td>
     </tr>
-  `).join('');
+  `}).join('');
 }
 
 function filterStocksTable() {
@@ -1172,6 +1538,8 @@ function sortStocks(colIdx) {
       case 6: valA = a.cur_val; valB = b.cur_val; break;
       case 7: valA = a.pnl; valB = b.pnl; break;
       case 8: valA = a.gain_pct; valB = b.gain_pct; break;
+      case 9: valA = a.lastUploadedPrice ?? 0; valB = b.lastUploadedPrice ?? 0; break;
+      case 10: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
     }
     
     if (typeof valA === 'string') {
@@ -1284,8 +1652,16 @@ function initMfsTab() {
     renderMfHistoricalChart(sortedMFsByVal[0].scheme);
   }
 
-  // Populate table
-  renderMfsTable(latestMf);
+  // Populate table - default sort by This Month Gain (col 10) descending
+  mfSortColumn = 10;
+  mfSortAsc = false;
+  const mfThs = document.querySelectorAll('#mfs-table th');
+  mfThs.forEach((th, idx) => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (idx === 10) th.classList.add('sort-desc');
+  });
+  const sortedMfs = [...latestMf].sort((a, b) => (b.thisMonthGain ?? 0) - (a.thisMonthGain ?? 0));
+  renderMfsTable(sortedMfs);
 }
 
 function selectMfExplorer(scheme, element) {
@@ -1382,7 +1758,10 @@ function renderMfHistoricalChart(scheme) {
 
 function renderMfsTable(data) {
   const body = document.getElementById('mfs-table-body');
-  body.innerHTML = data.map(f => `
+  body.innerHTML = data.map(f => {
+    const uploadedPrice = f.lastUploadedPrice !== undefined ? `₹${f.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:4})}` : '—';
+    const gain = f.thisMonthGain || 0;
+    return `
     <tr>
       <td class="instrument-cell" title="${escapeAttr(f.scheme)}">${escapeHtml(f.scheme)}</td>
       <td><span class="category-tag">${escapeHtml(f.scheme_type.replace('Equity : ', ''))}</span></td>
@@ -1397,8 +1776,12 @@ function renderMfsTable(data) {
       <td style="text-align: right;" class="${f.gain_pct >= 0 ? 'trend-up' : 'trend-down'}">
         ${f.gain_pct >= 0 ? '+' : ''}${f.gain_pct.toFixed(2)}%
       </td>
+      <td style="text-align: right;">${uploadedPrice}</td>
+      <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
+        ${gain >= 0 ? '+' : ''}${formatINR(gain)}
+      </td>
     </tr>
-  `).join('');
+  `}).join('');
 }
 
 function filterMfsTable() {
@@ -2572,6 +2955,8 @@ function sortMfs(colIdx) {
       case 6: valA = a.cur_val; valB = b.cur_val; break;
       case 7: valA = a.pnl; valB = b.pnl; break;
       case 8: valA = a.gain_pct; valB = b.gain_pct; break;
+      case 9: valA = a.lastUploadedPrice ?? 0; valB = b.lastUploadedPrice ?? 0; break;
+      case 10: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
     }
     
     if (typeof valA === 'string') {

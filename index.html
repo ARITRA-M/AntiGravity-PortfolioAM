@@ -26,6 +26,11 @@
           <label class="upload-btn" for="portfolio-upload">Upload Portfolio Analysis.xlsx</label>
           <input type="file" id="portfolio-upload" accept=".xlsx,.xls" hidden>
           <span class="upload-status" id="upload-status">Using bundled portfolio file</span>
+          <button class="refresh-btn" id="refresh-prices-btn" onclick="refreshPrices()" title="Fetch latest prices from the internet">
+            <span class="refresh-icon">⟳</span>
+            <span class="refresh-text">Refresh Prices</span>
+          </button>
+          <span class="refresh-status" id="refresh-status"></span>
         </div>
       </div>
       <div class="time-badge" id="live-time-badge">
@@ -84,6 +89,46 @@
         </div>
         <div class="kpi-sub">
           Gold, SGBs (<span id="kpi-gold-pct" class="trend-up">0%</span>)
+        </div>
+      </div>
+
+      <div class="kpi-card" style="--card-accent: #6366f1;">
+        <div>
+          <div class="kpi-title">Stocks (Uploaded)</div>
+          <div class="kpi-value" id="kpi-stocks-uploaded">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          This Month: <span id="kpi-stocks-gain" class="trend-up">+0.00 L</span>
+        </div>
+      </div>
+
+      <div class="kpi-card" style="--card-accent: #10b981;">
+        <div>
+          <div class="kpi-title">Mutual Funds (Uploaded)</div>
+          <div class="kpi-value" id="kpi-mfs-uploaded">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          This Month: <span id="kpi-mfs-gain" class="trend-up">+0.00 L</span>
+        </div>
+      </div>
+
+      <div class="kpi-card" style="--card-accent: #f59e0b;">
+        <div>
+          <div class="kpi-title">PF (Current)</div>
+          <div class="kpi-value" id="kpi-pf-value">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          This Month: <span id="kpi-pf-gain" class="trend-up">+0.00 L</span>
+        </div>
+      </div>
+
+      <div class="kpi-card" style="--card-accent: #ec4899;">
+        <div>
+          <div class="kpi-title">PPF (Current)</div>
+          <div class="kpi-value" id="kpi-ppf-value">₹0.00 L</div>
+        </div>
+        <div class="kpi-sub">
+          This Month: <span id="kpi-ppf-gain" class="trend-up">+0.00 L</span>
         </div>
       </div>
     </section>
@@ -230,6 +275,8 @@
                   <th onclick="sortStocks(6)" style="text-align: right;">Valuation (₹)</th>
                   <th onclick="sortStocks(7)" style="text-align: right;">P&L (₹)</th>
                   <th onclick="sortStocks(8)" style="text-align: right;">Gain %</th>
+                  <th onclick="sortStocks(9)" style="text-align: right;">Uploaded Price (₹)</th>
+                  <th onclick="sortStocks(10)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
                 </tr>
               </thead>
               <tbody id="stocks-table-body">
@@ -307,6 +354,8 @@
                   <th onclick="sortMfs(6)" style="text-align: right;">Valuation (₹)</th>
                   <th onclick="sortMfs(7)" style="text-align: right;">P&L (₹)</th>
                   <th onclick="sortMfs(8)" style="text-align: right;">Gain %</th>
+                  <th onclick="sortMfs(9)" style="text-align: right;">Uploaded NAV (₹)</th>
+                  <th onclick="sortMfs(10)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
                 </tr>
               </thead>
               <tbody id="mfs-table-body">
