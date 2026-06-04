@@ -125,6 +125,60 @@ header {
   font-size: 0.8rem;
 }
 
+.refresh-btn {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: var(--text-primary);
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-sans);
+}
+
+.refresh-btn:hover {
+  background: rgba(16, 185, 129, 0.25);
+  transform: translateY(-1px);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.refresh-btn.loading .refresh-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.refresh-status {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  display: none;
+}
+
+.refresh-status.visible {
+  display: inline;
+}
+
+.refresh-status.success {
+  color: var(--accent-green);
+}
+
+.refresh-status.error {
+  color: var(--accent-red);
+}
+
 .time-badge {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--card-border);
