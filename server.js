@@ -59,6 +59,49 @@ app.get('/api/live-stock-price/:symbol', async (req, res) => {
   }
 });
 
+// Proxy for Google Finance previous day's closing price (for daily gain calculation)
+// Google Finance renders "Previous close" label followed by a <div class="P6K39c"> with the value
+app.get('/api/stock-prev-close/:symbol', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const url = `https://www.google.com/finance/quote/${symbol}:NSE`;
+
+  try {
+    const response = await fetchWithTimeout(url, {}, 8000);
+
+    if (!response.ok) {
+      return res.status(502).json({ error: `Google Finance returned status ${response.status}` });
+    }
+
+    const html = await response.text();
+
+    // Find "Previous close" then look for the next P6K39c div containing the value
+    const prevIdx = html.indexOf('Previous close');
+    if (prevIdx === -1) {
+      return res.status(404).json({ error: `No previous close label found for symbol: ${symbol}` });
+    }
+
+    const afterLabel = html.substring(prevIdx);
+    // Match the first <div class="P6K39c"> containing a number (₹ symbol is multi-byte UTF-8)
+    const p6k39cRegex = /<div class="P6K39c">[^<]*?([\d,]+\.?\d*)/;
+    const p6k39cMatch = afterLabel.match(p6k39cRegex);
+    if (!p6k39cMatch) {
+      return res.status(404).json({ error: `No previous close value found for symbol: ${symbol}` });
+    }
+
+    // Remove commas and parse
+    const prevClose = parseFloat(p6k39cMatch[1].replace(/,/g, ''));
+
+    res.json({
+      symbol: symbol,
+      prevClose: prevClose,
+      source: 'google',
+      timestamp: Math.floor(Date.now() / 1000)
+    });
+  } catch (e) {
+    res.status(502).json({ error: 'Failed to fetch previous close from Google Finance: ' + e.message });
+  }
+});
+
 // Fallback: Yahoo Finance for instruments not on Google Finance (REITs, etc.)
 // Yahoo Finance uses .NS suffix for NSE stocks
 app.get('/api/live-stock-price-yahoo/:symbol', async (req, res) => {
@@ -93,6 +136,51 @@ app.get('/api/live-stock-price-yahoo/:symbol', async (req, res) => {
     });
   } catch (e) {
     res.status(502).json({ error: 'Failed to fetch from Yahoo Finance: ' + e.message });
+  }
+});
+
+// Fallback: Yahoo Finance previous close for instruments not on Google Finance (REITs, etc.)
+app.get('/api/stock-prev-close-yahoo/:symbol', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const yahooSymbol = symbol.replace(/-RR$/, '');
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}.NS`;
+
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }
+    }, 8000);
+
+    if (!response.ok) {
+      return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
+    }
+
+    const data = await response.json();
+    const result = data?.chart?.result?.[0];
+    if (!result || !result.indicators || !result.indicators.quote || !result.indicators.quote[0]) {
+      return res.status(404).json({ error: `No data found for symbol: ${symbol}` });
+    }
+
+    // Get the previous close from the first data point's close value
+    const closes = result.indicators.quote[0].close;
+    // Filter out null values
+    const validCloses = closes.filter(c => c !== null);
+    if (validCloses.length < 2) {
+      return res.status(404).json({ error: `Not enough close data for symbol: ${symbol}` });
+    }
+    // The second-to-last close is yesterday's close (last is today's current/close)
+    const prevClose = validCloses[validCloses.length - 2];
+
+    res.json({
+      symbol: symbol,
+      prevClose: prevClose,
+      source: 'yahoo',
+      timestamp: Math.floor(Date.now() / 1000)
+    });
+  } catch (e) {
+    res.status(502).json({ error: 'Failed to fetch previous close from Yahoo Finance: ' + e.message });
   }
 });
 

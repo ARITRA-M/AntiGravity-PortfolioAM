@@ -41,12 +41,11 @@
     <!-- Navigation Tabs -->
     <div class="tabs-navigation">
       <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
-      <button class="tab-btn" onclick="switchTab('growth')">Historical Growth</button>
       <button class="tab-btn" onclick="switchTab('stocks')">Stock Analytics</button>
       <button class="tab-btn" onclick="switchTab('mfs')">Mutual Fund Analytics</button>
-      <button class="tab-btn" onclick="switchTab('benchmark')">Benchmark</button>
-      <button class="tab-btn" onclick="switchTab('dividends')">Dividends</button>
-      <button class="tab-btn" onclick="switchTab('tax')">Tax Optimizer</button>
+      <button class="tab-btn" onclick="switchTab('growth')">Growth & Benchmark</button>
+      <button class="tab-btn" onclick="switchTab('fixed-income')">Fixed Income</button>
+      <button class="tab-btn" onclick="switchTab('nps')">NPS</button>
       <button class="tab-btn" onclick="switchTab('monthly')">Monthly Changes</button>
     </div>
 
@@ -135,8 +134,85 @@
 
     <!-- ==================== OVERVIEW TAB ==================== -->
     <div id="overview-tab" class="tab-content active">
+      <!-- Overview Sub-tabs -->
+      <div class="overview-subtabs">
+        <button class="subtab-btn active" onclick="switchOverviewSubtab('daily', this)">📊 Daily Overview</button>
+        <button class="subtab-btn" onclick="switchOverviewSubtab('monthly', this)">📈 Monthly Overview</button>
+      </div>
+
+      <!-- Daily Overview Section -->
+      <div id="overview-daily" class="overview-subcontent active">
+        <div class="dashboard-grid">
+          <!-- Daily Top Gainers (across Stocks & MFs by value) -->
+          <div class="chart-card full-width-card">
+            <div class="chart-header">
+              <h3>🔥 Daily Top Gainers (Value Change)</h3>
+            </div>
+            <div class="table-wrapper">
+              <table id="daily-overview-table">
+                <thead>
+                  <tr>
+                    <th onclick="sortDailyOverview(0)">Instrument</th>
+                    <th onclick="sortDailyOverview(1)">Type</th>
+                    <th onclick="sortDailyOverview(2)" style="text-align: right;">Yesterday Close (₹)</th>
+                    <th onclick="sortDailyOverview(3)" style="text-align: right;">Current LTP (₹)</th>
+                    <th onclick="sortDailyOverview(4)" style="text-align: right;">Change (₹)</th>
+                    <th onclick="sortDailyOverview(5)" style="text-align: right;">Change %</th>
+                  </tr>
+                </thead>
+                <tbody id="daily-overview-body">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Monthly Overview Section -->
+      <div id="overview-monthly" class="overview-subcontent">
+        <div class="dashboard-grid">
+          <!-- Monthly Summary KPIs -->
+          <div class="chart-card full-width-card">
+            <div class="chart-header">
+              <h3>📈 Monthly Portfolio Summary (Since Last Upload)</h3>
+            </div>
+            <div class="monthly-summary-grid" id="overview-monthly-summary">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Monthly Top Gainers (from last upload) -->
+          <div class="chart-card full-width-card">
+            <div class="chart-header">
+              <h3>🏆 Top Monthly Gainers (Since Last Upload)</h3>
+            </div>
+            <div class="table-wrapper">
+              <table id="monthly-overview-table">
+                <thead>
+                  <tr>
+                    <th onclick="sortMonthlyOverview(0)">Instrument</th>
+                    <th onclick="sortMonthlyOverview(1)">Type</th>
+                    <th onclick="sortMonthlyOverview(2)" style="text-align: right;">Uploaded Value (₹)</th>
+                    <th onclick="sortMonthlyOverview(3)" style="text-align: right;">Current Value (₹)</th>
+                    <th onclick="sortMonthlyOverview(4)" style="text-align: right;">Gain (₹)</th>
+                    <th onclick="sortMonthlyOverview(5)" style="text-align: right;">Gain %</th>
+                  </tr>
+                </thead>
+                <tbody id="monthly-overview-body">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== GROWTH & BENCHMARK TAB ==================== -->
+    <div id="growth-tab" class="tab-content">
       <div class="dashboard-grid">
-        <!-- Asset Allocation Donut Chart -->
+        <!-- Asset Allocation Donut Chart (moved from overview) -->
         <div class="chart-card">
           <div class="chart-header">
             <h3>Current Asset Allocation</h3>
@@ -146,7 +222,7 @@
           </div>
         </div>
 
-        <!-- Portfolio Performance Metrics Card -->
+        <!-- Component XIRR (moved from overview) -->
         <div class="chart-card">
           <div class="chart-header">
             <h3>Component Annualized Returns (XIRR)</h3>
@@ -155,8 +231,8 @@
             <canvas id="component-xirr-chart"></canvas>
           </div>
         </div>
-        
-        <!-- Net Worth Allocation Shifts Over Time -->
+
+        <!-- Historical Allocation Shift (moved from overview) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Historical Asset Allocation Shift (%)</h3>
@@ -165,12 +241,7 @@
             <canvas id="allocation-shift-chart"></canvas>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- ==================== HISTORICAL GROWTH TAB ==================== -->
-    <div id="growth-tab" class="tab-content">
-      <div class="dashboard-grid">
         <!-- Net Worth Growth Trend (Area) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
@@ -195,6 +266,43 @@
           </div>
           <div class="chart-container">
             <canvas id="capital-vs-valuation-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Benchmark Comparison Chart -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Portfolio vs Benchmark Comparison (Model)</h3>
+            <div class="time-filters">
+              <select id="benchmark-select" class="select-filter" onchange="updateBenchmarkChart()">
+                <option value="nifty50">Nifty 50</option>
+                <option value="spx">S&P 500</option>
+                <option value="gold">Gold</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="benchmark-comparison-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Benchmark Performance Stats -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Performance Comparison</h3>
+          </div>
+          <div class="benchmark-stats" id="benchmark-stats">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Rolling Returns Comparison -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Rolling Returns Comparison (1Y)</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="rolling-returns-chart"></canvas>
           </div>
         </div>
       </div>
@@ -222,7 +330,8 @@
       </div>
 
       <div class="dashboard-grid">
-        <!-- Stock Sector Allocation -->
+        <!-- Charts Section (on top, before graphs) -->
+        <!-- Stock Sector Allocation Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Equity Portfolio Sector Distribution</h3>
@@ -232,7 +341,52 @@
           </div>
         </div>
 
-        <!-- Interactive Stock Explorer -->
+        <!-- Dividend Charts (side by side) -->
+        <div class="chart-card" style="grid-column: span 1;">
+          <div class="chart-header">
+            <h3>💰 Dividend History</h3>
+          </div>
+          <div class="chart-container" style="height: 250px;">
+            <canvas id="dividend-history-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-card" style="grid-column: span 1;">
+          <div class="chart-header">
+            <h3>💰 Dividend by Source</h3>
+          </div>
+          <div class="chart-container" style="height: 250px;">
+            <canvas id="dividend-source-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Dividend KPIs -->
+        <div class="chart-card full-width-card">
+          <div class="kpi-grid" style="margin-bottom: 0;">
+            <div class="kpi-card" style="--card-accent: var(--accent-green); box-shadow: none; padding: 0.5rem;">
+              <div>
+                <div class="kpi-title">Total Dividends (TTM)</div>
+                <div class="kpi-value" id="div-ttm-value">₹0.00 L</div>
+              </div>
+              <div class="kpi-sub">Trailing 12 Months</div>
+            </div>
+            <div class="kpi-card" style="--card-accent: var(--accent-amber); box-shadow: none; padding: 0.5rem;">
+              <div>
+                <div class="kpi-title">Dividend Yield</div>
+                <div class="kpi-value" id="div-yield-value">0.00%</div>
+              </div>
+              <div class="kpi-sub">Annual Yield on Portfolio</div>
+            </div>
+            <div class="kpi-card" style="--card-accent: var(--accent-blue); box-shadow: none; padding: 0.5rem;">
+              <div>
+                <div class="kpi-title">Dividend Growth</div>
+                <div class="kpi-value" id="div-growth-value">+0.0%</div>
+              </div>
+              <div class="kpi-sub">YoY Growth Rate</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Stock Explorer (graphs) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Historical Stock Price & Position Explorer</h3>
@@ -248,9 +402,27 @@
               </div>
             </div>
           </div>
+          <!-- Historical Data Table for Stock Explorer (shows incremental transactions) -->
+          <div class="table-wrapper" id="stock-historical-data-table" style="margin-top: 1rem; display: none;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th style="text-align: right;">Δ Qty</th>
+                  <th style="text-align: right;">Price (₹)</th>
+                  <th style="text-align: right;">Δ Invested (₹)</th>
+                  <th style="text-align: right;">Δ Valuation (₹)</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="stock-historical-data-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <!-- Stock Holdings Table -->
+        <!-- Stock Holdings Table (merged with dividend columns) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Current Stock Holdings</h3>
@@ -269,14 +441,16 @@
                   <th onclick="sortStocks(0)">Instrument</th>
                   <th onclick="sortStocks(1)">Sector</th>
                   <th onclick="sortStocks(2)" style="text-align: right;">Qty.</th>
-                  <th onclick="sortStocks(3)" style="text-align: right;">Avg. Cost (₹)</th>
-                  <th onclick="sortStocks(4)" style="text-align: right;">LTP (₹)</th>
-                  <th onclick="sortStocks(5)" style="text-align: right;">Invested (₹)</th>
-                  <th onclick="sortStocks(6)" style="text-align: right;">Valuation (₹)</th>
-                  <th onclick="sortStocks(7)" style="text-align: right;">P&L (₹)</th>
-                  <th onclick="sortStocks(8)" style="text-align: right;">Gain %</th>
-                  <th onclick="sortStocks(9)" style="text-align: right;">Uploaded Price (₹)</th>
+                  <th onclick="sortStocks(3)" style="text-align: right;">Current LTP (₹)</th>
+                  <th onclick="sortStocks(4)" style="text-align: right;">Uploaded Price (₹)</th>
+                  <th onclick="sortStocks(5)" style="text-align: right;">Purchase Price (₹)</th>
+                  <th onclick="sortStocks(6)" style="text-align: right;">Invested (₹)</th>
+                  <th onclick="sortStocks(7)" style="text-align: right;">Valuation (₹)</th>
+                  <th onclick="sortStocks(8)" style="text-align: right;">P&L (₹)</th>
+                  <th onclick="sortStocks(9)" style="text-align: right;">Gain %</th>
                   <th onclick="sortStocks(10)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
+                  <th onclick="sortStocks(11)" style="text-align: right;">Annual Div (₹)</th>
+                  <th onclick="sortStocks(12)" style="text-align: right;">Div Yield %</th>
                 </tr>
               </thead>
               <tbody id="stocks-table-body">
@@ -285,6 +459,9 @@
             </table>
           </div>
         </div>
+
+        <!-- Upcoming Dividends List (hidden container for JS) -->
+        <div id="upcoming-dividends-list" style="display: none;"></div>
       </div>
     </div>
 
@@ -327,6 +504,25 @@
               </div>
             </div>
           </div>
+          <!-- Historical Data Table for MF Explorer -->
+          <!-- Historical Data Table for MF Explorer (shows incremental transactions) -->
+          <div class="table-wrapper" id="mf-historical-data-table" style="margin-top: 1rem; display: none;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th style="text-align: right;">Δ Units</th>
+                  <th style="text-align: right;">NAV (₹)</th>
+                  <th style="text-align: right;">Δ Invested (₹)</th>
+                  <th style="text-align: right;">Δ Valuation (₹)</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="mf-historical-data-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Mutual Fund Table -->
@@ -348,13 +544,13 @@
                   <th onclick="sortMfs(0)">Scheme Name</th>
                   <th onclick="sortMfs(1)">Category</th>
                   <th onclick="sortMfs(2)" style="text-align: right;">Quantity</th>
-                  <th onclick="sortMfs(3)" style="text-align: right;">NAV (₹)</th>
-                  <th onclick="sortMfs(4)" style="text-align: right;">Avg NAV (₹)</th>
-                  <th onclick="sortMfs(5)" style="text-align: right;">Invested (₹)</th>
-                  <th onclick="sortMfs(6)" style="text-align: right;">Valuation (₹)</th>
-                  <th onclick="sortMfs(7)" style="text-align: right;">P&L (₹)</th>
-                  <th onclick="sortMfs(8)" style="text-align: right;">Gain %</th>
-                  <th onclick="sortMfs(9)" style="text-align: right;">Uploaded NAV (₹)</th>
+                  <th onclick="sortMfs(3)" style="text-align: right;">Current NAV (₹)</th>
+                  <th onclick="sortMfs(4)" style="text-align: right;">Uploaded NAV (₹)</th>
+                  <th onclick="sortMfs(5)" style="text-align: right;">Purchase NAV (₹)</th>
+                  <th onclick="sortMfs(6)" style="text-align: right;">Invested (₹)</th>
+                  <th onclick="sortMfs(7)" style="text-align: right;">Valuation (₹)</th>
+                  <th onclick="sortMfs(8)" style="text-align: right;">P&L (₹)</th>
+                  <th onclick="sortMfs(9)" style="text-align: right;">Gain %</th>
                   <th onclick="sortMfs(10)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
                 </tr>
               </thead>
@@ -367,125 +563,164 @@
       </div>
     </div>
 
-    <!-- ==================== BENCHMARK TAB ==================== -->
-    <div id="benchmark-tab" class="tab-content">
+    <!-- ==================== FIXED INCOME TAB ==================== -->
+    <div id="fixed-income-tab" class="tab-content">
+      <div class="kpi-grid" style="margin-bottom: 2rem;">
+        <div class="kpi-card" style="--card-accent: #f59e0b;">
+          <div>
+            <div class="kpi-title">PF (Current)</div>
+            <div class="kpi-value" id="fi-pf-value">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">
+            This Month: <span id="fi-pf-gain" class="trend-up">+0.00 L</span>
+          </div>
+        </div>
+        <div class="kpi-card" style="--card-accent: #ec4899;">
+          <div>
+            <div class="kpi-title">PPF (Current)</div>
+            <div class="kpi-value" id="fi-ppf-value">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">
+            This Month: <span id="fi-ppf-gain" class="trend-up">+0.00 L</span>
+          </div>
+        </div>
+        <div class="kpi-card" style="--card-accent: #8b5cf6;">
+          <div>
+            <div class="kpi-title">Bonds (Current)</div>
+            <div class="kpi-value" id="fi-bonds-value">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">
+            This Month: <span id="fi-bonds-gain" class="trend-up">+0.00 L</span>
+          </div>
+        </div>
+      </div>
+
       <div class="dashboard-grid">
-        <!-- Benchmark Comparison Chart -->
+        <!-- PF Growth Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Portfolio vs Benchmark Comparison (Model)</h3>
-            <div class="time-filters">
-              <select id="benchmark-select" class="select-filter" onchange="updateBenchmarkChart()">
-                <option value="nifty50">Nifty 50</option>
-                <option value="spx">S&P 500</option>
-                <option value="gold">Gold</option>
-              </select>
-            </div>
+            <h3>Provident Fund (PF) Growth Over Time</h3>
           </div>
           <div class="chart-container">
-            <canvas id="benchmark-comparison-chart"></canvas>
+            <canvas id="pf-growth-chart"></canvas>
           </div>
         </div>
 
-        <!-- Benchmark Performance Stats -->
-        <div class="chart-card">
+        <!-- PPF Growth Chart -->
+        <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Performance Comparison</h3>
+            <h3>Public Provident Fund (PPF) Growth Over Time</h3>
           </div>
-          <div class="benchmark-stats" id="benchmark-stats">
-            <!-- Dynamically populated -->
+          <div class="chart-container">
+            <canvas id="ppf-growth-chart"></canvas>
           </div>
         </div>
 
-        <!-- Rolling Returns Comparison -->
+        <!-- Bonds Growth Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Rolling Returns Comparison (1Y)</h3>
+            <h3>Bonds Growth Over Time</h3>
           </div>
           <div class="chart-container">
-            <canvas id="rolling-returns-chart"></canvas>
+            <canvas id="bonds-growth-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Fixed Income Summary Table -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Fixed Income Summary</h3>
+          </div>
+          <div class="table-wrapper">
+            <table id="fixed-income-table">
+              <thead>
+                <tr>
+                  <th>Instrument</th>
+                  <th style="text-align: right;">Current Value (₹ L)</th>
+                  <th style="text-align: right;">This Month Change (₹ L)</th>
+                  <th style="text-align: right;">This Month Change %</th>
+                  <th style="text-align: right;">Total Invested (₹ L)</th>
+                  <th style="text-align: right;">Total Returns (₹ L)</th>
+                </tr>
+              </thead>
+              <tbody id="fixed-income-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ==================== DIVIDENDS TAB ==================== -->
-    <div id="dividends-tab" class="tab-content">
+    <!-- ==================== NPS TAB ==================== -->
+    <div id="nps-tab" class="tab-content">
       <div class="kpi-grid" style="margin-bottom: 2rem;">
-        <div class="kpi-card" style="--card-accent: var(--accent-green);">
+        <div class="kpi-card" style="--card-accent: #3b82f6;">
           <div>
-            <div class="kpi-title">Total Dividends (TTM)</div>
-            <div class="kpi-value" id="div-ttm-value">₹0.00 L</div>
+            <div class="kpi-title">NPS E (Equity)</div>
+            <div class="kpi-value" id="nps-e-value">₹0.00 L</div>
           </div>
-          <div class="kpi-sub">Trailing 12 Months</div>
+          <div class="kpi-sub">
+            This Month: <span id="nps-e-gain" class="trend-up">+0.00 L</span>
+          </div>
         </div>
-        <div class="kpi-card" style="--card-accent: var(--accent-amber);">
+        <div class="kpi-card" style="--card-accent: #10b981;">
           <div>
-            <div class="kpi-title">Dividend Yield</div>
-            <div class="kpi-value" id="div-yield-value">0.00%</div>
+            <div class="kpi-title">NPS C (Debt)</div>
+            <div class="kpi-value" id="nps-c-value">₹0.00 L</div>
           </div>
-          <div class="kpi-sub">Annual Yield on Portfolio</div>
+          <div class="kpi-sub">
+            This Month: <span id="nps-c-gain" class="trend-up">+0.00 L</span>
+          </div>
         </div>
-        <div class="kpi-card" style="--card-accent: var(--accent-blue);">
+        <div class="kpi-card" style="--card-accent: #f59e0b;">
           <div>
-            <div class="kpi-title">Dividend Growth</div>
-            <div class="kpi-value" id="div-growth-value">+0.0%</div>
+            <div class="kpi-title">NPS G (Debt)</div>
+            <div class="kpi-value" id="nps-g-value">₹0.00 L</div>
           </div>
-          <div class="kpi-sub">YoY Growth Rate</div>
+          <div class="kpi-sub">
+            This Month: <span id="nps-g-gain" class="trend-up">+0.00 L</span>
+          </div>
+        </div>
+        <div class="kpi-card" style="--card-accent: #8b5cf6;">
+          <div>
+            <div class="kpi-title">Total NPS</div>
+            <div class="kpi-value" id="nps-total-value">₹0.00 L</div>
+          </div>
+          <div class="kpi-sub">
+            This Month: <span id="nps-total-gain" class="trend-up">+0.00 L</span>
+          </div>
         </div>
       </div>
 
       <div class="dashboard-grid">
-        <!-- Dividend History Chart -->
+        <!-- NPS Growth Charts -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Dividend Income History (Estimate)</h3>
+            <h3>NPS Component Growth Over Time</h3>
           </div>
           <div class="chart-container">
-            <canvas id="dividend-history-chart"></canvas>
+            <canvas id="nps-growth-chart"></canvas>
           </div>
         </div>
 
-        <!-- Dividend by Source -->
+        <!-- NPS Allocation Donut -->
         <div class="chart-card">
           <div class="chart-header">
-            <h3>Dividend by Asset Type</h3>
+            <h3>NPS Allocation</h3>
           </div>
           <div class="chart-container" style="height: 280px;">
-            <canvas id="dividend-source-chart"></canvas>
+            <canvas id="nps-allocation-chart"></canvas>
           </div>
         </div>
 
-        <!-- Upcoming Dividends -->
+        <!-- NPS Summary Table -->
         <div class="chart-card">
           <div class="chart-header">
-            <h3>Expected Upcoming Dividends (Estimate)</h3>
+            <h3>NPS Summary</h3>
           </div>
-          <div class="upcoming-dividends-list" id="upcoming-dividends-list">
+          <div class="nps-summary" id="nps-summary">
             <!-- Dynamically populated -->
-          </div>
-        </div>
-
-        <!-- Dividend Holdings Table -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Dividend Paying Holdings (Estimate)</h3>
-          </div>
-          <div class="table-wrapper">
-            <table id="dividend-table">
-              <thead>
-                <tr>
-                  <th>Instrument</th>
-                  <th>Type</th>
-                  <th style="text-align: right;">Annual Dividend (₹)</th>
-                  <th style="text-align: right;">Yield %</th>
-                  <th style="text-align: right;">Last Dividend</th>
-                </tr>
-              </thead>
-              <tbody id="dividend-table-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
           </div>
         </div>
       </div>
@@ -587,103 +822,6 @@
       </div>
     </div>
 
-    <!-- ==================== TAX OPTIMIZER TAB ==================== -->
-    <div id="tax-tab" class="tab-content">
-      <div class="kpi-grid" style="margin-bottom: 2rem;">
-        <div class="kpi-card">
-          <div>
-            <div class="kpi-title">Unrealized Gains</div>
-            <div class="kpi-value" id="tax-unrealized-gains">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">Total Paper Profits</div>
-        </div>
-        <div class="kpi-card">
-          <div>
-            <div class="kpi-title">Est. LTCG Tax</div>
-            <div class="kpi-value" id="tax-ltcg-est">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">If All Positions Sold</div>
-        </div>
-        <div class="kpi-card">
-          <div>
-            <div class="kpi-title">Tax-Loss Harvesting</div>
-            <div class="kpi-value trend-down" id="tax-loss-opportunity">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">Available Losses to Harvest</div>
-        </div>
-      </div>
-
-      <div class="dashboard-grid">
-        <!-- Capital Gains Calculator -->
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Capital Gains Calculator</h3>
-          </div>
-          <div class="tax-calculator">
-            <div class="calc-input-group">
-              <label>Sell Amount (₹)</label>
-              <input type="number" id="calc-sell-amount" class="calc-input" placeholder="Enter amount" value="100000">
-            </div>
-            <div class="calc-input-group">
-              <label>Buy Amount (₹)</label>
-              <input type="number" id="calc-buy-amount" class="calc-input" placeholder="Enter amount" value="80000">
-            </div>
-            <div class="calc-input-group">
-              <label>Holding Period</label>
-              <select id="calc-holding-period" class="calc-select">
-                <option value="stcg">Short Term (<1 Year)</option>
-                <option value="ltcg">Long Term (≥1 Year)</option>
-              </select>
-            </div>
-            <div class="calc-result">
-              <div class="calc-result-item">
-                <span>Capital Gain</span>
-                <strong id="calc-gain">₹20,000</strong>
-              </div>
-              <div class="calc-result-item">
-                <span>Tax Rate</span>
-                <strong id="calc-tax-rate">15%</strong>
-              </div>
-              <div class="calc-result-item highlight">
-                <span>Tax Liability</span>
-                <strong id="calc-tax-liability">₹3,000</strong>
-              </div>
-            </div>
-            <button class="tax-calc-btn" onclick="calculateTax()">Calculate</button>
-          </div>
-        </div>
-
-        <!-- Tax Harvesting Opportunities -->
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Tax-Loss Harvesting Opportunities</h3>
-          </div>
-          <div class="harvest-list" id="harvest-list">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-
-        <!-- Gains by Holding Period -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Gains Distribution by Holding Period</h3>
-          </div>
-          <div class="chart-container">
-            <canvas id="holding-period-chart"></canvas>
-          </div>
-        </div>
-
-        <!-- Recommended Actions -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Tax Optimization Recommendations</h3>
-          </div>
-          <div class="tax-recommendations" id="tax-recommendations">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-      </div>
-    </div>
 
   </div>
 
