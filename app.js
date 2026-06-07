@@ -3161,14 +3161,6 @@ function initUpdateLogTab() {
     html += '</tbody></table></div>';
   }
 
-  // ── Reliability Notes ──
-  if (report.rateLimitedCount > 0) {
-    html += `<div class="update-log-note">⚠️ ${report.rateLimitedCount} requests were rate-limited and retried with exponential backoff.</div>`;
-  }
-  if (report.cacheHitCount > 0) {
-    html += `<div class="update-log-note">💡 ${report.cacheHitCount} prices served from cache (same ticker refreshed multiple times).</div>`;
-  }
-
   container.innerHTML = html;
 }
 
