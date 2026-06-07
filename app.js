@@ -1242,20 +1242,14 @@ function renderDailyOverviewTable() {
   const col = dailyOverviewSortCol;
   const asc = dailyOverviewSortAsc;
   if (col === 1) {
-    // Type column — sort by type (Stock/MF), then by name as tiebreaker
-    filteredCombined.sort((a, b) => {
-      const typeCmp = asc ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
-      return typeCmp !== 0 ? typeCmp : a.name.localeCompare(b.name);
-    });
-  } else if (col === 2) {
     filteredCombined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
-  } else if (col === 3) {
+  } else if (col === 2) {
     filteredCombined.sort((a, b) => sortNullableNumber(a.yesterdayClose, b.yesterdayClose, asc));
-  } else if (col === 4) {
+  } else if (col === 3) {
     filteredCombined.sort((a, b) => asc ? a.currentLtp - b.currentLtp : b.currentLtp - a.currentLtp);
-  } else if (col === 5) {
+  } else if (col === 4) {
     filteredCombined.sort((a, b) => sortNullableNumber(a.change, b.change, asc));
-  } else if (col === 6) {
+  } else if (col === 5) {
     filteredCombined.sort((a, b) => sortNullableNumber(a.changePct, b.changePct, asc));
   } else {
     // Name column (0) or fallback: sort by instrument name
@@ -1266,7 +1260,6 @@ function renderDailyOverviewTable() {
   tbody.innerHTML = filteredCombined.map(item => `
     <tr>
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
-      <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>
       <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatNullableNumber(item.yesterdayClose, 2)}</td>
       <td style="text-align: right;">${item.currentLtp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
@@ -1416,20 +1409,14 @@ function renderMonthlyOverviewTable() {
   const col = monthlyOverviewSortCol;
   const asc = monthlyOverviewSortAsc;
   if (col === 1) {
-    // Type column — sort by type (Stock/MF), then by name as tiebreaker
-    filteredCombined.sort((a, b) => {
-      const typeCmp = asc ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
-      return typeCmp !== 0 ? typeCmp : a.name.localeCompare(b.name);
-    });
-  } else if (col === 2) {
     filteredCombined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
-  } else if (col === 3) {
+  } else if (col === 2) {
     filteredCombined.sort((a, b) => asc ? a.uploadedVal - b.uploadedVal : b.uploadedVal - a.uploadedVal);
-  } else if (col === 4) {
+  } else if (col === 3) {
     filteredCombined.sort((a, b) => asc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal);
-  } else if (col === 5) {
+  } else if (col === 4) {
     filteredCombined.sort((a, b) => asc ? a.gain - b.gain : b.gain - a.gain);
-  } else if (col === 6) {
+  } else if (col === 5) {
     filteredCombined.sort((a, b) => asc ? a.gainPct - b.gainPct : b.gainPct - a.gainPct);
   } else {
     // Name column (0) or fallback: sort by name
@@ -1440,7 +1427,6 @@ function renderMonthlyOverviewTable() {
   tbody.innerHTML = filteredCombined.map(item => `
     <tr>
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
-      <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>
       <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatINR(item.uploadedVal)}</td>
       <td style="text-align: right;">${formatINR(item.currentVal)}</td>
