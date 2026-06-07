@@ -120,6 +120,23 @@ header {
   transform: translateY(-1px);
 }
 
+.download-json-btn {
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.38);
+  color: var(--text-primary);
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.download-json-btn:hover {
+  background: rgba(16, 185, 129, 0.24);
+  transform: translateY(-1px);
+}
+
 .upload-status {
   color: var(--text-muted);
   font-size: 0.8rem;

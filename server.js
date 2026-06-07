@@ -409,6 +409,32 @@ app.get('/api/search-mf-scheme', async (req, res) => {
   }
 });
 
+// ── Save portfolio data to server (persists uploaded Excel data) ──────────
+const ALLOWED_SAVE_KEYS = new Set(['portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings']);
+app.post('/api/save-data', (req, res) => {
+  try {
+    const dataDir = path.join(__dirname, 'data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    let savedCount = 0;
+    for (const [key, value] of Object.entries(req.body)) {
+      if (ALLOWED_SAVE_KEYS.has(key)) {
+        const filePath = path.join(dataDir, key + '.json');
+        fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf-8');
+        savedCount++;
+        console.log(`Saved ${key}.json to data/ directory`);
+      }
+    }
+
+    res.json({ success: true, savedCount, message: `Saved ${savedCount} data files. Run git commit to deploy.` });
+  } catch (e) {
+    console.error('Failed to save portfolio data:', e);
+    res.status(500).json({ error: 'Failed to save portfolio data: ' + e.message });
+  }
+});
+
 // Catch-all: serve index.html for any non-file route (SPA fallback)
 // Express 5 uses path-to-regexp v8+ which does not support bare '*'
 // Use a middleware that catches all unmatched GET requests
