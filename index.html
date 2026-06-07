@@ -210,9 +210,9 @@
                     <th onclick="sortMonthlyOverview(0)">Instrument</th>
                     <th onclick="sortMonthlyOverview(1)">Type</th>
                     <th onclick="sortMonthlyOverview(2)" style="text-align: right;">Quantity</th>
-                    <th onclick="sortMonthlyOverview(3)" style="text-align: right;">Uploaded Value (₹)</th>
-                    <th onclick="sortMonthlyOverview(4)" style="text-align: right;">Current Value (₹)</th>
-                    <th onclick="sortMonthlyOverview(5)" style="text-align: right;">Gain (₹)</th>
+                    <th onclick="sortMonthlyOverview(3)" style="text-align: right;">Uploaded Value (₹ L)</th>
+                    <th onclick="sortMonthlyOverview(4)" style="text-align: right;">Current Value (₹ L)</th>
+                    <th onclick="sortMonthlyOverview(5)" style="text-align: right;">Gain (₹ L)</th>
                     <th onclick="sortMonthlyOverview(6)" style="text-align: right;">Gain %</th>
                   </tr>
                 </thead>
@@ -724,21 +724,23 @@
         </div>
 
         <!-- Top Monthly Gainers & Losers -->
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Top Monthly Gainers</h3>
+        <div class="movers-grid-wrapper">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Top Monthly Gainers</h3>
+            </div>
+            <div class="monthly-movers-list" id="monthly-gainers-list">
+              <!-- Dynamically populated -->
+            </div>
           </div>
-          <div class="monthly-movers-list" id="monthly-gainers-list">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
 
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Top Monthly Losers</h3>
-          </div>
-          <div class="monthly-movers-list" id="monthly-losers-list">
-            <!-- Dynamically populated -->
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Top Monthly Losers</h3>
+            </div>
+            <div class="monthly-movers-list" id="monthly-losers-list">
+              <!-- Dynamically populated -->
+            </div>
           </div>
         </div>
 
