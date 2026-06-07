@@ -1460,7 +1460,11 @@ function initGrowthTab() {
 
   // Capital vs Valuation Line Chart
   const totalNw = nwSec["Total"].values;
-  const cumInvested = portfolioSummary.cumulative_investment_history;
+  const rawCumInvested = portfolioSummary.cumulative_investment_history;
+  // Offset cumulative investment to start at the same level as the initial portfolio valuation
+  // This ensures the chart shows capital invested vs valuation on a comparable basis
+  const offset = totalNw.length > 0 && rawCumInvested.length > 0 ? totalNw[0] - rawCumInvested[0] : 0;
+  const cumInvested = rawCumInvested.map(v => v + offset);
   
   const ctxCap = document.getElementById('capital-vs-valuation-chart').getContext('2d');
   capitalVsValuationChart = new Chart(ctxCap, {
