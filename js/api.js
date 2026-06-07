@@ -189,8 +189,6 @@ async function refreshPrices() {
   let stockFail = 0;
   let mfSuccess = 0;
   let mfFail = 0;
-  let rateLimitedCount = 0;
-  let cacheHitCount = 0;
   const stockDetails = [];
   const mfDetails = [];
 
@@ -265,12 +263,7 @@ async function refreshPrices() {
         }
       } catch (e) {
         stockFail++;
-        const errMsg = e.message || String(e);
-        stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: errMsg });
-        // Detect rate-limit errors
-        if (errMsg.includes('429') || errMsg.includes('rate') || errMsg.includes('too many')) {
-          rateLimitedCount++;
-        }
+        stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: e.message || String(e) });
       }
       updateProgress(ticker);
     });
@@ -310,24 +303,6 @@ async function refreshPrices() {
 
       if (fund.lastUploadedPrice === undefined) fund.lastUploadedPrice = fund.price;
 
-      // Check MF cache
-      const mfCacheKey = `mf:${schemeCode}`;
-      const cachedMf = getCachedPrice(mfCacheKey);
-      if (cachedMf) {
-        cacheHitCount++;
-        fund.price = cachedMf.nav;
-        fund.cur_val = fund.qty * cachedMf.nav;
-        fund.pnl = fund.cur_val - fund.invested;
-        fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
-        fund.lastRefreshDate = refreshDateStr;
-        fund.previousNav = cachedMf.prevNav || null;
-        fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
-        mfSuccess++;
-        mfDetails.push({ scheme: fund.scheme, status: 'success', nav: cachedMf.nav, prevNav: cachedMf.prevNav, error: null });
-        updateProgress(fund.scheme);
-        return;
-      }
-
       try {
         const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
 
@@ -358,19 +333,13 @@ async function refreshPrices() {
           fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
           mfSuccess++;
           mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, error: null });
-          // Cache the MF result
-          setCachedPrice(mfCacheKey, { nav: data.nav, prevNav: data.prevNav });
         } else {
           mfFail++;
           mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Invalid NAV response' });
         }
       } catch (e) {
         mfFail++;
-        const errMsg = e.message || String(e);
-        mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: errMsg });
-        if (errMsg.includes('429') || errMsg.includes('rate') || errMsg.includes('too many')) {
-          rateLimitedCount++;
-        }
+        mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: e.message || String(e) });
       }
       updateProgress(fund.scheme);
     });
@@ -400,7 +369,6 @@ async function refreshPrices() {
     lastRefreshReport = {
       refreshedAt: refreshDateStr, stockSuccess, stockFail, mfSuccess, mfFail,
       totalStocks, totalMfs, mappedMfs, skippedStocks, missingMfs,
-      rateLimitedCount, cacheHitCount,
       stockDetails, mfDetails
     };
 
