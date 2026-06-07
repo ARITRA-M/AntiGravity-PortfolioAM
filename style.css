@@ -1497,6 +1497,110 @@ tr:hover td {
   }
 }
 
+/* ── Update Log Tab Styles ───────────────────────────────────────────────── */
+#update-log-content {
+  padding: 0.5rem 0;
+}
+
+.update-log-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+.update-log-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.update-log-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.update-log-card .log-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.update-log-card .log-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.update-log-card.total { border-left: 3px solid var(--accent-blue); }
+.update-log-card.success { border-left: 3px solid var(--accent-green); }
+.update-log-card.error { border-left: 3px solid #ef4444; }
+.update-log-card.warn { border-left: 3px solid var(--accent-amber); }
+
+.update-log-card.total .log-value { color: var(--accent-blue); }
+.update-log-card.success .log-value { color: var(--accent-green); }
+.update-log-card.error .log-value { color: #ef4444; }
+.update-log-card.warn .log-value { color: var(--accent-amber); }
+
+.update-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.update-log-table th {
+  background: var(--card-bg);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.update-log-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.update-log-table tr.status-ok td {
+  color: var(--text-primary);
+}
+
+.update-log-table tr.status-fail td {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.03);
+}
+
+.update-log-table tr.status-fail .error-cell {
+  font-size: 0.8rem;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-log-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.update-log-note {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  color: var(--accent-amber);
+  font-size: 0.9rem;
+}
+
 @media (max-width: 768px) {
   .monthly-summary-grid {
     grid-template-columns: 1fr;
