@@ -235,10 +235,6 @@ let isRefreshing = false;
 // Google Finance returns HTML, so on GitHub Pages we prefer Yahoo Finance.
 const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
-// Detect if running on GitHub Pages (no local backend server)
-// Uses the global flag set in index.html for consistency
-const IS_GITHUB_PAGES = window.__isGitHubPages === true;
-
 // Map of API endpoint types to functions that build the direct URL for CORS proxy
 // On GitHub Pages, we use Yahoo Finance for all stocks (returns JSON, easy to parse)
 // and mfapi.in for mutual funds
@@ -260,7 +256,7 @@ async function fetchWithFallback(url, options = {}) {
 
   // On GitHub Pages, the /api/ endpoints don't exist, so build direct URLs
   // and fetch them via the CORS proxy
-  if (IS_GITHUB_PAGES) {
+  if (window.__isGitHubPages === true) {
     const pathMatch = url.match(/\/api\/([^/]+)\/(.+)/);
     if (pathMatch) {
       const endpointType = pathMatch[1];
