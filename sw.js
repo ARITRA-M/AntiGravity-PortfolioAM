@@ -1,5 +1,5 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v9';
+const CACHE_NAME = 'portfolio-analytics-v10';
 
 // Determine the base path - works on both local server (/) and GitHub Pages subpath
 const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '') || '';
@@ -58,23 +58,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-First strategy for data directory to support offline mode
+  // Network-Only strategy for data directory - always fetch fresh data.
+  // Stale portfolio data is worse than offline. Cache is NOT used as fallback.
   if (url.pathname.startsWith(BASE_PATH + '/data/')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(event.request);
-        })
-    );
+    event.respondWith(fetch(event.request));
     return;
   }
 
@@ -111,6 +98,13 @@ self.addEventListener('fetch', (event) => {
           });
       })
   );
+});
+
+// Listen for SKIP_WAITING message from the page to activate new SW immediately
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Background sync for when app comes back online

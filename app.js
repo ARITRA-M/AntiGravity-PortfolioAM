@@ -1,6 +1,9 @@
 // Tab IDs
 const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log'];
 
+// App version for cache busting - bump this date when new portfolio data is uploaded
+const APP_VERSION = '2026-06-07';
+
 // Global state
 let portfolioSummary = null;
 let breakupSummary = null;
@@ -114,12 +117,14 @@ async function loadData() {
       }
     }
 
+    // Cache-busting: append version query param to bypass HTTP/CDN cache on stale responses
+    const _cb = `v=${APP_VERSION}`;
     const [resSummary, resBreakup, resEquity, resMf, resHist] = await Promise.all([
-      fetchWithTimeout('data/portfolio_summary.json', { credentials: 'same-origin' }),
-      fetchWithTimeout('data/breakup_summary.json', { credentials: 'same-origin' }),
-      fetchWithTimeout('data/latest_equity.json', { credentials: 'same-origin' }),
-      fetchWithTimeout('data/latest_mf.json', { credentials: 'same-origin' }),
-      fetchWithTimeout('data/historical_holdings.json', { credentials: 'same-origin' })
+      fetchWithTimeout('data/portfolio_summary.json?' + _cb, { credentials: 'same-origin' }),
+      fetchWithTimeout('data/breakup_summary.json?' + _cb, { credentials: 'same-origin' }),
+      fetchWithTimeout('data/latest_equity.json?' + _cb, { credentials: 'same-origin' }),
+      fetchWithTimeout('data/latest_mf.json?' + _cb, { credentials: 'same-origin' }),
+      fetchWithTimeout('data/historical_holdings.json?' + _cb, { credentials: 'same-origin' })
     ]);
 
     const responses = [resSummary, resBreakup, resEquity, resMf, resHist];

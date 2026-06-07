@@ -23,6 +23,14 @@
   </script>
 </head>
 <body>
+  <!-- Service Worker Update Notification Banner -->
+  <div id="sw-update-banner" style="display: none;">
+    <div class="sw-update-banner-content">
+      <span>📦 A new version is available.</span>
+      <button onclick="applySWUpdate()">Refresh</button>
+      <button onclick="dismissSWUpdate()" class="sw-dismiss-btn">✕</button>
+    </div>
+  </div>
 
   <div class="app-container">
     <!-- Header -->
@@ -851,17 +859,85 @@
   <script src="js/api.js"></script>
   <script src="app.js"></script>
   <script>
-    // Service Worker Registration for PWA
-    // Use relative path so it works on both local server and GitHub Pages subpath
+    // ── Service Worker Registration with Update Detection ──────────────────────
+    // Registers the SW and sets up update detection so users get notified
+    // when a new version is available (e.g., after a new portfolio upload).
+    // Relative path works on both local server and GitHub Pages subpath.
+    let swRegistration = null;
+    let swUpdateReady = false;
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js')
         .then(function(registration) {
-          console.log('ServiceWorker registration successful:', registration.scope);
+          swRegistration = registration;
+          console.log('ServiceWorker registered. Scope:', registration.scope);
+
+          // Listen for update found event
+          registration.addEventListener('updatefound', function() {
+            const newWorker = registration.installing;
+            console.log('ServiceWorker update found. State:', newWorker.state);
+
+            newWorker.addEventListener('statechange', function() {
+              console.log('ServiceWorker state changed to:', newWorker.state);
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // New SW installed but the current page is still controlled by the old one
+                swUpdateReady = true;
+                document.getElementById('sw-update-banner').style.display = 'block';
+              }
+            });
+          });
+
+          // Periodically check for SW updates (every 10 minutes)
+          setInterval(function() {
+            registration.update();
+          }, 10 * 60 * 1000);
+
+          // Also check when the app becomes visible (user switches back to the app)
+          document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') {
+              registration.update();
+            }
+          });
         })
         .catch(function(err) {
           console.log('ServiceWorker registration failed:', err);
         });
+
+      // If a waiting SW already exists (e.g., from a previous update check), show banner
+      navigator.serviceWorker.ready.then(function(registration) {
+        if (registration.waiting) {
+          swUpdateReady = true;
+          document.getElementById('sw-update-banner').style.display = 'block';
+        }
+      });
     }
+
+    // Apply SW update: tell the waiting SW to activate, then reload the page
+    window.applySWUpdate = function() {
+      if (swRegistration && swRegistration.waiting) {
+        swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        swRegistration.waiting.addEventListener('statechange', function(e) {
+          if (e.target.state === 'activated') {
+            window.location.reload();
+          }
+        });
+      } else {
+        // Fallback: just reload, browser will activate the new SW
+        window.location.reload();
+      }
+    };
+
+    // Dismiss the update banner without applying the update
+    window.dismissSWUpdate = function() {
+      document.getElementById('sw-update-banner').style.display = 'none';
+    };
+
+    // Listen for messages from the SW
+    navigator.serviceWorker.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'RELOAD_APP') {
+        window.location.reload();
+      }
+    });
   </script>
 </body>
 </html>
