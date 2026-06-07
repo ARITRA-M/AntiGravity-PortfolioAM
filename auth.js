@@ -165,7 +165,7 @@ function escapeAuthHtml(value) {
     .replace(/</g, '<')
     .replace(/>/g, '>')
     .replace(/"/g, '"')
-    .replace(/'/g, ''');
+    .replace(/'/g, '&' + '#39;');
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
