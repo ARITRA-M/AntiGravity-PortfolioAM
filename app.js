@@ -1181,6 +1181,7 @@ function renderDailyOverviewTable() {
     combined.push({
       name: s.instrument,
       type: 'Stock',
+      qty: s.qty,
       yesterdayClose: prevClose,
       currentLtp: s.ltp,
       change: dailyGain,
@@ -1196,6 +1197,7 @@ function renderDailyOverviewTable() {
     combined.push({
       name: f.scheme,
       type: 'MF',
+      qty: f.qty,
       yesterdayClose: previousNav,
       currentLtp: f.price,
       change: gain,
@@ -1207,12 +1209,14 @@ function renderDailyOverviewTable() {
   const col = dailyOverviewSortCol;
   const asc = dailyOverviewSortAsc;
   if (col === 2) {
-    combined.sort((a, b) => sortNullableNumber(a.yesterdayClose, b.yesterdayClose, asc));
+    combined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
   } else if (col === 3) {
-    combined.sort((a, b) => asc ? a.currentLtp - b.currentLtp : b.currentLtp - a.currentLtp);
+    combined.sort((a, b) => sortNullableNumber(a.yesterdayClose, b.yesterdayClose, asc));
   } else if (col === 4) {
-    combined.sort((a, b) => sortNullableNumber(a.change, b.change, asc));
+    combined.sort((a, b) => asc ? a.currentLtp - b.currentLtp : b.currentLtp - a.currentLtp);
   } else if (col === 5) {
+    combined.sort((a, b) => sortNullableNumber(a.change, b.change, asc));
+  } else if (col === 6) {
     combined.sort((a, b) => sortNullableNumber(a.changePct, b.changePct, asc));
   } else {
     // Default: sort by name
@@ -1224,6 +1228,7 @@ function renderDailyOverviewTable() {
     <tr>
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>
+      <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatNullableNumber(item.yesterdayClose, 2)}</td>
       <td style="text-align: right;">${item.currentLtp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;" class="${item.change === null ? '' : item.change >= 0 ? 'trend-up' : 'trend-down'}">
@@ -1266,6 +1271,7 @@ function renderMonthlyOverviewTable() {
     combined.push({
       name: s.instrument,
       type: 'Stock',
+      qty: s.qty,
       uploadedVal: (s.lastUploadedPrice ?? 0) * s.qty,
       currentVal: s.cur_val,
       gain: gain,
@@ -1280,6 +1286,7 @@ function renderMonthlyOverviewTable() {
     combined.push({
       name: f.scheme,
       type: 'MF',
+      qty: f.qty,
       uploadedVal: (f.lastUploadedPrice ?? 0) * f.qty,
       currentVal: f.cur_val,
       gain: gain,
@@ -1291,12 +1298,14 @@ function renderMonthlyOverviewTable() {
   const col = monthlyOverviewSortCol;
   const asc = monthlyOverviewSortAsc;
   if (col === 2) {
-    combined.sort((a, b) => asc ? a.uploadedVal - b.uploadedVal : b.uploadedVal - a.uploadedVal);
+    combined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
   } else if (col === 3) {
-    combined.sort((a, b) => asc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal);
+    combined.sort((a, b) => asc ? a.uploadedVal - b.uploadedVal : b.uploadedVal - a.uploadedVal);
   } else if (col === 4) {
-    combined.sort((a, b) => asc ? a.gain - b.gain : b.gain - a.gain);
+    combined.sort((a, b) => asc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal);
   } else if (col === 5) {
+    combined.sort((a, b) => asc ? a.gain - b.gain : b.gain - a.gain);
+  } else if (col === 6) {
     combined.sort((a, b) => asc ? a.gainPct - b.gainPct : b.gainPct - a.gainPct);
   } else {
     // Default: sort by name
@@ -1308,6 +1317,7 @@ function renderMonthlyOverviewTable() {
     <tr>
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>
+      <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatINR(item.uploadedVal)}</td>
       <td style="text-align: right;">${formatINR(item.currentVal)}</td>
       <td style="text-align: right;" class="${item.gain >= 0 ? 'trend-up' : 'trend-down'}">
@@ -1325,9 +1335,6 @@ function initOverviewTab() {
   // Render daily and monthly overview tables
   renderDailyOverviewTable();
   renderMonthlyOverviewTable();
-  
-  // Populate monthly overview summary section (Issue 3)
-  populateMonthlyOverviewSummary();
 }
 
 function populateMonthlyOverviewSummary() {
@@ -3610,6 +3617,7 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
     const changeObj = {
       name: stock.instrument,
       sector: stock.sector,
+      qty: stock.qty,
       change: periodChange,
       value: stock.cur_val
     };
@@ -3632,10 +3640,13 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
         <div class="mover-name">${escapeHtml(g.name)}</div>
         <div class="mover-sector">${escapeHtml(g.sector)}</div>
       </div>
-      <div class="mover-change trend-up">+${g.change.toFixed(2)}%</div>
+      <div class="mover-detail">
+        <span class="mover-qty">Qty: ${g.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</span>
+        <span class="mover-change trend-up">+${g.change.toFixed(2)}%</span>
+      </div>
     </div>
   `).join('');
-  
+
   // Render losers
   const losersContainer = document.getElementById('monthly-losers-list');
   losersContainer.innerHTML = losers.slice(0, 5).map(l => `
@@ -3644,7 +3655,10 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
         <div class="mover-name">${escapeHtml(l.name)}</div>
         <div class="mover-sector">${escapeHtml(l.sector)}</div>
       </div>
-      <div class="mover-change trend-down">${l.change.toFixed(2)}%</div>
+      <div class="mover-detail">
+        <span class="mover-qty">Qty: ${l.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</span>
+        <span class="mover-change trend-down">${l.change.toFixed(2)}%</span>
+      </div>
     </div>
   `).join('');
 }
