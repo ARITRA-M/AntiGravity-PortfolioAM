@@ -40,6 +40,10 @@ let dailyOverviewSortAsc = false;
 let monthlyOverviewSortCol = 5;
 let monthlyOverviewSortAsc = false;
 
+// Overview type filter state ('all', 'stock', 'mf')
+let dailyTypeFilter = 'all';
+let monthlyTypeFilter = 'all';
+
 // Stock name lookup cache (for daily overview table)
 let _stockNameLookup = null;
 
@@ -959,6 +963,32 @@ function switchOverviewSubtab(subtab, btn) {
   document.getElementById(`overview-${subtab}`).classList.add('active');
 }
 
+// ── Daily Type Filter (Stocks / MFs / All) ────────────────────────────────
+function setDailyTypeFilter(filter) {
+  dailyTypeFilter = filter;
+  document.querySelectorAll('#overview-daily .type-filter-btn').forEach(btn => {
+    btn.classList.remove('active');
+    const onclickAttr = btn.getAttribute('onclick') || '';
+    if (onclickAttr.includes(`'${filter}'`) || onclickAttr.includes(`"${filter}"`)) {
+      btn.classList.add('active');
+    }
+  });
+  renderDailyOverviewTable();
+}
+
+// ── Monthly Type Filter (Stocks / MFs / All) ───────────────────────────────
+function setMonthlyTypeFilter(filter) {
+  monthlyTypeFilter = filter;
+  document.querySelectorAll('#overview-monthly .type-filter-btn').forEach(btn => {
+    btn.classList.remove('active');
+    const onclickAttr = btn.getAttribute('onclick') || '';
+    if (onclickAttr.includes(`'${filter}'`) || onclickAttr.includes(`"${filter}"`)) {
+      btn.classList.add('active');
+    }
+  });
+  renderMonthlyOverviewTable();
+}
+
 // ── Daily Overview Table Sorting (column-header click) ─────────────────────
 function sortDailyOverview(colIdx) {
   if (dailyOverviewSortCol === colIdx) {
@@ -1061,6 +1091,11 @@ function renderDailyOverviewTable() {
 
   const totalGain = totalStockGain + totalMfGain;
 
+  // Apply daily type filter (All / Stocks / MFs)
+  const filteredCombined = dailyTypeFilter === 'all'
+    ? combined
+    : combined.filter(item => item.type.toLowerCase() === dailyTypeFilter);
+
   // Render Daily Summaries
   const dailySummaryEl = document.getElementById('daily-summary-kpis');
   if (dailySummaryEl) {
@@ -1100,27 +1135,27 @@ function renderDailyOverviewTable() {
   const asc = dailyOverviewSortAsc;
   if (col === 1) {
     // Type column — sort by type (Stock/MF), then by name as tiebreaker
-    combined.sort((a, b) => {
+    filteredCombined.sort((a, b) => {
       const typeCmp = asc ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
       return typeCmp !== 0 ? typeCmp : a.name.localeCompare(b.name);
     });
   } else if (col === 2) {
-    combined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
+    filteredCombined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
   } else if (col === 3) {
-    combined.sort((a, b) => sortNullableNumber(a.yesterdayClose, b.yesterdayClose, asc));
+    filteredCombined.sort((a, b) => sortNullableNumber(a.yesterdayClose, b.yesterdayClose, asc));
   } else if (col === 4) {
-    combined.sort((a, b) => asc ? a.currentLtp - b.currentLtp : b.currentLtp - a.currentLtp);
+    filteredCombined.sort((a, b) => asc ? a.currentLtp - b.currentLtp : b.currentLtp - a.currentLtp);
   } else if (col === 5) {
-    combined.sort((a, b) => sortNullableNumber(a.change, b.change, asc));
+    filteredCombined.sort((a, b) => sortNullableNumber(a.change, b.change, asc));
   } else if (col === 6) {
-    combined.sort((a, b) => sortNullableNumber(a.changePct, b.changePct, asc));
+    filteredCombined.sort((a, b) => sortNullableNumber(a.changePct, b.changePct, asc));
   } else {
     // Name column (0) or fallback: sort by instrument name
-    combined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
+    filteredCombined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
   }
 
   const tbody = document.getElementById('daily-overview-body');
-  tbody.innerHTML = combined.map(item => `
+  tbody.innerHTML = filteredCombined.map(item => `
     <tr>
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>
@@ -1196,6 +1231,11 @@ function renderMonthlyOverviewTable() {
 
   const totalMonthlyGain = totalStockMonthlyGain + totalMfMonthlyGain;
 
+  // Apply monthly type filter (All / Stocks / MFs)
+  const filteredCombined = monthlyTypeFilter === 'all'
+    ? combined
+    : combined.filter(item => item.type.toLowerCase() === monthlyTypeFilter);
+
   // Render Monthly Summaries
   const monthlySummaryEl = document.getElementById('monthly-summary-kpis');
   if (monthlySummaryEl) {
@@ -1235,27 +1275,27 @@ function renderMonthlyOverviewTable() {
   const asc = monthlyOverviewSortAsc;
   if (col === 1) {
     // Type column — sort by type (Stock/MF), then by name as tiebreaker
-    combined.sort((a, b) => {
+    filteredCombined.sort((a, b) => {
       const typeCmp = asc ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
       return typeCmp !== 0 ? typeCmp : a.name.localeCompare(b.name);
     });
   } else if (col === 2) {
-    combined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
+    filteredCombined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
   } else if (col === 3) {
-    combined.sort((a, b) => asc ? a.uploadedVal - b.uploadedVal : b.uploadedVal - a.uploadedVal);
+    filteredCombined.sort((a, b) => asc ? a.uploadedVal - b.uploadedVal : b.uploadedVal - a.uploadedVal);
   } else if (col === 4) {
-    combined.sort((a, b) => asc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal);
+    filteredCombined.sort((a, b) => asc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal);
   } else if (col === 5) {
-    combined.sort((a, b) => asc ? a.gain - b.gain : b.gain - a.gain);
+    filteredCombined.sort((a, b) => asc ? a.gain - b.gain : b.gain - a.gain);
   } else if (col === 6) {
-    combined.sort((a, b) => asc ? a.gainPct - b.gainPct : b.gainPct - a.gainPct);
+    filteredCombined.sort((a, b) => asc ? a.gainPct - b.gainPct : b.gainPct - a.gainPct);
   } else {
     // Name column (0) or fallback: sort by name
-    combined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
+    filteredCombined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
   }
 
   const tbody = document.getElementById('monthly-overview-body');
-  tbody.innerHTML = combined.map(item => `
+  tbody.innerHTML = filteredCombined.map(item => `
     <tr>
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>

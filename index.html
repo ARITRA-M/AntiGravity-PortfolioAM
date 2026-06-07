@@ -164,6 +164,13 @@
         <!-- Summary KPIs injected here -->
         <div class="kpi-grid" id="daily-summary-kpis" style="margin-bottom: 1.5rem;"></div>
 
+        <!-- Daily Type Filter Tabs -->
+        <div class="type-filter-tabs">
+          <button class="type-filter-btn active" onclick="setDailyTypeFilter('all')">📊 All</button>
+          <button class="type-filter-btn" onclick="setDailyTypeFilter('stock')">📈 Stocks</button>
+          <button class="type-filter-btn" onclick="setDailyTypeFilter('mf')">📁 Mutual Funds</button>
+        </div>
+
         <div class="dashboard-grid">
           <!-- Daily Top Gainers (across Stocks & MFs by value) -->
           <div class="chart-card full-width-card">
@@ -196,6 +203,13 @@
       <div id="overview-monthly" class="overview-subcontent">
         <!-- Summary KPIs injected here -->
         <div class="kpi-grid" id="monthly-summary-kpis" style="margin-bottom: 1.5rem;"></div>
+
+        <!-- Monthly Type Filter Tabs -->
+        <div class="type-filter-tabs">
+          <button class="type-filter-btn active" onclick="setMonthlyTypeFilter('all')">📊 All</button>
+          <button class="type-filter-btn" onclick="setMonthlyTypeFilter('stock')">📈 Stocks</button>
+          <button class="type-filter-btn" onclick="setMonthlyTypeFilter('mf')">📁 Mutual Funds</button>
+        </div>
 
         <div class="dashboard-grid">
           <!-- Monthly Top Gainers (from last upload) -->
