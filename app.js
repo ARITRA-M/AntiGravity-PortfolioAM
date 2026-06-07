@@ -55,6 +55,10 @@ const benchmarkData = {
     name: 'Nifty 50 (simulated)',
     history: [] // Will be generated based on portfolio dates
   },
+  sensex: {
+    name: 'Sensex (simulated)',
+    history: []
+  },
   spx: {
     name: 'S&P 500 (simulated)',
     history: []
@@ -64,6 +68,17 @@ const benchmarkData = {
     history: []
   }
 };
+
+// Deterministic daily Sensex simulation (for overview KPI cards).
+// Uses sine-based noise seeded by day-of-year so the same day always returns the same value.
+function getSimulatedSensexDailyChangePct() {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24));
+  const noise = Math.sin(dayOfYear * 0.7 + now.getFullYear() * 1.3) * 0.5; // ±0.5% noise
+  const drift = 0.047; // ~12% annual drift ≈ 0.047% per trading day
+  return drift + noise;
+}
 
 const SECTOR_MAP = {
   AJANTPHARM: 'Pharmaceuticals', CIPLA: 'Pharmaceuticals', DRREDDY: 'Pharmaceuticals', ERIS: 'Pharmaceuticals',
@@ -1155,6 +1170,23 @@ function renderDailyOverviewTable() {
 
   const totalGain = totalStockGain + totalMfGain;
 
+  // ── Compute daily % change denominators ──
+  let totalPrevStockValue = 0;
+  let totalPrevMfValue = 0;
+  latestEquity.forEach(s => {
+    if (s.yesterdayClose && !isWeekend) totalPrevStockValue += s.yesterdayClose * s.qty;
+  });
+  latestMf.forEach(f => {
+    if (f.previousNav && !isWeekend) totalPrevMfValue += f.previousNav * f.qty;
+  });
+  const dailyStockPct = totalPrevStockValue > 0 ? (totalStockGain / totalPrevStockValue) * 100 : 0;
+  const dailyMfPct = totalPrevMfValue > 0 ? (totalMfGain / totalPrevMfValue) * 100 : 0;
+  const dailyTotalPrev = totalPrevStockValue + totalPrevMfValue;
+  const dailyTotalPct = dailyTotalPrev > 0 ? (totalGain / dailyTotalPrev) * 100 : 0;
+
+  // ── Simulated Sensex daily change (for reference) ──
+  const sensexDailyPct = getSimulatedSensexDailyChangePct();
+
   // Apply daily type filter (All / Stocks / MFs)
   const filteredCombined = dailyTypeFilter === 'all'
     ? combined
@@ -1169,6 +1201,7 @@ function renderDailyOverviewTable() {
           <div class="kpi-title">Total Daily Change (Stocks)</div>
           <div class="kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
             ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)}
+            <span class="kpi-pct">(${dailyStockPct >= 0 ? '+' : ''}${dailyStockPct.toFixed(2)}%)</span>
           </div>
         </div>
         <div class="kpi-sub">Since yesterday's close</div>
@@ -1178,6 +1211,7 @@ function renderDailyOverviewTable() {
           <div class="kpi-title">Total Daily Change (MFs)</div>
           <div class="kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
             ${totalMfGain >= 0 ? '+' : ''}${formatINR(totalMfGain)}
+            <span class="kpi-pct">(${dailyMfPct >= 0 ? '+' : ''}${dailyMfPct.toFixed(2)}%)</span>
           </div>
         </div>
         <div class="kpi-sub">Since previous NAV</div>
@@ -1187,9 +1221,19 @@ function renderDailyOverviewTable() {
           <div class="kpi-title">Total Combined Change</div>
           <div class="kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
             ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)}
+            <span class="kpi-pct">(${dailyTotalPct >= 0 ? '+' : ''}${dailyTotalPct.toFixed(2)}%)</span>
           </div>
         </div>
         <div class="kpi-sub">Stocks + Mutual Funds</div>
+      </div>
+      <div class="kpi-card" style="--card-accent: #ef4444;">
+        <div>
+          <div class="kpi-title">Sensex (Ref)</div>
+          <div class="kpi-value ${sensexDailyPct >= 0 ? 'trend-up' : 'trend-down'}">
+            ${sensexDailyPct >= 0 ? '+' : ''}${sensexDailyPct.toFixed(2)}%
+          </div>
+        </div>
+        <div class="kpi-sub">Simulated daily change</div>
       </div>
     `;
   }
@@ -1260,40 +1304,62 @@ function renderMonthlyOverviewTable() {
   const combined = [];
   let totalStockMonthlyGain = 0;
   let totalMfMonthlyGain = 0;
+  let totalStockUploadedVal = 0;
+  let totalMfUploadedVal = 0;
 
   // Stocks: monthly gain = thisMonthGain
   latestEquity.forEach(s => {
     const gain = s.thisMonthGain || 0;
     const gainPct = s.lastUploadedPrice > 0 ? (gain / (s.lastUploadedPrice * s.qty)) * 100 : 0;
+    const uploadedVal = (s.lastUploadedPrice ?? 0) * s.qty;
     combined.push({
       name: s.instrument,
       type: 'Stock',
       qty: s.qty,
-      uploadedVal: (s.lastUploadedPrice ?? 0) * s.qty,
+      uploadedVal: uploadedVal,
       currentVal: s.cur_val,
       gain: gain,
       gainPct: gainPct
     });
     totalStockMonthlyGain += gain;
+    totalStockUploadedVal += uploadedVal;
   });
 
   // MFs: monthly gain = thisMonthGain
   latestMf.forEach(f => {
     const gain = f.thisMonthGain || 0;
     const gainPct = f.lastUploadedPrice > 0 ? (gain / (f.lastUploadedPrice * f.qty)) * 100 : 0;
+    const uploadedVal = (f.lastUploadedPrice ?? 0) * f.qty;
     combined.push({
       name: f.scheme,
       type: 'MF',
       qty: f.qty,
-      uploadedVal: (f.lastUploadedPrice ?? 0) * f.qty,
+      uploadedVal: uploadedVal,
       currentVal: f.cur_val,
       gain: gain,
       gainPct: gainPct
     });
     totalMfMonthlyGain += gain;
+    totalMfUploadedVal += uploadedVal;
   });
 
   const totalMonthlyGain = totalStockMonthlyGain + totalMfMonthlyGain;
+
+  // ── Compute monthly % change denominators ──
+  const monthlyStockPct = totalStockUploadedVal > 0 ? (totalStockMonthlyGain / totalStockUploadedVal) * 100 : 0;
+  const monthlyMfPct = totalMfUploadedVal > 0 ? (totalMfMonthlyGain / totalMfUploadedVal) * 100 : 0;
+  const totalUploadedVal = totalStockUploadedVal + totalMfUploadedVal;
+  const monthlyTotalPct = totalUploadedVal > 0 ? (totalMonthlyGain / totalUploadedVal) * 100 : 0;
+
+  // ── Simulated Sensex monthly change (for reference) ──
+  // Use benchmark data: compare last two monthly data points
+  const sensexHist = benchmarkData.sensex && benchmarkData.sensex.history;
+  let sensexMonthlyPct = 0;
+  if (sensexHist && sensexHist.length >= 2) {
+    const prev = sensexHist[sensexHist.length - 2].value;
+    const curr = sensexHist[sensexHist.length - 1].value;
+    sensexMonthlyPct = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+  }
 
   // Apply monthly type filter (All / Stocks / MFs)
   const filteredCombined = monthlyTypeFilter === 'all'
@@ -1309,6 +1375,7 @@ function renderMonthlyOverviewTable() {
           <div class="kpi-title">Total Gain (Stocks)</div>
           <div class="kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
             ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)}
+            <span class="kpi-pct">(${monthlyStockPct >= 0 ? '+' : ''}${monthlyStockPct.toFixed(2)}%)</span>
           </div>
         </div>
         <div class="kpi-sub">Since last upload</div>
@@ -1318,6 +1385,7 @@ function renderMonthlyOverviewTable() {
           <div class="kpi-title">Total Gain (MFs)</div>
           <div class="kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
             ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)}
+            <span class="kpi-pct">(${monthlyMfPct >= 0 ? '+' : ''}${monthlyMfPct.toFixed(2)}%)</span>
           </div>
         </div>
         <div class="kpi-sub">Since last upload</div>
@@ -1327,9 +1395,19 @@ function renderMonthlyOverviewTable() {
           <div class="kpi-title">Total Combined Gain</div>
           <div class="kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
             ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)}
+            <span class="kpi-pct">(${monthlyTotalPct >= 0 ? '+' : ''}${monthlyTotalPct.toFixed(2)}%)</span>
           </div>
         </div>
         <div class="kpi-sub">Stocks + Mutual Funds</div>
+      </div>
+      <div class="kpi-card" style="--card-accent: #ef4444;">
+        <div>
+          <div class="kpi-title">Sensex (Ref)</div>
+          <div class="kpi-value ${sensexMonthlyPct >= 0 ? 'trend-up' : 'trend-down'}">
+            ${sensexMonthlyPct >= 0 ? '+' : ''}${sensexMonthlyPct.toFixed(2)}%
+          </div>
+        </div>
+        <div class="kpi-sub">Simulated monthly change</div>
       </div>
     `;
   }
@@ -3157,6 +3235,14 @@ function generateBenchmarkData() {
     return { date: d, value: firstValue * growth * noise };
   });
   
+  // Sensex - simulated with ~12% annual growth (similar to Nifty 50)
+  benchmarkData.sensex.history = dates.map((d, i) => {
+    const months = i;
+    const growth = Math.pow(1.01, months); // ~12% annual
+    const noise = 1 + (Math.sin(i * 0.28 + 0.5) * 0.045); // Slightly different phase/volatility
+    return { date: d, value: firstValue * growth * noise };
+  });
+
   // Gold - simulated with ~6% annual growth
   benchmarkData.gold.history = dates.map((d, i) => {
     const months = i;
