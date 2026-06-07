@@ -34,11 +34,11 @@ let stockSortColumn = -1;
 let stockSortAsc = true;
 let mfSortColumn = -1;
 let mfSortAsc = true;
-// Overview table sorting state
-let dailyOverviewSortCol = -1;
-let dailyOverviewSortAsc = true;
-let monthlyOverviewSortCol = -1;
-let monthlyOverviewSortAsc = true;
+// Overview table sorting state — default sort by Gain (col 5) high-to-low
+let dailyOverviewSortCol = 5;
+let dailyOverviewSortAsc = false;
+let monthlyOverviewSortCol = 5;
+let monthlyOverviewSortAsc = false;
 
 // Stock name lookup cache (for daily overview table)
 let _stockNameLookup = null;
@@ -1098,7 +1098,13 @@ function renderDailyOverviewTable() {
   // Sort by selected column
   const col = dailyOverviewSortCol;
   const asc = dailyOverviewSortAsc;
-  if (col === 2) {
+  if (col === 1) {
+    // Type column — sort by type (Stock/MF), then by name as tiebreaker
+    combined.sort((a, b) => {
+      const typeCmp = asc ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
+      return typeCmp !== 0 ? typeCmp : a.name.localeCompare(b.name);
+    });
+  } else if (col === 2) {
     combined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
   } else if (col === 3) {
     combined.sort((a, b) => sortNullableNumber(a.yesterdayClose, b.yesterdayClose, asc));
@@ -1109,7 +1115,7 @@ function renderDailyOverviewTable() {
   } else if (col === 6) {
     combined.sort((a, b) => sortNullableNumber(a.changePct, b.changePct, asc));
   } else {
-    // Default: sort by name
+    // Name column (0) or fallback: sort by instrument name
     combined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
   }
 
@@ -1227,7 +1233,13 @@ function renderMonthlyOverviewTable() {
   // Sort by selected column
   const col = monthlyOverviewSortCol;
   const asc = monthlyOverviewSortAsc;
-  if (col === 2) {
+  if (col === 1) {
+    // Type column — sort by type (Stock/MF), then by name as tiebreaker
+    combined.sort((a, b) => {
+      const typeCmp = asc ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
+      return typeCmp !== 0 ? typeCmp : a.name.localeCompare(b.name);
+    });
+  } else if (col === 2) {
     combined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
   } else if (col === 3) {
     combined.sort((a, b) => asc ? a.uploadedVal - b.uploadedVal : b.uploadedVal - a.uploadedVal);
@@ -1238,7 +1250,7 @@ function renderMonthlyOverviewTable() {
   } else if (col === 6) {
     combined.sort((a, b) => asc ? a.gainPct - b.gainPct : b.gainPct - a.gainPct);
   } else {
-    // Default: sort by name
+    // Name column (0) or fallback: sort by name
     combined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
   }
 
@@ -1262,6 +1274,21 @@ function renderMonthlyOverviewTable() {
 
 // ==================== OVERVIEW TAB ====================
 function initOverviewTab() {
+  // Initial sort indicator on Gain column (col 5, descending = high to low)
+  const dailyThs = document.querySelectorAll('#daily-overview-table th');
+  dailyThs.forEach((th, idx) => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (idx === dailyOverviewSortCol) {
+      th.classList.add(dailyOverviewSortAsc ? 'sort-asc' : 'sort-desc');
+    }
+  });
+  const monthlyThs = document.querySelectorAll('#monthly-overview-table th');
+  monthlyThs.forEach((th, idx) => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (idx === monthlyOverviewSortCol) {
+      th.classList.add(monthlyOverviewSortAsc ? 'sort-asc' : 'sort-desc');
+    }
+  });
   // Render daily and monthly overview tables
   renderDailyOverviewTable();
   renderMonthlyOverviewTable();
