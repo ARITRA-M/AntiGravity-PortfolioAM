@@ -2118,42 +2118,136 @@ function initStocksTab() {
     </div>
   `).join('');
 
-  // 2. Sector Chart
-  const sectorSums = {};
-  latestEquity.forEach(s => {
-    sectorSums[s.sector] = (sectorSums[s.sector] || 0) + s.cur_val;
+  // 2. Stacked Bar Chart — Equity Portfolio Sector Distribution over Time
+  const stockHistory = historicalHoldings.stocks;
+
+  // Collect all unique dates from all stock histories
+  // Filter to start from Aug 2022 when sector mapping (ticker-based) became available
+  const allStockDates = new Set();
+  Object.values(stockHistory).forEach(stock => {
+    stock.history.forEach(h => {
+      if (h.date >= '2022-08-01') allStockDates.add(h.date);
+    });
   });
-  
-  const sortedSectors = Object.keys(sectorSums).map(sec => ({
-    name: sec,
-    val: sectorSums[sec]
-  })).sort((a, b) => b.val - a.val);
+  const sortedStockDates = [...allStockDates].sort();
+
+  // For each date, sum cur_val by sector across all stocks
+  const dateSectorMap = {};
+  sortedStockDates.forEach(date => {
+    dateSectorMap[date] = {};
+    Object.values(stockHistory).forEach(stock => {
+      const entry = stock.history.find(h => h.date === date);
+      if (entry) {
+        const sec = stock.sector;
+        dateSectorMap[date][sec] = (dateSectorMap[date][sec] || 0) + entry.cur_val;
+      }
+    });
+  });
+
+  // Collect all sectors across all dates, sorted by latest total value desc
+  const latestStockDate = sortedStockDates[sortedStockDates.length - 1];
+  const allSectorsSet = new Set();
+  sortedStockDates.forEach(d => Object.keys(dateSectorMap[d] || {}).forEach(s => allSectorsSet.add(s)));
+  const allSectorsSorted = [...allSectorsSet]
+    .sort((a, b) => (dateSectorMap[latestStockDate][b] || 0) - (dateSectorMap[latestStockDate][a] || 0));
+
+  // Show top 12 sectors, group the rest as "Others"
+  const TOP_SECTORS = 12;
+  const topSectors = allSectorsSorted.slice(0, TOP_SECTORS);
+  const hasOtherSectors = allSectorsSorted.length > TOP_SECTORS;
+
+  // Color palette for sectors (12 colors + 1 for Others)
+  const sectorColors = [
+    '#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6',
+    '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16',
+    '#a855f7', '#e11d48', '#64748b'
+  ];
 
   const ctxSec = document.getElementById('stock-sector-chart').getContext('2d');
   sectorChart = new Chart(ctxSec, {
     type: 'bar',
     data: {
-      labels: sortedSectors.map(s => s.name),
-      datasets: [{
-        label: 'Current Valuation (INR)',
-        data: sortedSectors.map(s => s.val),
-        backgroundColor: 'rgba(99, 102, 241, 0.7)',
-        borderColor: '#6366f1',
-        borderWidth: 1,
-        borderRadius: 8
-      }]
+      labels: sortedStockDates.map(d => {
+        const parts = d.split('-');
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+      }),
+      datasets: [
+        ...topSectors.map((sec, idx) => ({
+          label: sec,
+          data: sortedStockDates.map(d => ((dateSectorMap[d][sec] || 0) / 100000)),
+          backgroundColor: sectorColors[idx % sectorColors.length],
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.06)'
+        })),
+        ...(hasOtherSectors ? [{
+          label: 'Others',
+          data: sortedStockDates.map(d => {
+            return allSectorsSorted.slice(TOP_SECTORS).reduce((sum, s) => sum + (dateSectorMap[d][s] || 0), 0) / 100000;
+          }),
+          backgroundColor: '#64748b',
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.06)'
+        }] : [])
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 10 } } },
-        y: { 
+        x: {
+          stacked: true,
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (value) => formatINR(value) }
+          ticks: {
+            color: '#9ca3af',
+            font: { family: 'Outfit', size: 9 },
+            maxRotation: 45,
+            minRotation: 30,
+            autoSkip: true,
+            maxTicksLimit: 20
+          }
+        },
+        y: {
+          stacked: true,
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: {
+            color: '#9ca3af',
+            font: { family: 'Outfit', size: 10 },
+            callback: (val) => '₹' + val.toFixed(2) + ' L'
+          },
+          beginAtZero: true
         }
       },
-      plugins: { legend: { display: false } }
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: '#f3f4f6',
+            font: { family: 'Outfit', size: 9 },
+            boxWidth: 12,
+            padding: 12
+          }
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label: (ctx) => {
+              const label = ctx.dataset.label || '';
+              const val = ctx.parsed.y;
+              return ` ${label}: ₹${val.toFixed(2)} L`;
+            },
+            footer: (items) => {
+              const total = items.reduce((sum, item) => sum + item.parsed.y, 0);
+              return ` Total: ₹${total.toFixed(2)} L`;
+            }
+          }
+        }
+      },
+      interaction: {
+        mode: 'index',
+        intersect: false
+      }
     }
   });
 
@@ -2250,8 +2344,8 @@ function renderStockHistoricalChart(symbol) {
   
   // Build chart data arrays from history
   const labels = history.map(h => formatDateString(h.date));
-  const valuations = history.map(h => h.cur_val);
-  const investments = history.map(h => h.invested);
+  const valuations = history.map(h => h.cur_val / 100000);
+  const investments = history.map(h => h.invested / 100000);
   const ltps = history.map(h => h.ltp);
   
   const ctxStockHist = document.getElementById('stock-historical-chart').getContext('2d');
@@ -2262,7 +2356,7 @@ function renderStockHistoricalChart(symbol) {
       labels: labels,
       datasets: [
         {
-          label: 'Current Valuation (INR)',
+          label: 'Current Valuation (₹ L)',
           data: valuations,
           borderColor: '#6366f1',
           backgroundColor: 'rgba(99, 102, 241, 0.1)',
@@ -2271,7 +2365,7 @@ function renderStockHistoricalChart(symbol) {
           yAxisID: 'y'
         },
         {
-          label: 'Amount Invested (INR)',
+          label: 'Amount Invested (₹ L)',
           data: investments,
           borderColor: '#10b981',
           borderWidth: 1.5,
@@ -2309,7 +2403,7 @@ function renderStockHistoricalChart(symbol) {
           display: true,
           position: 'left',
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (val) => formatINR(val) }
+          ticks: { color: '#9ca3af', callback: (val) => '₹' + val.toFixed(2) + ' L' }
         },
         yPrice: {
           type: 'linear',
@@ -2477,77 +2571,130 @@ function sortStocks(colIdx) {
 function initMfsTab() {
   // Destroy existing charts before re-creating
   if (mfCategoryChart) mfCategoryChart.destroy();
-  if (mfValuationChart) mfValuationChart.destroy();
   if (mfHistoricalChart) mfHistoricalChart.destroy();
 
-  // 1. Category Donut
-  const catSums = {};
-  latestMf.forEach(f => {
-    catSums[f.scheme_type] = (catSums[f.scheme_type] || 0) + f.cur_val;
+  // 1. Stacked Bar Chart — MF Category Allocation over Time
+  // Aggregate cur_val by category per date from historical MF data
+  const mfHistory = historicalHoldings.mfs;
+  const dateCategoryMap = {};
+
+  // Collect all unique dates from all MF histories
+  const allMfDates = new Set();
+  Object.values(mfHistory).forEach(mf => {
+    mf.history.forEach(h => allMfDates.add(h.date));
   });
-  
-  const sortedCategories = Object.keys(catSums).map(c => ({
-    name: c,
-    val: catSums[c]
-  })).sort((a, b) => b.val - a.val);
+  const sortedDates = [...allMfDates].sort();
+
+  // For each date, sum cur_val by category across all MFs
+  sortedDates.forEach(date => {
+    dateCategoryMap[date] = {};
+    Object.values(mfHistory).forEach(mf => {
+      const entry = mf.history.find(h => h.date === date);
+      if (entry) {
+        const cat = mf.category;
+        dateCategoryMap[date][cat] = (dateCategoryMap[date][cat] || 0) + entry.cur_val;
+      }
+    });
+  });
+
+  // Collect all categories that ever appear (across all dates), sorted by latest total value desc
+  const latestDate = sortedDates[sortedDates.length - 1];
+  const allCategories = new Set();
+  sortedDates.forEach(d => Object.keys(dateCategoryMap[d] || {}).forEach(cat => allCategories.add(cat)));
+  const catOrder = [...allCategories]
+    .sort((a, b) => (dateCategoryMap[latestDate][b] || 0) - (dateCategoryMap[latestDate][a] || 0));
+
+  // Color palette for categories
+  const categoryColors = {
+    'Equity : Small Cap': '#10b981',
+    'Equity : Large Cap': '#3b82f6',
+    'Equity : Mid Cap': '#8b5cf6',
+    'Equity : Multi Cap': '#ec4899',
+    'Equity : International': '#f59e0b',
+    'Debt : Liquid': '#14b8a6',
+    'Equity : Flexi Cap': '#f97316',
+    'Equity : Sectoral-Technology': '#06b6d4'
+  };
 
   const ctxMF = document.getElementById('mf-category-chart').getContext('2d');
   mfCategoryChart = new Chart(ctxMF, {
-    type: 'doughnut',
+    type: 'bar',
     data: {
-      labels: sortedCategories.map(c => c.name.replace('Equity : ', '')),
-      datasets: [{
-        data: sortedCategories.map(c => c.val),
-        backgroundColor: [
-          '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#14b8a6'
-        ],
+      labels: sortedDates.map(d => {
+        // Format date for display: "MMM YYYY" or "YYYY-MM"
+        const parts = d.split('-');
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+      }),
+      datasets: catOrder.map((cat, idx) => ({
+        label: cat.replace('Equity : ', ''),
+        data: sortedDates.map(d => ((dateCategoryMap[d][cat] || 0) / 100000)),
+        backgroundColor: categoryColors[cat] || `hsla(${idx * 45}, 70%, 60%, 0.8)`,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)'
-      }]
+        borderColor: 'rgba(255, 255, 255, 0.06)'
+      }))
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: {
+            color: '#9ca3af',
+            font: { family: 'Outfit', size: 9 },
+            maxRotation: 45,
+            minRotation: 30,
+            autoSkip: true,
+            maxTicksLimit: 20
+          }
+        },
+        y: {
+          stacked: true,
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: {
+            color: '#9ca3af',
+            font: { family: 'Outfit', size: 10 },
+            callback: (val) => '₹' + val.toFixed(2) + ' L'
+          },
+          beginAtZero: true
+        }
+      },
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: '#f3f4f6', font: { family: 'Outfit', size: 10 } }
+          labels: {
+            color: '#f3f4f6',
+            font: { family: 'Outfit', size: 9 },
+            boxWidth: 12,
+            padding: 12
+          }
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label: (ctx) => {
+              const label = ctx.dataset.label || '';
+              const val = ctx.parsed.y;
+              return ` ${label}: ₹${val.toFixed(2)} L`;
+            },
+            footer: (items) => {
+              const total = items.reduce((sum, item) => sum + item.parsed.y, 0);
+              return ` Total: ₹${total.toFixed(2)} L`;
+            }
+          }
         }
+      },
+      interaction: {
+        mode: 'index',
+        intersect: false
       }
     }
   });
 
-  // 2. Bar Chart of Top schemes by valuation
-  const topMfs = [...latestMf].sort((a, b) => b.cur_val - a.cur_val).slice(0, 10);
-  
-  const ctxMfVal = document.getElementById('mf-valuation-bar-chart').getContext('2d');
-  mfValuationChart = new Chart(ctxMfVal, {
-    type: 'bar',
-    data: {
-      labels: topMfs.map(f => f.scheme.substring(0, 20) + '...'),
-      datasets: [{
-        label: 'Current Valuation (INR)',
-        data: topMfs.map(f => f.cur_val),
-        backgroundColor: 'rgba(99, 102, 241, 0.65)',
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      indexAxis: 'y',
-      scales: {
-        x: { 
-          grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (val) => formatINR(val) }
-        },
-        y: { grid: { display: false }, ticks: { color: '#f3f4f6', font: { size: 9 } } }
-      },
-      plugins: { legend: { display: false } }
-    }
-  });
-
-  // 3. Scheme Selector for Explorer
+  // 2. Scheme Selector for Explorer
   const sortedMFsByVal = [...latestMf].sort((a, b) => b.cur_val - a.cur_val);
   const explorerList = document.getElementById('explorer-mf-list');
   
@@ -2604,8 +2751,8 @@ function renderMfHistoricalChart(scheme) {
   
   // Build chart data arrays from history
   const labels = history.map(h => formatDateString(h.date));
-  const valuations = history.map(h => h.cur_val);
-  const investments = history.map(h => h.invested);
+  const valuations = history.map(h => h.cur_val / 100000);
+  const investments = history.map(h => h.invested / 100000);
   const navs = history.map(h => h.ltp);
   
   const ctxMfHist = document.getElementById('mf-historical-chart').getContext('2d');
@@ -2616,7 +2763,7 @@ function renderMfHistoricalChart(scheme) {
       labels: labels,
       datasets: [
         {
-          label: 'Current Valuation (INR)',
+          label: 'Current Valuation (₹ L)',
           data: valuations,
           borderColor: '#6366f1',
           backgroundColor: 'rgba(99, 102, 241, 0.1)',
@@ -2625,7 +2772,7 @@ function renderMfHistoricalChart(scheme) {
           yAxisID: 'y'
         },
         {
-          label: 'Amount Invested (INR)',
+          label: 'Amount Invested (₹ L)',
           data: investments,
           borderColor: '#10b981',
           borderWidth: 1.5,
@@ -2663,7 +2810,7 @@ function renderMfHistoricalChart(scheme) {
           display: true,
           position: 'left',
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (val) => formatINR(val) }
+          ticks: { color: '#9ca3af', callback: (val) => '₹' + val.toFixed(2) + ' L' }
         },
         yPrice: {
           type: 'linear',
@@ -3268,7 +3415,7 @@ function renderMonthlyChangeChart(count = 12, startIndex = 0, endIndex = null) {
     data: {
       labels: labels,
       datasets: [{
-        label: 'Monthly Change (₹)',
+        label: 'Monthly Change (₹ L)',
         data: changes,
         backgroundColor: colors,
         borderRadius: 6
@@ -3277,12 +3424,19 @@ function renderMonthlyChangeChart(count = 12, startIndex = 0, endIndex = null) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ₹${ctx.parsed.y.toFixed(2)} L`
+          }
+        }
+      },
       scales: {
         x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
-        y: { 
+        y: {
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (v) => formatINR(v) }
+          ticks: { color: '#9ca3af', callback: (v) => '₹' + v.toFixed(2) + ' L' }
         }
       }
     }
@@ -3502,7 +3656,7 @@ function renderMonthlyActivityChart(count = 12, startIndex = 0, endIndex = null)
     data: {
       labels: labels,
       datasets: [{
-        label: 'Monthly Investment (₹)',
+        label: 'Monthly Investment (₹ L)',
         data: investments,
         borderColor: '#3b82f6',
         backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -3515,12 +3669,19 @@ function renderMonthlyActivityChart(count = 12, startIndex = 0, endIndex = null)
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ₹${ctx.parsed.y.toFixed(2)} L`
+          }
+        }
+      },
       scales: {
         x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
-        y: { 
+        y: {
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (v) => formatINR(v) }
+          ticks: { color: '#9ca3af', callback: (v) => '₹' + v.toFixed(2) + ' L' }
         }
       }
     }
