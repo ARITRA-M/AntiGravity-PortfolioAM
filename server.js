@@ -112,18 +112,40 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   }
 }
 
-// Proxy for Google Finance stock prices (NSE: symbol:NSE)
-// Google Finance does not require API keys and has generous rate limits.
-// We scrape the data-last-price attribute from the HTML page.
-app.get('/api/live-stock-price/:symbol', async (req, res) => {
+// ── In-memory price cache (60 second TTL) ──────────────────────────────────
+const PRICE_CACHE_TTL_MS = 60 * 1000;
+const priceCache = new Map();
+
+function getCached(key) {
+  const entry = priceCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    priceCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key, data) {
+  priceCache.set(key, { data, expiresAt: Date.now() + PRICE_CACHE_TTL_MS });
+}
+
+// ── Combined stock quote: fetches current price AND prev close in ONE request ──
+// This replaces /api/live-stock-price and /api/stock-prev-close with a single call,
+// halving the number of outbound HTTP requests per stock.
+app.get('/api/stock-quote/:symbol', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
+  const cacheKey = `goog:${symbol}`;
+
+  // Serve from cache if fresh
+  const cached = getCached(cacheKey);
+  if (cached) return res.json({ ...cached, cached: true });
+
   const url = `https://www.google.com/finance/quote/${symbol}:NSE`;
 
   try {
-    // IMPORTANT: Do NOT send a User-Agent header. Google Finance serves different
-    // HTML based on the User-Agent. Without a User-Agent, it returns the server-rendered
-    // page with data-last-price attributes. With a browser User-Agent, it returns the
-    // beta/SPA version which does NOT contain data-last-price.
+    // IMPORTANT: Do NOT send a User-Agent header — without it, Google Finance returns
+    // the server-rendered HTML with data-last-price attributes.
     const response = await fetchWithTimeout(url, {}, 8000);
 
     if (!response.ok) {
@@ -132,76 +154,107 @@ app.get('/api/live-stock-price/:symbol', async (req, res) => {
 
     const html = await response.text();
 
-    // Extract data-last-price from the HTML
+    // Extract current price
     const priceMatch = html.match(/data-last-price="([\d.]+)"/);
     if (!priceMatch) {
       return res.status(404).json({ error: `No price data found for symbol: ${symbol}` });
     }
-
     const price = parseFloat(priceMatch[1]);
 
-    res.json({
-      symbol: symbol,
-      price: price,
-      source: 'google',
-      timestamp: Math.floor(Date.now() / 1000)
-    });
+    // Extract previous close from the same page
+    let prevClose = null;
+    const prevIdx = html.indexOf('Previous close');
+    if (prevIdx !== -1) {
+      const afterLabel = html.substring(prevIdx);
+      const p6k39cRegex = /<div class="P6K39c">[^<]*?([\d,]+\.?\d*)/;
+      const p6k39cMatch = afterLabel.match(p6k39cRegex);
+      if (p6k39cMatch) {
+        prevClose = parseFloat(p6k39cMatch[1].replace(/,/g, ''));
+      }
+    }
+
+    const result = { symbol, price, prevClose, source: 'google', timestamp: Math.floor(Date.now() / 1000) };
+    setCache(cacheKey, result);
+    res.json(result);
   } catch (e) {
     res.status(502).json({ error: 'Failed to fetch from Google Finance: ' + e.message });
   }
 });
 
-// Proxy for Google Finance previous day's closing price (for daily gain calculation)
-// Google Finance renders "Previous close" label followed by a <div class="P6K39c"> with the value
-app.get('/api/stock-prev-close/:symbol', async (req, res) => {
+// Proxy for Google Finance stock prices (NSE: symbol:NSE)
+// LEGACY: kept for backward compat — internally uses the same cache as /api/stock-quote
+app.get('/api/live-stock-price/:symbol', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
+  const cacheKey = `goog:${symbol}`;
+  const cached = getCached(cacheKey);
+  if (cached) return res.json({ symbol, price: cached.price, source: cached.source, cached: true });
+
   const url = `https://www.google.com/finance/quote/${symbol}:NSE`;
 
   try {
     const response = await fetchWithTimeout(url, {}, 8000);
-
-    if (!response.ok) {
-      return res.status(502).json({ error: `Google Finance returned status ${response.status}` });
-    }
-
+    if (!response.ok) return res.status(502).json({ error: `Google Finance returned status ${response.status}` });
     const html = await response.text();
-
-    // Find "Previous close" then look for the next P6K39c div containing the value
+    const priceMatch = html.match(/data-last-price="([\d.]+)"/);
+    if (!priceMatch) return res.status(404).json({ error: `No price data found for symbol: ${symbol}` });
+    const price = parseFloat(priceMatch[1]);
+    // Extract prevClose too so we can cache it for the other endpoint
+    let prevClose = null;
     const prevIdx = html.indexOf('Previous close');
-    if (prevIdx === -1) {
-      return res.status(404).json({ error: `No previous close label found for symbol: ${symbol}` });
+    if (prevIdx !== -1) {
+      const afterLabel = html.substring(prevIdx);
+      const m = afterLabel.match(/<div class="P6K39c">[^<]*?([\d,]+\.?\d*)/);
+      if (m) prevClose = parseFloat(m[1].replace(/,/g, ''));
     }
+    setCache(cacheKey, { symbol, price, prevClose, source: 'google', timestamp: Math.floor(Date.now() / 1000) });
+    res.json({ symbol, price, source: 'google', timestamp: Math.floor(Date.now() / 1000) });
+  } catch (e) {
+    res.status(502).json({ error: 'Failed to fetch from Google Finance: ' + e.message });
+  }
+});
 
+// Proxy for Google Finance previous day's closing price
+// LEGACY: serves from the cache populated by /api/stock-quote or /api/live-stock-price
+// Falls back to a fresh fetch only if the cache is cold.
+app.get('/api/stock-prev-close/:symbol', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const cacheKey = `goog:${symbol}`;
+
+  // Read from the shared Google Finance cache first
+  const cached = getCached(cacheKey);
+  if (cached && cached.prevClose != null) {
+    return res.json({ symbol, prevClose: cached.prevClose, source: cached.source, cached: true });
+  }
+
+  const url = `https://www.google.com/finance/quote/${symbol}:NSE`;
+  try {
+    const response = await fetchWithTimeout(url, {}, 8000);
+    if (!response.ok) return res.status(502).json({ error: `Google Finance returned status ${response.status}` });
+    const html = await response.text();
+    const prevIdx = html.indexOf('Previous close');
+    if (prevIdx === -1) return res.status(404).json({ error: `No previous close label found for symbol: ${symbol}` });
     const afterLabel = html.substring(prevIdx);
-    // Match the first <div class="P6K39c"> containing a number (₹ symbol is multi-byte UTF-8)
-    const p6k39cRegex = /<div class="P6K39c">[^<]*?([\d,]+\.?\d*)/;
-    const p6k39cMatch = afterLabel.match(p6k39cRegex);
-    if (!p6k39cMatch) {
-      return res.status(404).json({ error: `No previous close value found for symbol: ${symbol}` });
-    }
-
-    // Remove commas and parse
+    const p6k39cMatch = afterLabel.match(/<div class="P6K39c">[^<]*?([\d,]+\.?\d*)/);
+    if (!p6k39cMatch) return res.status(404).json({ error: `No previous close value found for symbol: ${symbol}` });
     const prevClose = parseFloat(p6k39cMatch[1].replace(/,/g, ''));
-
-    res.json({
-      symbol: symbol,
-      prevClose: prevClose,
-      source: 'google',
-      timestamp: Math.floor(Date.now() / 1000)
-    });
+    setCache(cacheKey, { symbol, price: cached?.price ?? null, prevClose, source: 'google', timestamp: Math.floor(Date.now() / 1000) });
+    res.json({ symbol, prevClose, source: 'google', timestamp: Math.floor(Date.now() / 1000) });
   } catch (e) {
     res.status(502).json({ error: 'Failed to fetch previous close from Google Finance: ' + e.message });
   }
 });
 
-// Fallback: Yahoo Finance for instruments not on Google Finance (REITs, etc.)
-// Yahoo Finance uses .NS suffix for NSE stocks
-app.get('/api/live-stock-price-yahoo/:symbol', async (req, res) => {
+// Combined Yahoo Finance quote: price + prevClose in a single request
+// Used for REITs (which are not on Google Finance) and as a fallback for all stocks on GitHub Pages.
+app.get('/api/stock-quote-yahoo/:symbol', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
-  // Remove -RR suffix for REITs (Yahoo uses plain symbol.NS)
   const yahooSymbol = symbol.replace(/-RR$/, '');
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}.NS`;
+  const cacheKey = `yahoo:${symbol}`;
 
+  const cached = getCached(cacheKey);
+  if (cached) return res.json({ ...cached, cached: true });
+
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}.NS`;
   try {
     const response = await fetchWithTimeout(url, {
       headers: {
@@ -209,34 +262,32 @@ app.get('/api/live-stock-price-yahoo/:symbol', async (req, res) => {
         'Accept': 'application/json',
       }
     }, 8000);
-
-    if (!response.ok) {
-      return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
-    }
-
+    if (!response.ok) return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
     const data = await response.json();
-    const result = data?.chart?.result?.[0];
-    if (!result || !result.meta || !result.meta.regularMarketPrice) {
-      return res.status(404).json({ error: `No price data found for symbol: ${symbol}` });
-    }
+    const r = data?.chart?.result?.[0];
+    if (!r?.meta?.regularMarketPrice) return res.status(404).json({ error: `No price data for symbol: ${symbol}` });
 
-    res.json({
-      symbol: symbol,
-      price: result.meta.regularMarketPrice,
-      source: 'yahoo',
-      timestamp: Math.floor(Date.now() / 1000)
-    });
+    const price = r.meta.regularMarketPrice;
+    // chartPreviousClose is the clean previous trading day's close
+    const prevClose = r.meta.chartPreviousClose ?? r.meta.previousClose ?? null;
+
+    const result = { symbol, price, prevClose, source: 'yahoo', timestamp: Math.floor(Date.now() / 1000) };
+    setCache(cacheKey, result);
+    res.json(result);
   } catch (e) {
     res.status(502).json({ error: 'Failed to fetch from Yahoo Finance: ' + e.message });
   }
 });
 
-// Fallback: Yahoo Finance previous close for instruments not on Google Finance (REITs, etc.)
-app.get('/api/stock-prev-close-yahoo/:symbol', async (req, res) => {
+// Yahoo Finance individual endpoints (legacy, served from cache populated above)
+app.get('/api/live-stock-price-yahoo/:symbol', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   const yahooSymbol = symbol.replace(/-RR$/, '');
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}.NS`;
+  const cacheKey = `yahoo:${symbol}`;
+  const cached = getCached(cacheKey);
+  if (cached) return res.json({ symbol, price: cached.price, source: 'yahoo', cached: true });
 
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}.NS`;
   try {
     const response = await fetchWithTimeout(url, {
       headers: {
@@ -244,41 +295,57 @@ app.get('/api/stock-prev-close-yahoo/:symbol', async (req, res) => {
         'Accept': 'application/json',
       }
     }, 8000);
-
-    if (!response.ok) {
-      return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
-    }
-
+    if (!response.ok) return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
     const data = await response.json();
-    const result = data?.chart?.result?.[0];
-    if (!result || !result.indicators || !result.indicators.quote || !result.indicators.quote[0]) {
-      return res.status(404).json({ error: `No data found for symbol: ${symbol}` });
-    }
+    const r = data?.chart?.result?.[0];
+    if (!r?.meta?.regularMarketPrice) return res.status(404).json({ error: `No price data for symbol: ${symbol}` });
+    const price = r.meta.regularMarketPrice;
+    const prevClose = r.meta.chartPreviousClose ?? r.meta.previousClose ?? null;
+    setCache(cacheKey, { symbol, price, prevClose, source: 'yahoo', timestamp: Math.floor(Date.now() / 1000) });
+    res.json({ symbol, price, source: 'yahoo', timestamp: Math.floor(Date.now() / 1000) });
+  } catch (e) {
+    res.status(502).json({ error: 'Failed to fetch from Yahoo Finance: ' + e.message });
+  }
+});
 
-    // Get the previous close from the first data point's close value
-    const closes = result.indicators.quote[0].close;
-    // Filter out null values
-    const validCloses = closes.filter(c => c !== null);
-    if (validCloses.length < 2) {
-      return res.status(404).json({ error: `Not enough close data for symbol: ${symbol}` });
-    }
-    // The second-to-last close is yesterday's close (last is today's current/close)
-    const prevClose = validCloses[validCloses.length - 2];
+app.get('/api/stock-prev-close-yahoo/:symbol', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const cacheKey = `yahoo:${symbol}`;
+  const cached = getCached(cacheKey);
+  if (cached && cached.prevClose != null) return res.json({ symbol, prevClose: cached.prevClose, source: 'yahoo', cached: true });
 
-    res.json({
-      symbol: symbol,
-      prevClose: prevClose,
-      source: 'yahoo',
-      timestamp: Math.floor(Date.now() / 1000)
-    });
+  const yahooSymbol = symbol.replace(/-RR$/, '');
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}.NS`;
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }
+    }, 8000);
+    if (!response.ok) return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
+    const data = await response.json();
+    const r = data?.chart?.result?.[0];
+    if (!r) return res.status(404).json({ error: `No data for symbol: ${symbol}` });
+    const prevClose = r.meta.chartPreviousClose ?? r.meta.previousClose ?? null;
+    if (!prevClose) return res.status(404).json({ error: `No prevClose for symbol: ${symbol}` });
+    setCache(cacheKey, { symbol, price: cached?.price ?? null, prevClose, source: 'yahoo', timestamp: Math.floor(Date.now() / 1000) });
+    res.json({ symbol, prevClose, source: 'yahoo', timestamp: Math.floor(Date.now() / 1000) });
   } catch (e) {
     res.status(502).json({ error: 'Failed to fetch previous close from Yahoo Finance: ' + e.message });
   }
 });
 
 // Proxy for mfapi.in mutual fund NAV (by scheme code)
+// mfapi.in has open CORS headers so GitHub Pages can call it directly — this proxy
+// is only used locally to avoid needing the CORS proxy for mfapi.
 app.get('/api/live-mf-nav/:schemeCode', async (req, res) => {
   const schemeCode = req.params.schemeCode;
+  const cacheKey = `mf:${schemeCode}`;
+
+  const cached = getCached(cacheKey);
+  if (cached) return res.json({ ...cached, cached: true });
+
   const url = `https://api.mfapi.in/mf/${schemeCode}`;
 
   try {
@@ -295,16 +362,17 @@ app.get('/api/live-mf-nav/:schemeCode', async (req, res) => {
 
     const parsed = await response.json();
     if (parsed && parsed.data && parsed.data.length > 0) {
-      // The latest NAV is the first entry in the data array
       const latest = parsed.data[0];
       const previous = parsed.data.find((entry, index) => index > 0 && Number(entry.nav) > 0);
-      res.json({
-        schemeCode: schemeCode,
+      const result = {
+        schemeCode,
         schemeName: parsed.meta?.scheme_name || '',
         nav: parseFloat(latest.nav),
         prevNav: previous ? parseFloat(previous.nav) : null,
         date: latest.date
-      });
+      };
+      setCache(cacheKey, result);
+      res.json(result);
     } else {
       res.status(404).json({ error: `No data for scheme code: ${schemeCode}` });
     }

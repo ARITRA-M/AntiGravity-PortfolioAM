@@ -11,9 +11,9 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
-  <!-- Vendor scripts: use CDN for both local and GitHub Pages (avoids conditional loading issues) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://unpkg.com/read-excel-file@9/dist/read-excel-file.min.js"></script>
+  <!-- Vendor scripts: load locally for offline PWA support -->
+  <script src="vendor/chart.umd.js"></script>
+  <script src="vendor/read-excel-file.min.js"></script>
   <script>
     // Detect if running on GitHub Pages (no local backend server)
     window.__isGitHubPages = window.location.hostname.includes('github.io') ||
@@ -151,6 +151,9 @@
 
       <!-- Daily Overview Section -->
       <div id="overview-daily" class="overview-subcontent active">
+        <!-- Summary KPIs injected here -->
+        <div class="kpi-grid" id="daily-summary-kpis" style="margin-bottom: 1.5rem;"></div>
+
         <div class="dashboard-grid">
           <!-- Daily Top Gainers (across Stocks & MFs by value) -->
           <div class="chart-card full-width-card">
@@ -181,6 +184,9 @@
 
       <!-- Monthly Overview Section -->
       <div id="overview-monthly" class="overview-subcontent">
+        <!-- Summary KPIs injected here -->
+        <div class="kpi-grid" id="monthly-summary-kpis" style="margin-bottom: 1.5rem;"></div>
+
         <div class="dashboard-grid">
           <!-- Monthly Top Gainers (from last upload) -->
           <div class="chart-card full-width-card">
@@ -826,7 +832,9 @@
 
   </div>
 
+  <!-- Scripts -->
   <script src="auth.js"></script>
+  <script src="js/api.js"></script>
   <script src="app.js"></script>
   <script>
     // Service Worker Registration for PWA
