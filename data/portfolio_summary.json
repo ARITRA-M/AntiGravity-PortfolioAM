@@ -1,19 +1,12 @@
 {
-  "total_net_worth_lakhs": 347.663622455,
-  "equity_lakhs": 252.65670695499998,
-  "debt_lakhs": 89.82085999999998,
-  "gold_lakhs": 5.1860555,
-  "liquid_lakhs": 0.0,
-  "alternate_lakhs": 0.0,
-  "allocation_pct": {
-    "Equity": 72.67274763200246,
-    "Debt": 25.83556466613817,
-    "Gold": 1.4916877018593626,
-    "Liquid": 0.0,
-    "Alternate": 0.0
-  },
+  "total_net_worth_lakhs": 353.7436503369999,
+  "equity_lakhs": 258.029508337,
+  "debt_lakhs": 90.31099199999998,
+  "gold_lakhs": 5.40315,
+  "liquid_lakhs": 0,
+  "alternate_lakhs": 0,
   "cumulative_investment_history": [
-    0.0,
+    0,
     0.8738708329999967,
     -0.44612916700000294,
     1.7573724469999974,
@@ -77,6 +70,14 @@
     132.814759046103,
     134.090508671103,
     136.015495309103,
-    136.54055652710298
-  ]
+    136.54055652710298,
+    137.06561394910298
+  ],
+  "allocation_pct": {
+    "Equity": 72.9425130574595,
+    "Debt": 25.530067299855048,
+    "Gold": 1.5274196426854862,
+    "Liquid": 0,
+    "Alternate": 0
+  }
 }
