@@ -3100,9 +3100,13 @@ function initMonthlyTab() {
 // ── Update Log Tab ──────────────────────────────────────────────────────────
 function initUpdateLogTab() {
   const container = document.getElementById('update-log-content');
-  if (!container) return;
+  if (!container) {
+    console.warn('initUpdateLogTab: #update-log-content not found');
+    return;
+  }
 
   const report = lastRefreshReport;
+  console.log('initUpdateLogTab: report =', report);
   if (!report) {
     container.innerHTML = '<div class="update-log-empty"><p>No refresh has been performed yet. Click the <strong>Refresh Prices</strong> button to fetch live data.</p></div>';
     return;
