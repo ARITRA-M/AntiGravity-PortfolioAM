@@ -221,12 +221,8 @@ let isRefreshing = false;
 const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
 // Detect if running on GitHub Pages (no local backend server)
-// Also detects any non-localhost deployment where /api/ endpoints don't exist
-const IS_GITHUB_PAGES = window.location.hostname.includes('github.io') ||
-                        window.location.hostname.includes('pages.dev') ||
-                        (window.location.protocol !== 'file:' &&
-                         !window.location.hostname.includes('localhost') &&
-                         !window.location.hostname.includes('127.0.0.1'));
+// Uses the global flag set in index.html for consistency
+const IS_GITHUB_PAGES = window.__isGitHubPages === true;
 
 // Map of API endpoint types to functions that build the direct URL for CORS proxy
 // On GitHub Pages, we use Yahoo Finance for all stocks (returns JSON, easy to parse)
