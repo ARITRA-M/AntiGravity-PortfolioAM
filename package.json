@@ -4,8 +4,9 @@
   "description": "Static portfolio intelligence and analytics dashboard",
   "main": "server.js",
   "scripts": {
-    "dev": "npx -y http-server -p 8080 -o",
-    "start": "node server.js"
+    "dev": "PORT=8080 node server.js",
+    "start": "node server.js",
+    "test": "node tests/server-auth.test.js"
   },
   "keywords": [
     "portfolio",
@@ -16,6 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "chart.js": "^4.5.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "read-excel-file": "^9.0.10"
   }
 }
