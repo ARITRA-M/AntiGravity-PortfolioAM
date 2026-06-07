@@ -3260,6 +3260,7 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
   const dates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
+  const contribTotal = breakupSummary.contribution["Total"].values;
   
   const ctx = document.getElementById('benchmark-comparison-chart').getContext('2d');
   
@@ -3267,8 +3268,18 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
     benchmarkComparisonChart.destroy();
   }
   
-  // Normalize both to start at 100 for comparison
-  const portfolioNormalized = nwTotal.map(v => (v / nwTotal[0]) * 100);
+  // ── Total Return Index for Portfolio ──
+  // Adjust for new investments: index[i] = nwTotal[i] / contribution[i]
+  // This shows what ₹1 invested at inception would be worth today,
+  // isolating organic portfolio returns from cash-flow effects.
+  // Normalised to start at 100 for direct side-by-side comparison.
+  const portfolioIndex = nwTotal.map((v, i) => {
+    const c = contribTotal[i];
+    return c > 0 ? (v / c) * 100 : 100;
+  });
+  const portfolioNormalized = portfolioIndex.map(v => (v / portfolioIndex[0]) * 100);
+
+  // Normalise benchmark to start at 100
   const benchmarkNormalized = benchmark.history.map(h => (h.value / benchmark.history[0].value) * 100);
   
   benchmarkComparisonChart = new Chart(ctx, {
@@ -3307,7 +3318,7 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
         legend: { labels: { color: '#f3f4f6' } },
         tooltip: {
           callbacks: {
-            label: (context) => `${context.dataset.label}: ${context.raw.toFixed(1)} (normalized)`
+            label: (context) => `${context.dataset.label}: ${context.raw.toFixed(1)} (total return index, start=100)`
           }
         }
       },
@@ -3325,18 +3336,27 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
 function updateBenchmarkStats(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
   const nwTotal = breakupSummary.net_worth["Total"].values;
-  const firstVal = nwTotal[0];
-  const lastVal = nwTotal[nwTotal.length - 1];
+  const contribTotal = breakupSummary.contribution["Total"].values;
+  const lastIdx = nwTotal.length - 1;
+  
+  const lastVal = nwTotal[lastIdx];
+  const lastContrib = contribTotal[lastIdx];
+  const firstContrib = contribTotal[0];
   const benchFirst = benchmark.history[0].value;
   const benchLast = benchmark.history[benchmark.history.length - 1].value;
   
-  const portfolioReturn = ((lastVal - firstVal) / firstVal) * 100;
-  const benchmarkReturn = ((benchLast - benchFirst) / benchFirst) * 100;
+  // Portfolio total return = (current_value / total_contribution - 1) * 100
+  const portfolioReturn = lastContrib > 0 ? ((lastVal / lastContrib) - 1) * 100 : 0;
+  const benchmarkReturn = ((benchLast / benchFirst) - 1) * 100;
   const outperformance = portfolioReturn - benchmarkReturn;
   
-  // Calculate annualized returns
+  // Annualized returns using total-return-index values
   const years = nwTotal.length / 12;
-  const portfolioAnn = (Math.pow(lastVal / firstVal, 1 / years) - 1) * 100;
+  const portfolioIdxStart = firstContrib > 0 ? nwTotal[0] / firstContrib : 1;
+  const portfolioIdxEnd = lastContrib > 0 ? lastVal / lastContrib : 1;
+  const portfolioAnn = years > 0 && portfolioIdxStart > 0
+    ? (Math.pow(portfolioIdxEnd / portfolioIdxStart, 1 / years) - 1) * 100
+    : 0;
   const benchmarkAnn = (Math.pow(benchLast / benchFirst, 1 / years) - 1) * 100;
   
   const statsContainer = document.getElementById('benchmark-stats');
@@ -3369,13 +3389,17 @@ function updateBenchmarkStats(benchmarkKey) {
 function renderRollingReturnsChart() {
   const dates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
+  const contribTotal = breakupSummary.contribution["Total"].values;
   
-  // Calculate 12-month rolling returns
+  // Calculate 12-month rolling returns (cash-flow adjusted)
+  // Using total-return-index values to strip out new-investment effects
   const rollingReturns = [];
   const labels = [];
   
   for (let i = 12; i < nwTotal.length; i++) {
-    const ret = ((nwTotal[i] - nwTotal[i - 12]) / nwTotal[i - 12]) * 100;
+    const idxNow = contribTotal[i] > 0 ? nwTotal[i] / contribTotal[i] : 1;
+    const idxPrev = contribTotal[i - 12] > 0 ? nwTotal[i - 12] / contribTotal[i - 12] : 1;
+    const ret = idxPrev > 0 ? ((idxNow / idxPrev) - 1) * 100 : 0;
     rollingReturns.push(ret);
     labels.push(formatDateString(dates[i]));
   }
