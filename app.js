@@ -1931,6 +1931,7 @@ function initNpsTab() {
   // Destroy existing charts before re-creating
   if (window.npsGrowthChart) window.npsGrowthChart.destroy();
   if (window.npsAllocationChart) window.npsAllocationChart.destroy();
+  if (window.npsVsChart) window.npsVsChart.destroy();
 
   const nw = breakupSummary.net_worth;
   const dates = breakupSummary.dates;
@@ -2032,58 +2033,134 @@ function initNpsTab() {
     }
   });
 
-  // 2. NPS Allocation Donut
-  const ctxNpsAlloc = document.getElementById('nps-allocation-chart').getContext('2d');
-  window.npsAllocationChart = new Chart(ctxNpsAlloc, {
-    type: 'doughnut',
+  // 2. NPS Valuation vs Cumulative Investment Chart
+  // Build total NPS valuation per date (E + C + G)
+  const npsTotalVals = npsEVals.map((_, i) => {
+    return (npsEVals[i] || 0) + (npsCVals[i] || 0) + (npsGVals[i] || 0);
+  });
+  // Build cumulative NPS investment per date from new_investment data
+  const npsNewInvE = breakupSummary.new_investment?.['NPS E (Equity)']?.values || [];
+  const npsNewInvC = breakupSummary.new_investment?.['NPS C (Debt)']?.values || [];
+  const npsNewInvG = breakupSummary.new_investment?.['NPS G (Debt)']?.values || [];
+  let cumInvRunning = 0;
+  const npsCumInv = npsNewInvE.map((_, i) => {
+    cumInvRunning += (npsNewInvE[i] || 0) + (npsNewInvC[i] || 0) + (npsNewInvG[i] || 0);
+    return cumInvRunning;
+  });
+  // Offset cumulative investment to start at same level as initial valuation
+  const npsInvOffset = npsTotalVals.length > 0 && npsCumInv.length > 0
+    ? npsTotalVals[0] - npsCumInv[0] : 0;
+  const npsCumInvOffset = npsCumInv.map(v => v + npsInvOffset);
+
+  const ctxNpsVs = document.getElementById('nps-vs-chart').getContext('2d');
+  window.npsVsChart = new Chart(ctxNpsVs, {
+    type: 'line',
     data: {
-      labels: ['NPS E (Equity)', 'NPS C (Debt)', 'NPS G (Debt)'],
-      datasets: [{
-        data: [npsEVal, npsCVal, npsGVal],
-        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b'],
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)'
-      }]
+      labels: dates.map(d => formatDateString(d)),
+      datasets: [
+        {
+          label: 'Total NPS Valuation',
+          data: npsTotalVals,
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16, 185, 129, 0.05)',
+          borderWidth: 3,
+          fill: true,
+          pointRadius: 0,
+          pointHoverRadius: 5
+        },
+        {
+          label: 'Cumulative NPS Investment',
+          data: npsCumInvOffset,
+          borderColor: '#6366f1',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 5
+        }
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
+        y: {
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', callback: (v) => '₹' + v + ' L' }
+        }
+      },
       plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: '#f3f4f6', font: { family: 'Outfit', size: 11 } }
-        },
+        legend: { position: 'top', labels: { color: '#f3f4f6' } },
         tooltip: {
           callbacks: {
-            label: (context) => ` ${context.label}: ${formatLakhs(context.raw)}`
+            label: (ctx) => {
+              const label = ctx.dataset.label || '';
+              const val = ctx.parsed.y;
+              return ` ${label}: ₹${val.toFixed(2)} L`;
+            }
           }
         }
       }
     }
   });
 
-  // 3. NPS Summary
+  // 3. NPS Investment Summary Table (showing invested & returns per component)
+  const npsInvE = npsNewInvE.reduce((s, v) => s + v, 0);
+  const npsInvC = npsNewInvC.reduce((s, v) => s + v, 0);
+  const npsInvG = npsNewInvG.reduce((s, v) => s + v, 0);
+  const npsTotalInv = npsInvE + npsInvC + npsInvG;
+  const npsReturnsE = npsEVal - npsInvE;
+  const npsReturnsC = npsCVal - npsInvC;
+  const npsReturnsG = npsGVal - npsInvG;
+  const npsTotalReturns = npsReturnsE + npsReturnsC + npsReturnsG;
+
   const summaryContainer = document.getElementById('nps-summary');
   summaryContainer.innerHTML = `
-    <div class="nps-summary-item">
-      <div class="nps-summary-label">NPS E (Equity) Allocation</div>
-      <div class="nps-summary-value">${npsTotal > 0 ? ((npsEVal / npsTotal) * 100).toFixed(1) : 0}%</div>
-      <div class="nps-summary-sub">${formatLakhs(npsEVal)}</div>
-    </div>
-    <div class="nps-summary-item">
-      <div class="nps-summary-label">NPS C (Debt) Allocation</div>
-      <div class="nps-summary-value">${npsTotal > 0 ? ((npsCVal / npsTotal) * 100).toFixed(1) : 0}%</div>
-      <div class="nps-summary-sub">${formatLakhs(npsCVal)}</div>
-    </div>
-    <div class="nps-summary-item">
-      <div class="nps-summary-label">NPS G (Debt) Allocation</div>
-      <div class="nps-summary-value">${npsTotal > 0 ? ((npsGVal / npsTotal) * 100).toFixed(1) : 0}%</div>
-      <div class="nps-summary-sub">${formatLakhs(npsGVal)}</div>
-    </div>
-    <div class="nps-summary-item" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.75rem; margin-top: 0.5rem;">
-      <div class="nps-summary-label" style="font-weight: 700;">Total NPS</div>
-      <div class="nps-summary-value" style="color: var(--accent-indigo);">${formatLakhs(npsTotal)}</div>
-      <div class="nps-summary-sub">This month: ${npsTotalGain >= 0 ? '+' : ''}${npsTotalGain.toFixed(2)} L</div>
+    <table class="nps-summary-table">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>Current Value</th>
+          <th>Total Invested</th>
+          <th>Total Returns</th>
+          <th>Returns %</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight: 600;">NPS E (Equity)</td>
+          <td style="text-align: right;">${formatLakhs(npsEVal)}</td>
+          <td style="text-align: right;">${npsInvE.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsReturnsE >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsE >= 0 ? '+' : ''}${npsReturnsE.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsReturnsE >= 0 ? 'trend-up' : 'trend-down'}">${npsInvE > 0 ? ((npsReturnsE / npsInvE) * 100).toFixed(1) : 0}%</td>
+        </tr>
+        <tr>
+          <td style="font-weight: 600;">NPS C (Debt)</td>
+          <td style="text-align: right;">${formatLakhs(npsCVal)}</td>
+          <td style="text-align: right;">${npsInvC.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsReturnsC >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsC >= 0 ? '+' : ''}${npsReturnsC.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsReturnsC >= 0 ? 'trend-up' : 'trend-down'}">${npsInvC > 0 ? ((npsReturnsC / npsInvC) * 100).toFixed(1) : 0}%</td>
+        </tr>
+        <tr>
+          <td style="font-weight: 600;">NPS G (Debt)</td>
+          <td style="text-align: right;">${formatLakhs(npsGVal)}</td>
+          <td style="text-align: right;">${npsInvG.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsReturnsG >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsG >= 0 ? '+' : ''}${npsReturnsG.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsReturnsG >= 0 ? 'trend-up' : 'trend-down'}">${npsInvG > 0 ? ((npsReturnsG / npsInvG) * 100).toFixed(1) : 0}%</td>
+        </tr>
+        <tr style="border-top: 1px solid rgba(255,255,255,0.06); font-weight: 700;">
+          <td>Total NPS</td>
+          <td style="text-align: right; color: var(--accent-indigo);">${formatLakhs(npsTotal)}</td>
+          <td style="text-align: right;">${npsTotalInv.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsTotalReturns >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalReturns >= 0 ? '+' : ''}${npsTotalReturns.toFixed(2)} L</td>
+          <td style="text-align: right;" class="${npsTotalReturns >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalInv > 0 ? ((npsTotalReturns / npsTotalInv) * 100).toFixed(1) : 0}%</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.85rem; color: var(--text-secondary);">
+      This Month Change: <span class="${npsTotalGain >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalGain >= 0 ? '+' : ''}${npsTotalGain.toFixed(2)} L</span>
     </div>
   `;
 }

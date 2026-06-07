@@ -1422,6 +1422,37 @@ tr:hover td {
   color: var(--text-muted);
 }
 
+.nps-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.nps-summary-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.nps-summary-table th:not(:first-child) {
+  text-align: right;
+}
+
+.nps-summary-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+}
+
+.nps-summary-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 /* ── Benchmark Stats ───────────────────────────────────────────── */
 .benchmark-stats {
   display: flex;
