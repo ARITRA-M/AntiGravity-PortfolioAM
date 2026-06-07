@@ -484,6 +484,19 @@ header {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* Freeze first column on all scrollable tables */
+.table-wrapper th:first-child,
+.table-wrapper td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-primary);
+}
+
+.table-wrapper th:first-child {
+  z-index: 2;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -502,13 +515,6 @@ th {
   transition: var(--transition-fast);
 }
 
-th:first-child,
-.instrument-header {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  background: var(--bg-primary);
-}
 
 th:hover {
   background: rgba(255, 255, 255, 0.04);
