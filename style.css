@@ -1415,38 +1415,11 @@ tr:hover td {
   display: none;
 }
 
-/* ── Overview Type Filter Tabs (Stocks / MFs / All within each section) ── */
-.type-filter-tabs {
-  display: flex;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.type-filter-btn {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-muted);
-  padding: 0.35rem 0.85rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: var(--transition-fast);
-  font-family: var(--font-sans);
-}
-
-.type-filter-btn:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.type-filter-btn.active {
-  color: var(--accent-indigo);
-  background: rgba(99, 102, 241, 0.12);
-  border-color: rgba(99, 102, 241, 0.3);
+/* ── KPI card as active filter state (clickable filter highlight) ── */
+.kpi-card.filter-active {
+  outline: 2px solid var(--accent-indigo);
+  outline-offset: 2px;
+  box-shadow: 0 0 14px rgba(99, 102, 241, 0.3);
 }
 
 .overview-subcontent.active {

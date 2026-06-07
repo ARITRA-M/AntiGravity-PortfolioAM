@@ -963,29 +963,15 @@ function switchOverviewSubtab(subtab, btn) {
   document.getElementById(`overview-${subtab}`).classList.add('active');
 }
 
-// ── Daily Type Filter (Stocks / MFs / All) ────────────────────────────────
+// ── Daily Type Filter (Stocks / MFs / All) — click KPI cards ───────────────
 function setDailyTypeFilter(filter) {
   dailyTypeFilter = filter;
-  document.querySelectorAll('#overview-daily .type-filter-btn').forEach(btn => {
-    btn.classList.remove('active');
-    const onclickAttr = btn.getAttribute('onclick') || '';
-    if (onclickAttr.includes(`'${filter}'`) || onclickAttr.includes(`"${filter}"`)) {
-      btn.classList.add('active');
-    }
-  });
   renderDailyOverviewTable();
 }
 
-// ── Monthly Type Filter (Stocks / MFs / All) ───────────────────────────────
+// ── Monthly Type Filter (Stocks / MFs / All) — click KPI cards ─────────────
 function setMonthlyTypeFilter(filter) {
   monthlyTypeFilter = filter;
-  document.querySelectorAll('#overview-monthly .type-filter-btn').forEach(btn => {
-    btn.classList.remove('active');
-    const onclickAttr = btn.getAttribute('onclick') || '';
-    if (onclickAttr.includes(`'${filter}'`) || onclickAttr.includes(`"${filter}"`)) {
-      btn.classList.add('active');
-    }
-  });
   renderMonthlyOverviewTable();
 }
 
@@ -1096,11 +1082,11 @@ function renderDailyOverviewTable() {
     ? combined
     : combined.filter(item => item.type.toLowerCase() === dailyTypeFilter);
 
-  // Render Daily Summaries
+  // Render Daily Summaries — click cards to filter the table below
   const dailySummaryEl = document.getElementById('daily-summary-kpis');
   if (dailySummaryEl) {
     dailySummaryEl.innerHTML = `
-      <div class="kpi-card" style="--card-accent: #6366f1;">
+      <div class="kpi-card${dailyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setDailyTypeFilter('stock')">
         <div>
           <div class="kpi-title">Total Daily Change (Stocks)</div>
           <div class="kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
@@ -1109,7 +1095,7 @@ function renderDailyOverviewTable() {
         </div>
         <div class="kpi-sub">Since yesterday's close</div>
       </div>
-      <div class="kpi-card" style="--card-accent: #10b981;">
+      <div class="kpi-card${dailyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setDailyTypeFilter('mf')">
         <div>
           <div class="kpi-title">Total Daily Change (MFs)</div>
           <div class="kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
@@ -1118,7 +1104,7 @@ function renderDailyOverviewTable() {
         </div>
         <div class="kpi-sub">Since previous NAV</div>
       </div>
-      <div class="kpi-card total-card">
+      <div class="kpi-card total-card${dailyTypeFilter === 'all' ? ' filter-active' : ''}" style="cursor: pointer;" onclick="setDailyTypeFilter('all')">
         <div>
           <div class="kpi-title">Total Combined Change</div>
           <div class="kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
@@ -1236,11 +1222,11 @@ function renderMonthlyOverviewTable() {
     ? combined
     : combined.filter(item => item.type.toLowerCase() === monthlyTypeFilter);
 
-  // Render Monthly Summaries
+  // Render Monthly Summaries — click cards to filter the table below
   const monthlySummaryEl = document.getElementById('monthly-summary-kpis');
   if (monthlySummaryEl) {
     monthlySummaryEl.innerHTML = `
-      <div class="kpi-card" style="--card-accent: #6366f1;">
+      <div class="kpi-card${monthlyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setMonthlyTypeFilter('stock')">
         <div>
           <div class="kpi-title">Total Gain (Stocks)</div>
           <div class="kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
@@ -1249,7 +1235,7 @@ function renderMonthlyOverviewTable() {
         </div>
         <div class="kpi-sub">Since last upload</div>
       </div>
-      <div class="kpi-card" style="--card-accent: #10b981;">
+      <div class="kpi-card${monthlyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setMonthlyTypeFilter('mf')">
         <div>
           <div class="kpi-title">Total Gain (MFs)</div>
           <div class="kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
@@ -1258,7 +1244,7 @@ function renderMonthlyOverviewTable() {
         </div>
         <div class="kpi-sub">Since last upload</div>
       </div>
-      <div class="kpi-card total-card">
+      <div class="kpi-card total-card${monthlyTypeFilter === 'all' ? ' filter-active' : ''}" style="cursor: pointer;" onclick="setMonthlyTypeFilter('all')">
         <div>
           <div class="kpi-title">Total Combined Gain</div>
           <div class="kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
