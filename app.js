@@ -150,7 +150,7 @@ function clearLocalStorageData() {
   }
 }
 
-// ── One-click "Commit to GitHub" (saves data, bumps versions, git push) ─
+// ── One-click "Commit" (saves data, bumps versions, git push) ──────────
 async function commitData() {
   const btn = document.getElementById('commit-btn');
   const status = document.getElementById('upload-status');
@@ -160,7 +160,7 @@ async function commitData() {
   }
   // Only works on localhost where server.js is running
   if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-    if (status) status.textContent = '⚠️ Commit only works on the local machine (localhost). Download JSON and push to git manually.';
+    if (status) status.textContent = '⚠️ Commit only works on the local machine (localhost).';
     return;
   }
   try {
@@ -181,14 +181,11 @@ async function commitData() {
 
     const data = await res.json();
     if (res.ok && data.success) {
-      // Update APP_VERSION in memory to match what server just wrote
       const todayStr = new Date().toISOString().slice(0, 10);
       if (APP_VERSION !== todayStr) {
-        // Flag that version was bumped — page reload will pick up new value
         console.log('APP_VERSION will be updated on next page load');
       }
       if (status) status.textContent = '✅ ' + data.message;
-      // Show details in console
       if (data.details) console.log('Commit details:', data.details.join(' | '));
     } else if (res.status === 401) {
       if (status) status.textContent = '🔒 Session expired. Please unlock the portfolio first.';
@@ -199,29 +196,8 @@ async function commitData() {
     if (status) status.textContent = '❌ Commit failed: ' + e.message;
     console.error('commitData error:', e);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🚀 Commit to GitHub'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 Commit'; }
   }
-}
-
-// ── Download all JSON data as individual files ──────────────────────────
-function downloadAllJson(summary, breakup, equity, mf, hist) {
-  const files = {
-    'portfolio_summary.json': summary,
-    'breakup_summary.json': breakup,
-    'latest_equity.json': equity,
-    'latest_mf.json': mf,
-    'historical_holdings.json': hist
-  };
-  for (const [name, data] of Object.entries(files)) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-  console.log('Downloaded all 5 JSON data files for git commit.');
 }
 
 async function loadData() {
@@ -418,7 +394,6 @@ function initPortfolioUpload() {
 
 async function loadWorkbookFile(file) {
   const status = document.getElementById('upload-status');
-  const saveBtn = document.getElementById('save-data-btn');
   try {
     if (typeof readXlsxFile !== 'function') {
       throw new Error('Excel parser could not be loaded. Check your network connection and retry.');
@@ -445,14 +420,13 @@ async function loadWorkbookFile(file) {
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
     updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
 
-    // Show action buttons after successful upload
-    if (status) status.textContent = `✅ ${file.name} — saved locally. Hit "Commit to GitHub" to deploy permanently.`;
-    if (saveBtn) saveBtn.style.display = 'inline-block';
+    // Show Commit button after successful upload
+    if (status) status.textContent = `✅ ${file.name} — saved locally. Hit "Commit" to deploy permanently.`;
     const commitBtn = document.getElementById('commit-btn');
     if (commitBtn) {
       commitBtn.style.display = 'inline-flex';
       commitBtn.disabled = false;
-      commitBtn.textContent = '🚀 Commit to GitHub';
+      commitBtn.textContent = '🚀 Commit';
     }
   } catch (error) {
     console.error('Failed to load uploaded workbook:', error);

@@ -41,8 +41,7 @@
         <div class="header-actions">
           <label class="upload-btn" for="portfolio-upload">Upload Portfolio Analysis.xlsx</label>
           <input type="file" id="portfolio-upload" accept=".xlsx,.xls" hidden>
-          <button class="download-json-btn" id="save-data-btn" onclick="downloadAllJson(portfolioSummary, breakupSummary, latestEquity, latestMf, historicalHoldings)" style="display:none;" title="Download JSON files for git commit">📥 Download JSON</button>
-          <button class="commit-btn" id="commit-btn" onclick="commitData()" style="display:none;" title="Save data to disk, bump versions, and push to GitHub so all devices stay in sync">🚀 Commit to GitHub</button>
+          <button class="commit-btn" id="commit-btn" onclick="commitData()" style="display:none;" title="Save data to disk, bump versions, and push to GitHub so all devices stay in sync">🚀 Commit</button>
           <span class="upload-status" id="upload-status">Using bundled portfolio file</span>
           <button class="refresh-btn" id="refresh-prices-btn" onclick="refreshPrices()" title="Fetch latest prices from the internet">
             <span class="refresh-icon">⟳</span>
