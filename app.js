@@ -99,12 +99,27 @@ async function loadData() {
       throw new Error('Chart.js could not be loaded. Check your network connection or bundle Chart.js locally.');
     }
 
+    // Update badge to show loading is in progress
+    document.getElementById('live-time-badge').innerText = "Loading portfolio data...";
+
+    // Helper: fetch with timeout to prevent hanging
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        return response;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
     const [resSummary, resBreakup, resEquity, resMf, resHist] = await Promise.all([
-      fetch('data/portfolio_summary.json', { credentials: 'same-origin' }),
-      fetch('data/breakup_summary.json', { credentials: 'same-origin' }),
-      fetch('data/latest_equity.json', { credentials: 'same-origin' }),
-      fetch('data/latest_mf.json', { credentials: 'same-origin' }),
-      fetch('data/historical_holdings.json', { credentials: 'same-origin' })
+      fetchWithTimeout('data/portfolio_summary.json', { credentials: 'same-origin' }),
+      fetchWithTimeout('data/breakup_summary.json', { credentials: 'same-origin' }),
+      fetchWithTimeout('data/latest_equity.json', { credentials: 'same-origin' }),
+      fetchWithTimeout('data/latest_mf.json', { credentials: 'same-origin' }),
+      fetchWithTimeout('data/historical_holdings.json', { credentials: 'same-origin' })
     ]);
 
     const responses = [resSummary, resBreakup, resEquity, resMf, resHist];
