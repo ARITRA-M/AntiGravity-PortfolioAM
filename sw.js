@@ -1,5 +1,5 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v12';
+const CACHE_NAME = 'portfolio-analytics-v13';
 
 // Determine the base path - works on both local server (/) and GitHub Pages subpath
 const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '') || '';
@@ -17,6 +17,14 @@ const ASSETS_TO_CACHE = [
   BASE_PATH + '/icons/icon-192.png',
   BASE_PATH + '/icons/icon-512.png'
 ];
+
+// JS files that should use stale-while-revalidate (always fetch latest from network,
+// use cache only as immediate fallback while updating in background)
+const JS_FILES = new Set([
+  '/app.js',
+  '/auth.js',
+  '/js/api.js'
+]);
 
 // Install event - cache assets
 self.addEventListener('install', (event) => {
@@ -45,59 +53,144 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - serve from cache, fallback to network
+// Helper: determine the strategy for a given request URL
+function getStrategy(url) {
+  const path = url.pathname;
+
+  // API requests → always network
+  if (path.startsWith(BASE_PATH + '/api/')) {
+    return 'network-only';
+  }
+
+  // Data requests → always network (stale data is worse than offline)
+  if (path.startsWith(BASE_PATH + '/data/')) {
+    return 'network-only';
+  }
+
+  // JS files → stale-while-revalidate (serve cached immediately, fetch latest in background)
+  for (const jsFile of JS_FILES) {
+    if (path === BASE_PATH + jsFile || path.endsWith(jsFile)) {
+      return 'stale-while-revalidate';
+    }
+  }
+
+  // All other assets → cache-first (offline-first for HTML, CSS, vendor, icons)
+  return 'cache-first';
+}
+
+// Fetch event - handle requests based on strategy
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
+  const strategy = getStrategy(url);
 
-  // Skip API requests - always go to network
-  if (url.pathname.startsWith(BASE_PATH + '/api/')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
+  switch (strategy) {
+    case 'network-only':
+      event.respondWith(fetch(event.request));
+      break;
 
-  // Network-Only strategy for data directory - always fetch fresh data.
-  // Stale portfolio data is worse than offline. Cache is NOT used as fallback.
-  if (url.pathname.startsWith(BASE_PATH + '/data/')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request)
-      .then((cachedResponse) => {
-        if (cachedResponse) {
-          return cachedResponse;
-        }
-
-        // Not in cache - fetch from network
-        return fetch(event.request)
-          .then((response) => {
-            // Don't cache non-successful responses
-            if (!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-
-            // Clone the response
-            const responseToCache = response.clone();
-
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(event.request, responseToCache);
+    case 'stale-while-revalidate':
+      event.respondWith(
+        caches.match(event.request)
+          .then((cachedResponse) => {
+            // Fetch the latest from network in the background (no await)
+            const fetchPromise = fetch(event.request)
+              .then((networkResponse) => {
+                if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+                  const responseToCache = networkResponse.clone();
+                  caches.open(CACHE_NAME)
+                    .then((cache) => cache.put(event.request, responseToCache));
+                }
+                return networkResponse;
+              })
+              .catch(() => {
+                // Network failed — that's ok, we'll fall back to cache below
+                return null;
               });
 
-            return response;
-          })
-          .catch(() => {
-            // Return offline page for navigation requests
-            if (event.request.mode === 'navigate') {
-              return caches.match(BASE_PATH + '/index.html');
+            // Return cached immediately if available, otherwise wait for network
+            if (cachedResponse) {
+              return cachedResponse;
             }
-          });
-      })
-  );
+            return fetchPromise.then(networkResponse => {
+              if (networkResponse) return networkResponse;
+              // Offline fallback for navigation requests
+              if (event.request.mode === 'navigate') {
+                return caches.match(BASE_PATH + '/index.html');
+              }
+              return new Response('Offline', { status: 503 });
+            });
+          })
+      );
+      break;
+
+    case 'cache-first':
+    default:
+      event.respondWith(
+        caches.match(event.request)
+          .then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+
+            // Not in cache - fetch from network
+            return fetch(event.request)
+              .then((response) => {
+                if (!response || response.status !== 200 || response.type !== 'basic') {
+                  return response;
+                }
+                const responseToCache = response.clone();
+                caches.open(CACHE_NAME)
+                  .then((cache) => {
+                    cache.put(event.request, responseToCache);
+                  });
+                return response;
+              })
+              .catch(() => {
+                if (event.request.mode === 'navigate') {
+                  return caches.match(BASE_PATH + '/index.html');
+                }
+              });
+          })
+      );
+      break;
+  }
+});
+
+// Listen for SKIP_WAITING message from the page to activate new SW immediately
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// Background sync for when app comes back online
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-data') {
+    console.log('Background sync triggered');
+  }
+});
+
+// Push notifications (for future use)
+self.addEventListener('push', (event) => {
+  if (event.data) {
+    const data = event.data.json();
+    const options = {
+      body: data.body,
+      icon: BASE_PATH + '/icons/icon-192.png',
+      badge: BASE_PATH + '/icons/icon-192.png',
+      vibrate: [100, 50, 100],
+      data: {
+        dateOfArrival: Date.now(),
+        primaryKey: data.primaryKey
+      }
+    };
+    event.waitUntil(
+      self.registration.showNotification(data.title, options)
+    );
+  }
 });
 
 // Listen for SKIP_WAITING message from the page to activate new SW immediately

@@ -354,7 +354,9 @@ async function refreshPrices() {
     const missingMfs = totalMfs - mappedMfs;
 
     // 4. Build refresh report BEFORE re-rendering tabs (initUpdateLogTab reads it)
-    lastRefreshReport = {
+    // Use window.lastRefreshReport explicitly so it's accessible from app.js regardless
+    // of script load order or Service Worker caching behavior.
+    window.lastRefreshReport = {
       refreshedAt: refreshDateStr, stockSuccess, stockFail, mfSuccess, mfFail,
       totalStocks, totalMfs, mappedMfs, skippedStocks, missingMfs,
       stockDetails, mfDetails
