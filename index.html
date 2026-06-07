@@ -358,51 +358,6 @@
           </div>
         </div>
 
-        <!-- Dividend Charts (side by side) -->
-        <div class="chart-card" style="grid-column: span 1;">
-          <div class="chart-header">
-            <h3>Estimated Dividend History</h3>
-          </div>
-          <div class="chart-container" style="height: 250px;">
-            <canvas id="dividend-history-chart"></canvas>
-          </div>
-        </div>
-        <div class="chart-card" style="grid-column: span 1;">
-          <div class="chart-header">
-            <h3>Estimated Dividend by Source</h3>
-          </div>
-          <div class="chart-container" style="height: 250px;">
-            <canvas id="dividend-source-chart"></canvas>
-          </div>
-        </div>
-
-        <!-- Dividend KPIs -->
-        <div class="chart-card full-width-card">
-          <div class="kpi-grid" style="margin-bottom: 0;">
-            <div class="kpi-card" style="--card-accent: var(--accent-green); box-shadow: none; padding: 0.5rem;">
-              <div>
-                <div class="kpi-title">Estimated Dividends (TTM)</div>
-                <div class="kpi-value" id="div-ttm-value">₹0.00 L</div>
-              </div>
-              <div class="kpi-sub">Modeled from holdings</div>
-            </div>
-            <div class="kpi-card" style="--card-accent: var(--accent-amber); box-shadow: none; padding: 0.5rem;">
-              <div>
-                <div class="kpi-title">Dividend Yield</div>
-                <div class="kpi-value" id="div-yield-value">0.00%</div>
-              </div>
-              <div class="kpi-sub">Annual Yield on Portfolio</div>
-            </div>
-            <div class="kpi-card" style="--card-accent: var(--accent-blue); box-shadow: none; padding: 0.5rem;">
-              <div>
-                <div class="kpi-title">Dividend Growth</div>
-                <div class="kpi-value" id="div-growth-value">+0.0%</div>
-              </div>
-              <div class="kpi-sub">YoY Growth Rate</div>
-            </div>
-          </div>
-        </div>
-
         <!-- Interactive Stock Explorer (graphs) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
@@ -439,7 +394,7 @@
           </div>
         </div>
 
-        <!-- Stock Holdings Table (merged with dividend columns) -->
+        <!-- Stock Holdings Table -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Current Stock Holdings</h3>
@@ -466,8 +421,6 @@
                   <th onclick="sortStocks(8)" style="text-align: right;">P&L (₹)</th>
                   <th onclick="sortStocks(9)" style="text-align: right;">Gain %</th>
                   <th onclick="sortStocks(10)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
-                  <th onclick="sortStocks(11)" style="text-align: right;">Annual Div (₹)</th>
-                  <th onclick="sortStocks(12)" style="text-align: right;">Div Yield %</th>
                 </tr>
               </thead>
               <tbody id="stocks-table-body">
@@ -476,9 +429,6 @@
             </table>
           </div>
         </div>
-
-        <!-- Upcoming Dividends List (hidden container for JS) -->
-        <div id="upcoming-dividends-list" style="display: none;"></div>
       </div>
     </div>
 
