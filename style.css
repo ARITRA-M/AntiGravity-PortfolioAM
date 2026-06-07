@@ -834,41 +834,6 @@ tr:hover td {
   line-height: 1.4;
 }
 
-/* Upcoming Dividends */
-.upcoming-dividends-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.upcoming-div-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
-}
-
-.upcoming-div-name {
-  font-weight: 700;
-  font-size: 0.9rem;
-}
-
-.upcoming-div-info {
-  text-align: right;
-}
-
-.upcoming-div-amount {
-  font-weight: 600;
-  color: var(--accent-green);
-}
-
-.upcoming-div-date {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
 /* Responsive */
 @media (max-width: 1024px) {
   .dashboard-grid {
@@ -1485,40 +1450,6 @@ tr:hover td {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-primary);
-}
-
-/* ── Upcoming Dividends ────────────────────────────────────────── */
-.upcoming-div-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.upcoming-div-item:last-child {
-  border-bottom: none;
-}
-
-.upcoming-div-name {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.upcoming-div-info {
-  text-align: right;
-}
-
-.upcoming-div-amount {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--accent-green);
-}
-
-.upcoming-div-date {
-  font-size: 0.75rem;
-  color: var(--text-muted);
 }
 
 .trade-type.sell {

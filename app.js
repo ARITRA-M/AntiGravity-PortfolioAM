@@ -10,7 +10,6 @@ let breakupSummary = null;
 let latestEquity = null;
 let latestMf = null;
 let historicalHoldings = null;
-let dividendData = null;
 let uploadedSnapshot = null;
 let lastRefreshReport = null;
 
@@ -27,8 +26,6 @@ let stockHistoricalChart = null;
 let mfHistoricalChart = null;
 let benchmarkComparisonChart = null;
 let rollingReturnsChart = null;
-let dividendHistoryChart = null;
-let dividendSourceChart = null;
 // Table sorting state
 let stockSortColumn = -1;
 let stockSortAsc = true;
@@ -223,7 +220,6 @@ async function loadData() {
       historicalHoldings = cached.historicalHoldings;
 
       initializeLiveBaseline();
-      generateDividendData();
       generateBenchmarkData();
 
       const dates = breakupSummary.dates;
@@ -289,9 +285,6 @@ async function loadData() {
     historicalHoldings = await resHist.json();
 
     initializeLiveBaseline();
-
-    // Generate simulated dividend data
-    generateDividendData();
 
     // Generate benchmark data
     generateBenchmarkData();
@@ -450,7 +443,6 @@ function normalizeReadExcelWorkbook(sheets) {
 }
 
 function resetDerivedState() {
-  dividendData = null;
   benchmarkData.nifty50.history = [];
   benchmarkData.spx.history = [];
   benchmarkData.gold.history = [];
@@ -459,7 +451,6 @@ function resetDerivedState() {
   window._stockNameMap = null;
   heatmapSelectedIndices.clear();
   initializeLiveBaseline();
-  generateDividendData();
   generateBenchmarkData();
 }
 
@@ -2202,93 +2193,6 @@ function initStocksTab() {
   });
   const sortedStocks = [...latestEquity].sort((a, b) => (b.thisMonthGain ?? 0) - (a.thisMonthGain ?? 0));
   renderStocksTable(sortedStocks);
-
-  // ── Dividend Section (merged into Stocks tab) ──
-  if (dividendData) {
-    // Update dividend KPIs
-    const ttmEl = document.getElementById('div-ttm-value');
-    const yieldEl = document.getElementById('div-yield-value');
-    const growthEl = document.getElementById('div-growth-value');
-    if (ttmEl) ttmEl.innerText = formatLakhs(dividendData.ttm / 100000);
-    if (yieldEl) yieldEl.innerText = dividendData.yield.toFixed(2) + '%';
-    if (growthEl) growthEl.innerText = '+' + dividendData.growth.toFixed(1) + '%';
-
-    // Dividend History Chart
-    if (dividendHistoryChart) dividendHistoryChart.destroy();
-    const ctxHistEl = document.getElementById('dividend-history-chart');
-    if (ctxHistEl) {
-      const ctxHist = ctxHistEl.getContext('2d');
-      dividendHistoryChart = new Chart(ctxHist, {
-        type: 'bar',
-        data: {
-          labels: dividendData.history.map(h => formatDateString(h.date)),
-          datasets: [{
-            label: 'Dividend Received (₹)',
-            data: dividendData.history.map(h => h.amount),
-            backgroundColor: 'rgba(16, 185, 129, 0.6)',
-            borderRadius: 6
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
-            y: {
-              grid: { color: 'rgba(255, 255, 255, 0.04)' },
-              ticks: { color: '#9ca3af', callback: (v) => '₹' + (v / 1000).toFixed(0) + 'K' }
-            }
-          }
-        }
-      });
-    }
-
-    // Dividend by Source Chart
-    if (dividendSourceChart) dividendSourceChart.destroy();
-    const ctxSourceEl = document.getElementById('dividend-source-chart');
-    if (ctxSourceEl) {
-      const ctxSource = ctxSourceEl.getContext('2d');
-      dividendSourceChart = new Chart(ctxSource, {
-        type: 'doughnut',
-        data: {
-          labels: ['Stocks', 'Mutual Funds'],
-          datasets: [{
-            data: [dividendData.byType.stocks, dividendData.byType.mfs],
-            backgroundColor: ['#3b82f6', '#6366f1'],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'bottom', labels: { color: '#f3f4f6' } }
-          }
-        }
-      });
-    }
-
-    // Upcoming dividends (hidden container for reference)
-    const upcomingContainer = document.getElementById('upcoming-dividends-list');
-    if (upcomingContainer) {
-      const upcomingDividends = [
-        { name: 'Infosys Ltd', amount: 17500, date: 'Jun 15, 2026' },
-        { name: 'HDFC Bank', amount: 9500, date: 'Jun 28, 2026' },
-        { name: 'ITC Ltd', amount: 6800, date: 'Jul 5, 2026' },
-        { name: 'Parag Parikh Flexi Cap', amount: 4200, date: 'Jul 15, 2026' }
-      ];
-      upcomingContainer.innerHTML = upcomingDividends.map(d => `
-        <div class="upcoming-div-item">
-          <span class="upcoming-div-name">${escapeHtml(d.name)}</span>
-          <div class="upcoming-div-info">
-            <div class="upcoming-div-amount">₹${d.amount.toLocaleString()}</div>
-            <div class="upcoming-div-date">${d.date}</div>
-          </div>
-        </div>
-      `).join('');
-    }
-  }
 }
 
 function selectStockExplorer(symbol, element) {
@@ -2478,19 +2382,9 @@ function renderStockHistoricalChart(symbol) {
 
 function renderStocksTable(data) {
   const body = document.getElementById('stocks-table-body');
-  // Build dividend lookup map from dividendData.holdings
-  const divMap = {};
-  if (dividendData && dividendData.holdings) {
-    dividendData.holdings.forEach(h => {
-      divMap[h.instrument] = h;
-    });
-  }
   body.innerHTML = data.map(s => {
     const uploadedPrice = s.lastUploadedPrice !== undefined ? `₹${s.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—';
     const gain = s.thisMonthGain || 0;
-    const divInfo = divMap[s.instrument];
-    const annualDiv = divInfo ? divInfo.annualDiv : 0;
-    const divYield = divInfo ? divInfo.yield : 0;
     return `
     <tr>
       <td class="instrument-cell">${escapeHtml(s.instrument)}</td>
@@ -2510,8 +2404,6 @@ function renderStocksTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
-      <td style="text-align: right; color: var(--accent-green);">${annualDiv > 0 ? '₹' + annualDiv.toLocaleString(undefined, {maximumFractionDigits:0}) : '—'}</td>
-      <td style="text-align: right; color: var(--accent-green);">${divYield > 0 ? divYield.toFixed(2) + '%' : '—'}</td>
     </tr>
   `}).join('');
 }
@@ -2555,14 +2447,6 @@ function sortStocks(colIdx) {
     return matchesQuery && matchesSector;
   });
 
-  // Build dividend lookup map
-  const divMap = {};
-  if (dividendData && dividendData.holdings) {
-    dividendData.holdings.forEach(h => {
-      divMap[h.instrument] = h;
-    });
-  }
-
   filtered.sort((a, b) => {
     let valA, valB;
     switch(colIdx) {
@@ -2577,20 +2461,6 @@ function sortStocks(colIdx) {
       case 8: valA = a.pnl; valB = b.pnl; break;
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
-      case 11: {
-        const dA = divMap[a.instrument];
-        const dB = divMap[b.instrument];
-        valA = dA ? dA.annualDiv : 0;
-        valB = dB ? dB.annualDiv : 0;
-        break;
-      }
-      case 12: {
-        const dA = divMap[a.instrument];
-        const dB = divMap[b.instrument];
-        valA = dA ? dA.yield : 0;
-        valB = dB ? dB.yield : 0;
-        break;
-      }
     }
     
     if (typeof valA === 'string') {
@@ -2940,79 +2810,6 @@ function generateBenchmarkData() {
   });
 }
 
-function generateDividendData() {
-  // Generate deterministic dividend data based on holdings
-  const dividendHistory = [];
-  const dividendByType = { stocks: 0, mfs: 0 };
-  const dividendHoldings = [];
-  
-  // Simulate dividend history (monthly for the past 2 years)
-  const dates = breakupSummary.dates;
-  const portfolioValue = portfolioSummary.total_net_worth_lakhs * 100000;
-  
-  dates.forEach((d, i) => {
-    // Simulate ~1.5% annual dividend yield, paid quarterly
-    if (i % 3 === 0) {
-      const monthlyDiv = portfolioValue * 0.015 / 4;
-      dividendHistory.push({
-        date: d,
-        amount: monthlyDiv * (1 + i * 0.02) // Growing over time
-      });
-    }
-  });
-  
-  // Generate dividend-paying holdings (deterministic - based on PnL performance)
-  // Stocks with positive PnL are more likely to pay dividends
-  latestEquity.slice(0, 15).forEach((stock, idx) => {
-    // Deterministic: use stock name hash and PnL to decide if dividend-paying
-    const nameHash = stock.instrument.length + stock.pnl;
-    const paysDividend = (nameHash % 10) > 2; // ~70% pay dividends, deterministic
-    if (paysDividend) {
-      // Yield based on sector: stable sectors get higher yield
-      const baseYield = stock.sector.includes('Bank') || stock.sector.includes('Oil') ? 2.5 : 1.5;
-      const yield_ = baseYield + (idx % 3) * 0.5; // Deterministic variation
-      dividendHoldings.push({
-        instrument: stock.instrument,
-        type: 'Stock',
-        annualDiv: stock.cur_val * yield_ / 100,
-        yield: yield_,
-        lastDiv: formatDateString(dates[dates.length - 1])
-      });
-    }
-  });
-  
-  latestMf.slice(0, 10).forEach((fund, idx) => {
-    // Deterministic: use scheme name hash
-    const nameHash = fund.scheme.length + fund.pnl;
-    const paysDividend = (nameHash % 10) > 3; // ~60% pay dividends, deterministic
-    if (paysDividend) {
-      const yield_ = 1.0 + (idx % 4) * 0.5; // Deterministic: 1.0%, 1.5%, 2.0%, 2.5%
-      dividendHoldings.push({
-        instrument: fund.scheme.substring(0, 30),
-        type: 'Mutual Fund',
-        annualDiv: fund.cur_val * yield_ / 100,
-        yield: yield_,
-        lastDiv: formatDateString(dates[dates.length - 1])
-      });
-    }
-  });
-  
-  const totalAnnualDiv = dividendHoldings.reduce((sum, h) => sum + h.annualDiv, 0);
-  
-  dividendData = {
-    history: dividendHistory,
-    byType: {
-      stocks: totalAnnualDiv * 0.65,
-      mfs: totalAnnualDiv * 0.35
-    },
-    holdings: dividendHoldings,
-    totalAnnual: totalAnnualDiv,
-    ttm: totalAnnualDiv * 0.9, // Trailing 12 months
-    yield: (totalAnnualDiv / portfolioValue) * 100,
-    growth: 12.5 // YoY growth
-  };
-}
-
 // ==================== BENCHMARK TAB ====================
 
 function initBenchmarkTab() {
@@ -3184,97 +2981,6 @@ function renderRollingReturnsChart() {
 }
 
 // ==================== DIVIDEND TAB ====================
-
-function initDividendTab() {
-  // Destroy existing charts before re-creating
-  if (dividendHistoryChart) dividendHistoryChart.destroy();
-  if (dividendSourceChart) dividendSourceChart.destroy();
-
-  // Update KPIs
-  document.getElementById('div-ttm-value').innerText = formatLakhs(dividendData.ttm / 100000);
-  document.getElementById('div-yield-value').innerText = dividendData.yield.toFixed(2) + '%';
-  document.getElementById('div-growth-value').innerText = '+' + dividendData.growth.toFixed(1) + '%';
-  
-  // Dividend History Chart
-  const ctxHist = document.getElementById('dividend-history-chart').getContext('2d');
-  dividendHistoryChart = new Chart(ctxHist, {
-    type: 'bar',
-    data: {
-      labels: dividendData.history.map(h => formatDateString(h.date)),
-      datasets: [{
-        label: 'Dividend Received (₹)',
-        data: dividendData.history.map(h => h.amount),
-        backgroundColor: 'rgba(16, 185, 129, 0.6)',
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
-        y: { 
-          grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (v) => '₹' + (v / 1000).toFixed(0) + 'K' }
-        }
-      }
-    }
-  });
-  
-  // Dividend by Source
-  const ctxSource = document.getElementById('dividend-source-chart').getContext('2d');
-  dividendSourceChart = new Chart(ctxSource, {
-    type: 'doughnut',
-    data: {
-      labels: ['Stocks', 'Mutual Funds'],
-      datasets: [{
-        data: [dividendData.byType.stocks, dividendData.byType.mfs],
-        backgroundColor: ['#3b82f6', '#6366f1'],
-        borderWidth: 0
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { color: '#f3f4f6' } }
-      }
-    }
-  });
-  
-  // Upcoming dividends (simulated)
-  const upcomingContainer = document.getElementById('upcoming-dividends-list');
-  const upcomingDividends = [
-    { name: 'Infosys Ltd', amount: 17500, date: 'Jun 15, 2026' },
-    { name: 'HDFC Bank', amount: 9500, date: 'Jun 28, 2026' },
-    { name: 'ITC Ltd', amount: 6800, date: 'Jul 5, 2026' },
-    { name: 'Parag Parikh Flexi Cap', amount: 4200, date: 'Jul 15, 2026' }
-  ];
-  
-  upcomingContainer.innerHTML = upcomingDividends.map(d => `
-    <div class="upcoming-div-item">
-      <span class="upcoming-div-name">${escapeHtml(d.name)}</span>
-      <div class="upcoming-div-info">
-        <div class="upcoming-div-amount">₹${d.amount.toLocaleString()}</div>
-        <div class="upcoming-div-date">${d.date}</div>
-      </div>
-    </div>
-  `).join('');
-  
-  // Dividend Holdings Table
-  const tableBody = document.getElementById('dividend-table-body');
-  tableBody.innerHTML = dividendData.holdings.map(h => `
-    <tr>
-      <td style="font-weight: 600;">${escapeHtml(h.instrument)}</td>
-      <td><span class="sector-tag">${escapeHtml(h.type)}</span></td>
-      <td style="text-align: right;">₹${h.annualDiv.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>
-      <td style="text-align: right; color: var(--accent-green);">${h.yield.toFixed(2)}%</td>
-      <td style="text-align: right; color: var(--text-secondary);">${escapeHtml(h.lastDiv)}</td>
-    </tr>
-  `).join('');
-}
-
 
 // ==================== MONTHLY CHANGES TAB ====================
 
