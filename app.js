@@ -488,14 +488,17 @@ function setLatestSectionValue(section, key, value) {
 
 function refreshAllTabs() {
   updateKpis();
-  initOverviewTab();
-  initStocksTab();
-  initMfsTab();
-  initGrowthTab();
-  initFixedIncomeTab();
-  initNpsTab();
-  initMonthlyTab();
-  initUpdateLogTab();
+  
+  // Only initialize the currently visible tab (others load lazily on first visit)
+  const activeTab = document.querySelector('.tab-content.active');
+  if (activeTab) {
+    const tabId = activeTab.id.replace('-tab', '');
+    if (!initializedTabs.has(tabId)) {
+      initializedTabs.add(tabId);
+      const initFn = tabInitMap[tabId];
+      if (initFn) initFn();
+    }
+  }
 }
 
 function updateDataFreshness(message) {
@@ -507,6 +510,46 @@ function updateDataFreshness(message) {
 function formatLakhs(value) {
   return '₹' + parseFloat(value).toFixed(2) + ' L';
 }
+
+// ── Responsive Chart.js config helpers ──
+function isMobileView() {
+  return window.innerWidth < 480;
+}
+
+function isSmallMobileView() {
+  return window.innerWidth < 400;
+}
+
+/** Returns legend label config optimized for current viewport width */
+function getResponsiveLegendLabels(baseFontSize = 9) {
+  const mobile = isMobileView();
+  const small = isSmallMobileView();
+  return {
+    color: '#f3f4f6',
+    font: {
+      family: 'Outfit',
+      size: small ? 8 : (mobile ? 9 : baseFontSize)
+    },
+    boxWidth: small ? 8 : (mobile ? 10 : 14),
+    padding: small ? 6 : (mobile ? 8 : 12)
+  };
+}
+
+// Set mobile-optimized Chart.js global defaults once
+(function setChartDefaults() {
+  const mobile = isMobileView();
+  if (mobile && typeof Chart !== 'undefined' && Chart.defaults) {
+    Chart.defaults.plugins.tooltip.bodyFont = {
+      family: 'Outfit',
+      size: isSmallMobileView() ? 9 : 10
+    };
+    Chart.defaults.plugins.tooltip.titleFont = {
+      family: 'Outfit',
+      size: isSmallMobileView() ? 10 : 11
+    };
+    Chart.defaults.plugins.tooltip.padding = isSmallMobileView() ? 6 : 8;
+  }
+})();
 
 function formatINR(value) {
   return new Intl.NumberFormat('en-IN', {
@@ -867,6 +910,20 @@ function getAssetColor(label) {
   return colors[label] || '#6366f1';
 }
 
+// ── Tab initialization tracking (lazy init on mobile) ──
+const initializedTabs = new Set();
+
+const tabInitMap = {
+  'overview': initOverviewTab,
+  'stocks': initStocksTab,
+  'mfs': initMfsTab,
+  'growth': initGrowthTab,
+  'fixed-income': initFixedIncomeTab,
+  'nps': initNpsTab,
+  'monthly': initMonthlyTab,
+  'update-log': initUpdateLogTab
+};
+
 // Tab Switching
 function switchTab(tabId) {
   tabIds.forEach(id => {
@@ -881,11 +938,23 @@ function switchTab(tabId) {
     }
   });
   
+  // Lazy-initialize charts for this tab on first visit
+  if (!initializedTabs.has(tabId)) {
+    initializedTabs.add(tabId);
+    const initFn = tabInitMap[tabId];
+    if (initFn) initFn();
+  }
+  
+  // Always re-initialize update-log tab on every visit (data changes after refresh)
+  if (tabId === 'update-log') {
+    initUpdateLogTab();
+  }
+  
   // Re-render charts on visible tab to ensure proper sizing
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));
     
-    // Re-initialize monthly tab charts if switching to it
+    // Re-render monthly charts (they need update on every visit)
     if (tabId === 'monthly') {
       renderMonthlyChangeChart();
       renderMonthlyActivityChart();
@@ -2118,47 +2187,49 @@ function initNpsTab() {
 
   const summaryContainer = document.getElementById('nps-summary');
   summaryContainer.innerHTML = `
-    <table class="nps-summary-table">
-      <thead>
-        <tr>
-          <th>Component</th>
-          <th>Current Value</th>
-          <th>Total Invested</th>
-          <th>Total Returns</th>
-          <th>Returns %</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td style="font-weight: 600;">NPS E (Equity)</td>
-          <td style="text-align: right;">${formatLakhs(npsEVal)}</td>
-          <td style="text-align: right;">${npsInvE.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsReturnsE >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsE >= 0 ? '+' : ''}${npsReturnsE.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsReturnsE >= 0 ? 'trend-up' : 'trend-down'}">${npsInvE > 0 ? ((npsReturnsE / npsInvE) * 100).toFixed(1) : 0}%</td>
-        </tr>
-        <tr>
-          <td style="font-weight: 600;">NPS C (Debt)</td>
-          <td style="text-align: right;">${formatLakhs(npsCVal)}</td>
-          <td style="text-align: right;">${npsInvC.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsReturnsC >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsC >= 0 ? '+' : ''}${npsReturnsC.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsReturnsC >= 0 ? 'trend-up' : 'trend-down'}">${npsInvC > 0 ? ((npsReturnsC / npsInvC) * 100).toFixed(1) : 0}%</td>
-        </tr>
-        <tr>
-          <td style="font-weight: 600;">NPS G (Debt)</td>
-          <td style="text-align: right;">${formatLakhs(npsGVal)}</td>
-          <td style="text-align: right;">${npsInvG.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsReturnsG >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsG >= 0 ? '+' : ''}${npsReturnsG.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsReturnsG >= 0 ? 'trend-up' : 'trend-down'}">${npsInvG > 0 ? ((npsReturnsG / npsInvG) * 100).toFixed(1) : 0}%</td>
-        </tr>
-        <tr style="border-top: 1px solid rgba(255,255,255,0.06); font-weight: 700;">
-          <td>Total NPS</td>
-          <td style="text-align: right; color: var(--accent-indigo);">${formatLakhs(npsTotal)}</td>
-          <td style="text-align: right;">${npsTotalInv.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsTotalReturns >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalReturns >= 0 ? '+' : ''}${npsTotalReturns.toFixed(2)} L</td>
-          <td style="text-align: right;" class="${npsTotalReturns >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalInv > 0 ? ((npsTotalReturns / npsTotalInv) * 100).toFixed(1) : 0}%</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="table-wrapper">
+      <table class="nps-summary-table">
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Current Value</th>
+            <th>Total Invested</th>
+            <th>Total Returns</th>
+            <th>Returns %</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight: 600;">NPS E (Equity)</td>
+            <td style="text-align: right;">${formatLakhs(npsEVal)}</td>
+            <td style="text-align: right;">${npsInvE.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsReturnsE >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsE >= 0 ? '+' : ''}${npsReturnsE.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsReturnsE >= 0 ? 'trend-up' : 'trend-down'}">${npsInvE > 0 ? ((npsReturnsE / npsInvE) * 100).toFixed(1) : 0}%</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">NPS C (Debt)</td>
+            <td style="text-align: right;">${formatLakhs(npsCVal)}</td>
+            <td style="text-align: right;">${npsInvC.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsReturnsC >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsC >= 0 ? '+' : ''}${npsReturnsC.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsReturnsC >= 0 ? 'trend-up' : 'trend-down'}">${npsInvC > 0 ? ((npsReturnsC / npsInvC) * 100).toFixed(1) : 0}%</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">NPS G (Debt)</td>
+            <td style="text-align: right;">${formatLakhs(npsGVal)}</td>
+            <td style="text-align: right;">${npsInvG.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsReturnsG >= 0 ? 'trend-up' : 'trend-down'}">${npsReturnsG >= 0 ? '+' : ''}${npsReturnsG.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsReturnsG >= 0 ? 'trend-up' : 'trend-down'}">${npsInvG > 0 ? ((npsReturnsG / npsInvG) * 100).toFixed(1) : 0}%</td>
+          </tr>
+          <tr style="border-top: 1px solid rgba(255,255,255,0.06); font-weight: 700;">
+            <td>Total NPS</td>
+            <td style="text-align: right; color: var(--accent-indigo);">${formatLakhs(npsTotal)}</td>
+            <td style="text-align: right;">${npsTotalInv.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsTotalReturns >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalReturns >= 0 ? '+' : ''}${npsTotalReturns.toFixed(2)} L</td>
+            <td style="text-align: right;" class="${npsTotalReturns >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalInv > 0 ? ((npsTotalReturns / npsTotalInv) * 100).toFixed(1) : 0}%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.85rem; color: var(--text-secondary);">
       This Month Change: <span class="${npsTotalGain >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalGain >= 0 ? '+' : ''}${npsTotalGain.toFixed(2)} L</span>
     </div>
@@ -2302,12 +2373,7 @@ function initStocksTab() {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: {
-            color: '#f3f4f6',
-            font: { family: 'Outfit', size: 9 },
-            boxWidth: 12,
-            padding: 12
-          }
+          labels: getResponsiveLegendLabels(9)
         },
         tooltip: {
           mode: 'index',
@@ -2745,12 +2811,7 @@ function initMfsTab() {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: {
-            color: '#f3f4f6',
-            font: { family: 'Outfit', size: 9 },
-            boxWidth: 12,
-            padding: 12
-          }
+          labels: getResponsiveLegendLabels(9)
         },
         tooltip: {
           mode: 'index',
