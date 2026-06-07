@@ -1582,88 +1582,132 @@ function initGrowthTab() {
 
   // ── Asset Allocation, XIRR, and Allocation Shift (moved from Overview tab) ──
   
-  // 1. Current Asset Allocation Donut
-  const allocData = portfolioSummary.allocation_pct;
-  const ctxAlloc = document.getElementById('allocation-donut-chart').getContext('2d');
+  // 1. Asset Allocation Over Time (Stacked Bar, 100%)
+  // Group net_worth keys into 5 asset categories
+  const categoryMap = {
+    'Equity':    ['Stocks (Equity)', 'Mutual Funds (Equity)', 'NPS E (Equity)'],
+    'Debt':      ['NPS C (Debt)', 'NPS G (Debt)', 'PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)'],
+    'Gold':      ['Gold (Gold)'],
+    'Liquid':    ['Cash (Liquid)'],
+    'Alternate': ['Crypto (Alternate)']
+  };
+  
+  // Compute category-level absolute values per time point
+  const catValues = {};
+  Object.keys(categoryMap).forEach(cat => {
+    catValues[cat] = new Array(dates.length).fill(0);
+    categoryMap[cat].forEach(key => {
+      if (nwSec[key]) {
+        nwSec[key].values.forEach((v, i) => { catValues[cat][i] += v; });
+      }
+    });
+  });
+  
+  // Compute percentage per category (each date sums to 100%)
+  const totalPerDate = dates.map((_, i) =>
+    Object.keys(categoryMap).reduce((sum, cat) => sum + catValues[cat][i], 0)
+  );
+  
+  const allocStackedDatasets = Object.keys(categoryMap).map(cat => ({
+    label: cat,
+    data: catValues[cat].map((v, i) => totalPerDate[i] > 0 ? (v / totalPerDate[i]) * 100 : 0),
+    backgroundColor: getAssetColor(cat) + 'cc',
+    borderColor: getAssetColor(cat),
+    borderWidth: 0.5
+  }));
+  
+  const ctxAlloc = document.getElementById('allocation-stacked-bar-chart').getContext('2d');
   
   allocationChart = new Chart(ctxAlloc, {
-    type: 'doughnut',
+    type: 'bar',
     data: {
-      labels: ['Equity', 'Debt', 'Gold', 'Liquid', 'Alternate'],
-      datasets: [{
-        data: [allocData.Equity, allocData.Debt, allocData.Gold, allocData.Liquid, allocData.Alternate],
-        backgroundColor: [
-          getAssetColor('Equity'),
-          getAssetColor('Debt'),
-          getAssetColor('Gold'),
-          getAssetColor('Liquid'),
-          getAssetColor('Alternate')
-        ],
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)'
-      }]
+      labels: dates.map(d => formatDateString(d)),
+      datasets: allocStackedDatasets
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'right',
-          labels: { color: '#f3f4f6', font: { family: 'Outfit', size: 12 } }
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { color: '#9ca3af', maxTicksLimit: 12, font: { family: 'Outfit' } }
         },
+        y: {
+          stacked: true,
+          min: 0,
+          max: 100,
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: { color: '#9ca3af', font: { family: 'Outfit' }, callback: (value) => value + '%' }
+        }
+      },
+      plugins: {
+        legend: { position: 'top', labels: { color: '#f3f4f6', font: { family: 'Outfit', size: 11 } } },
         tooltip: {
           callbacks: {
-            label: (context) => ` ${context.label}: ${context.raw.toFixed(2)}%`
+            label: (context) => ` ${context.dataset.label}: ${context.raw.toFixed(2)}%`
           }
         }
       }
     }
   });
 
-  // 2. Component XIRR Bar Chart
+  // 2. Component XIRR Over Time (Line Chart)
+  // Find the index for June 2022 to start from there (avoids early outlier artifacts)
+  const xirrStartIdx = dates.findIndex(d => d >= '2022-06-01');
+  const xirrDates = dates.slice(xirrStartIdx);
+  
   const xirrSec = breakupSummary.xirr;
-  const xirrLabels = [];
-  const xirrValues = [];
-  const xirrColors = [];
+  const xirrDatasets = [];
   
   Object.keys(xirrSec).forEach(key => {
     if (key !== 'Average' && key !== 'Total') {
       const label = xirrSec[key].label;
       const vals = xirrSec[key].values;
-      const latestVal = vals[vals.length - 1];
-      if (latestVal > 0) {
-        xirrLabels.push(label);
-        xirrValues.push(latestVal * 100);
-        xirrColors.push(getAssetColor(label));
+      // Skip components that are all zeros (never had XIRR data)
+      const hasData = vals.some(v => v !== 0);
+      if (hasData) {
+        xirrDatasets.push({
+          label: label,
+          data: vals.slice(xirrStartIdx).map(v => v * 100),
+          borderColor: getAssetColor(label),
+          backgroundColor: getAssetColor(label) + '33',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.3,
+          fill: false
+        });
       }
     }
   });
   
   const ctxXirr = document.getElementById('component-xirr-chart').getContext('2d');
   componentXirrChart = new Chart(ctxXirr, {
-    type: 'bar',
+    type: 'line',
     data: {
-      labels: xirrLabels,
-      datasets: [{
-        label: 'Annualized Return (XIRR) %',
-        data: xirrValues,
-        backgroundColor: xirrColors,
-        borderRadius: 6,
-        borderWidth: 0
-      }]
+      labels: xirrDates.map(d => formatDateString(d)),
+      datasets: xirrDatasets
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { family: 'Outfit' } } },
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12, font: { family: 'Outfit' } } },
         y: {
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
           ticks: { color: '#9ca3af', font: { family: 'Outfit' }, callback: (value) => value + '%' }
         }
       },
       plugins: {
-        legend: { display: false }
+        legend: { position: 'top', labels: { color: '#f3f4f6', font: { family: 'Outfit', size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: (context) => ` ${context.dataset.label}: ${context.raw.toFixed(2)}%`
+          }
+        }
       }
     }
   });
