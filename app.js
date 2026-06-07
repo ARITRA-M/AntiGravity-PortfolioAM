@@ -1184,8 +1184,8 @@ function renderDailyOverviewTable() {
   const dailyTotalPrev = totalPrevStockValue + totalPrevMfValue;
   const dailyTotalPct = dailyTotalPrev > 0 ? (totalGain / dailyTotalPrev) * 100 : 0;
 
-  // ── Simulated Sensex daily change (for reference) ──
-  const sensexDailyPct = getSimulatedSensexDailyChangePct();
+  // ── Simulated Sensex daily change (for reference); zero on weekends ──
+  const sensexDailyPct = isWeekend ? 0 : getSimulatedSensexDailyChangePct();
 
   // Apply daily type filter (All / Stocks / MFs)
   const filteredCombined = dailyTypeFilter === 'all'
