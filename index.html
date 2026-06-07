@@ -11,23 +11,15 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
-  <!-- Vendor scripts: loaded conditionally for GitHub Pages vs local server -->
+  <!-- Vendor scripts: use CDN for both local and GitHub Pages (avoids conditional loading issues) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/read-excel-file@9/dist/read-excel-file.min.js"></script>
   <script>
     // Detect if running on GitHub Pages (no local backend server)
     window.__isGitHubPages = window.location.hostname.includes('github.io') ||
                              window.location.hostname.includes('pages.dev') ||
                              (!window.location.hostname.includes('localhost') &&
                               !window.location.hostname.includes('127.0.0.1'));
-  </script>
-  <!-- Use document.write for blocking script loading (ensures scripts load before DOMContentLoaded) -->
-  <script>
-    if (window.__isGitHubPages) {
-      document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>');
-      document.write('<script src="https://cdn.jsdelivr.net/npm/read-excel-file@9/dist/read-excel-file.min.js"><\/script>');
-    } else {
-      document.write('<script src="/vendor/chart.umd.js"><\/script>');
-      document.write('<script src="/vendor/read-excel-file.min.js"><\/script>');
-    }
   </script>
 </head>
 <body>
