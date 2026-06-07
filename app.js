@@ -8,6 +8,8 @@ let latestEquity = null;
 let latestMf = null;
 let historicalHoldings = null;
 let dividendData = null;
+let uploadedSnapshot = null;
+let lastRefreshReport = null;
 
 // Chart references
 let allocationChart = null;
@@ -41,15 +43,15 @@ let _stockNameLookup = null;
 // Benchmark data (simulated historical data for comparison)
 const benchmarkData = {
   nifty50: {
-    name: 'Nifty 50',
+    name: 'Nifty 50 (simulated)',
     history: [] // Will be generated based on portfolio dates
   },
   spx: {
-    name: 'S&P 500',
+    name: 'S&P 500 (simulated)',
     history: []
   },
   gold: {
-    name: 'Gold',
+    name: 'Gold (simulated)',
     history: []
   }
 };
@@ -88,15 +90,7 @@ const SECTOR_MAP = {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Only load data if auth is not required or already authenticated
-  // auth.js handles the auth gate and calls loadData() after successful login
   initPortfolioUpload();
-  // Small delay to ensure auth.js has loaded and isAuthenticated is available
-  setTimeout(() => {
-    if (typeof isAuthenticated !== 'function' || isAuthenticated()) {
-      loadData();
-    }
-  }, 50);
 });
 
 async function loadData() {
@@ -106,11 +100,11 @@ async function loadData() {
     }
 
     const [resSummary, resBreakup, resEquity, resMf, resHist] = await Promise.all([
-      fetch('data/portfolio_summary.json'),
-      fetch('data/breakup_summary.json'),
-      fetch('data/latest_equity.json'),
-      fetch('data/latest_mf.json'),
-      fetch('data/historical_holdings.json')
+      fetch('data/portfolio_summary.json', { credentials: 'same-origin' }),
+      fetch('data/breakup_summary.json', { credentials: 'same-origin' }),
+      fetch('data/latest_equity.json', { credentials: 'same-origin' }),
+      fetch('data/latest_mf.json', { credentials: 'same-origin' }),
+      fetch('data/historical_holdings.json', { credentials: 'same-origin' })
     ]);
 
     const responses = [resSummary, resBreakup, resEquity, resMf, resHist];
@@ -133,20 +127,7 @@ async function loadData() {
     latestMf = await resMf.json();
     historicalHoldings = await resHist.json();
 
-    // Store the original uploaded LTP/NAV for each stock and MF (never undefined)
-    // thisMonthGain = (current LTP - uploaded LTP) * qty, initially 0 since no refresh yet
-    // yesterdayClose = previous day's closing price from online, initially same as ltp
-    latestEquity.forEach(s => {
-      s.lastUploadedPrice = s.ltp;
-      s.lastRefreshedPrice = s.ltp;
-      s.thisMonthGain = 0;
-      s.yesterdayClose = s.ltp; // Will be updated on refresh from online source
-    });
-    latestMf.forEach(f => {
-      f.lastUploadedPrice = f.price;
-      f.lastRefreshedPrice = f.price;
-      f.thisMonthGain = 0;
-    });
+    initializeLiveBaseline();
 
     // Generate simulated dividend data
     generateDividendData();
@@ -158,6 +139,7 @@ async function loadData() {
     const dates = breakupSummary.dates;
     const latestDate = dates[dates.length - 1];
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
+    updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
 
     // Initialize UI elements — each wrapped in try-catch to isolate failures
     try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
@@ -239,9 +221,11 @@ let isRefreshing = false;
 const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
 // Detect if running on GitHub Pages (no local backend server)
+// Also detects any non-localhost deployment where /api/ endpoints don't exist
 const IS_GITHUB_PAGES = window.location.hostname.includes('github.io') ||
                         window.location.hostname.includes('pages.dev') ||
-                        (!window.location.hostname.includes('localhost') &&
+                        (window.location.protocol !== 'file:' &&
+                         !window.location.hostname.includes('localhost') &&
                          !window.location.hostname.includes('127.0.0.1'));
 
 // Map of API endpoint types to functions that build the direct URL for CORS proxy
@@ -457,6 +441,7 @@ async function refreshPrices() {
           fund.pnl = fund.cur_val - fund.invested;
           fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
           fund.lastRefreshDate = refreshDateStr;
+          fund.previousNav = data.prevNav || null;
           fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
           mfSuccess++;
         } else {
@@ -493,8 +478,22 @@ async function refreshPrices() {
       statusMsg += ` | ${missingMfs} MFs not found on mfapi.in`;
     }
 
+    lastRefreshReport = {
+      refreshedAt: refreshDateStr,
+      stockSuccess,
+      stockFail,
+      mfSuccess,
+      mfFail,
+      totalStocks,
+      totalMfs,
+      mappedMfs,
+      skippedStocks,
+      missingMfs
+    };
+
     status.className = 'refresh-status visible success';
     status.textContent = statusMsg;
+    updateDataFreshness(`Live refresh: ${refreshDateStr}. Stocks ${stockSuccess}/${totalStocks}, MFs ${mfSuccess}/${mappedMfs}, skipped ${skippedStocks + missingMfs}.`);
   } catch (error) {
     console.error('Price refresh failed:', error);
     status.className = 'refresh-status visible error';
@@ -512,6 +511,8 @@ async function refreshPrices() {
 }
 
 function recomputePortfolioFromLiveData() {
+  if (!uploadedSnapshot) initializeLiveBaseline();
+
   // Recompute thisMonthGain for all stocks: (current LTP - uploaded LTP) * qty
   latestEquity.forEach(s => {
     s.thisMonthGain = (s.ltp - s.lastUploadedPrice) * s.qty;
@@ -526,23 +527,20 @@ function recomputePortfolioFromLiveData() {
   const totalStockVal = latestEquity.reduce((sum, s) => sum + s.cur_val, 0);
   const totalMfVal = latestMf.reduce((sum, f) => sum + f.cur_val, 0);
 
-  // breakup_summary values are in lakhs (1 lakh = 100,000)
-  const breakupNw = breakupSummary.net_worth;
-  const originalTotalLakhs = breakupNw["Total"]?.values?.slice(-1)?.[0] || 0;
-  const origStockLakhs = breakupNw["Stocks (Equity)"]?.values?.slice(-1)?.[0] || 0;
-  const origMfLakhs = breakupNw["Mutual Funds (Equity)"]?.values?.slice(-1)?.[0] || 0;
-  const origNpsELakhs = breakupNw["NPS E (Equity)"]?.values?.slice(-1)?.[0] || 0;
-
-  // Convert original stock+MF from lakhs to rupees for delta calculation
-  const origStockMfRupees = (origStockLakhs + origMfLakhs) * 100000;
+  const liveStockLakhs = totalStockVal / 100000;
+  const liveMfLakhs = totalMfVal / 100000;
+  const origStockMfRupees = (uploadedSnapshot.stockLakhs + uploadedSnapshot.mfLakhs) * 100000;
   const liveStockMfRupees = totalStockVal + totalMfVal;
   const deltaLakhs = (liveStockMfRupees - origStockMfRupees) / 100000;
+  const liveTotalLakhs = uploadedSnapshot.totalLakhs + deltaLakhs;
 
-  // Update portfolioSummary with live-adjusted values
-  portfolioSummary.total_net_worth_lakhs = originalTotalLakhs + deltaLakhs;
-  // equity_lakhs = stocks_lakhs + mfs_lakhs + nps_e_lakhs (original formula)
-  portfolioSummary.equity_lakhs = (liveStockMfRupees / 100000) + origNpsELakhs;
+  portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
+  portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
   portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
+
+  setLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)', liveStockLakhs);
+  setLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)', liveMfLakhs);
+  setLatestSectionValue(breakupSummary.net_worth, 'Total', liveTotalLakhs);
 }
 
 function initPortfolioUpload() {
@@ -560,13 +558,13 @@ function initPortfolioUpload() {
 async function loadWorkbookFile(file) {
   const status = document.getElementById('upload-status');
   try {
-    if (typeof XLSX === 'undefined') {
+    if (typeof readXlsxFile !== 'function') {
       throw new Error('Excel parser could not be loaded. Check your network connection and retry.');
     }
 
     if (status) status.textContent = `Reading ${file.name}...`;
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+    const sheets = await readXlsxFile(file);
+    const workbook = normalizeReadExcelWorkbook(sheets);
     const parsed = parsePortfolioWorkbook(workbook);
 
     portfolioSummary = parsed.portfolioSummary;
@@ -580,6 +578,7 @@ async function loadWorkbookFile(file) {
 
     const latestDate = breakupSummary.dates[breakupSummary.dates.length - 1];
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
+    updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
     if (status) status.textContent = `Loaded ${file.name}`;
   } catch (error) {
     console.error('Failed to load uploaded workbook:', error);
@@ -587,15 +586,61 @@ async function loadWorkbookFile(file) {
   }
 }
 
+function normalizeReadExcelWorkbook(sheets) {
+  if (!Array.isArray(sheets) || !sheets.length) {
+    throw new Error('Workbook does not contain any readable sheets.');
+  }
+
+  return {
+    SheetNames: sheets.map(sheet => sheet.sheet),
+    Sheets: Object.fromEntries(sheets.map(sheet => [sheet.sheet, sheet.data || []]))
+  };
+}
+
 function resetDerivedState() {
   dividendData = null;
   benchmarkData.nifty50.history = [];
   benchmarkData.spx.history = [];
   benchmarkData.gold.history = [];
+  uploadedSnapshot = null;
+  lastRefreshReport = null;
   window._stockNameMap = null;
   heatmapSelectedIndices.clear();
+  initializeLiveBaseline();
   generateDividendData();
   generateBenchmarkData();
+}
+
+function initializeLiveBaseline() {
+  latestEquity.forEach(s => {
+    s.lastUploadedPrice = s.ltp;
+    s.lastRefreshedPrice = s.ltp;
+    s.thisMonthGain = 0;
+    s.yesterdayClose = null;
+  });
+  latestMf.forEach(f => {
+    f.lastUploadedPrice = f.price;
+    f.lastRefreshedPrice = f.price;
+    f.thisMonthGain = 0;
+    f.previousNav = null;
+  });
+  uploadedSnapshot = {
+    totalLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Total'),
+    stockLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)'),
+    mfLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)'),
+    npsELakhs: getLatestSectionValue(breakupSummary.net_worth, 'NPS E (Equity)')
+  };
+}
+
+function getLatestSectionValue(section, key) {
+  const values = section?.[key]?.values || [];
+  return values.length ? values[values.length - 1] : 0;
+}
+
+function setLatestSectionValue(section, key, value) {
+  const values = section?.[key]?.values;
+  if (!values || !values.length) return;
+  values[values.length - 1] = value;
 }
 
 function refreshAllTabs() {
@@ -609,6 +654,11 @@ function refreshAllTabs() {
   initMonthlyTab();
 }
 
+function updateDataFreshness(message) {
+  const el = document.getElementById('data-freshness');
+  if (el) el.textContent = message;
+}
+
 // Helpers
 function formatLakhs(value) {
   return '₹' + parseFloat(value).toFixed(2) + ' L';
@@ -620,6 +670,21 @@ function formatINR(value) {
     currency: 'INR',
     maximumFractionDigits: 0
   }).format(value);
+}
+
+function formatNullableNumber(value, maximumFractionDigits = 2) {
+  return Number.isFinite(value)
+    ? value.toLocaleString(undefined, { maximumFractionDigits })
+    : 'N/A';
+}
+
+function sortNullableNumber(a, b, asc) {
+  const aValid = Number.isFinite(a);
+  const bValid = Number.isFinite(b);
+  if (!aValid && !bValid) return 0;
+  if (!aValid) return 1;
+  if (!bValid) return -1;
+  return asc ? a - b : b - a;
 }
 
 function sumValue(rows, key) {
@@ -668,11 +733,10 @@ function formatWorkbookDate(value, fallback) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
   }
-  if (typeof value === 'number' && XLSX?.SSF) {
-    const parsed = XLSX.SSF.parse_date_code(value);
-    if (parsed) {
-      return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
-    }
+  if (typeof value === 'number') {
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    const parsed = new Date(epoch.getTime() + value * 24 * 60 * 60 * 1000);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
   }
   if (typeof value === 'string' && value.trim()) return value.trim();
   return fallback;
@@ -681,7 +745,7 @@ function formatWorkbookDate(value, fallback) {
 function sheetRows(workbook, sheetName) {
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) throw new Error(`Missing sheet: ${sheetName}`);
-  return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+  return sheet;
 }
 
 function rowsToObjects(rows) {
@@ -693,6 +757,14 @@ function rowsToObjects(rows) {
     });
     return normalizeRow(item);
   });
+}
+
+function validateRowsHaveColumns(rows, sheetName, requiredColumns) {
+  const normalizedHeaders = normalizeRow(Object.fromEntries((rows[0] || []).map(header => [header, true])));
+  const missing = requiredColumns.filter(column => !normalizedHeaders[column]);
+  if (missing.length) {
+    throw new Error(`${sheetName} is missing required column(s): ${missing.join(', ')}`);
+  }
 }
 
 function normalizeRow(row) {
@@ -737,6 +809,9 @@ function parsePortfolioWorkbook(workbook) {
 
   if (!eSheets.length || !mfSheets.length) {
     throw new Error('Workbook must include dated equity and mutual fund sheets.');
+  }
+  if (!workbook.Sheets.Breakup) {
+    throw new Error('Workbook must include a Breakup sheet.');
   }
 
   const breakupSummary = parseBreakupSheet(workbook);
@@ -790,6 +865,9 @@ function parseBreakupSheet(workbook) {
   });
 
   data.dates = dateCols.map(([, date]) => date);
+  if (!data.dates.length) {
+    throw new Error('Breakup sheet must include at least one dated portfolio column.');
+  }
   return data;
 }
 
@@ -798,7 +876,9 @@ function parseHistoricalHoldings(workbook, eSheets, mfSheets) {
 
   eSheets.forEach(([dateStr, sheetName]) => {
     const date = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-    rowsToObjects(sheetRows(workbook, sheetName)).forEach(row => {
+    const rows = sheetRows(workbook, sheetName);
+    validateRowsHaveColumns(rows, sheetName, ['Instrument', 'Qty.', 'LTP', 'Invested', 'Cur. val', 'P&L']);
+    rowsToObjects(rows).forEach(row => {
       const instrument = String(row.Instrument ?? '').trim();
       if (!instrument || instrument === 'Total') return;
       const invested = cleanFloat(row.Invested);
@@ -814,7 +894,9 @@ function parseHistoricalHoldings(workbook, eSheets, mfSheets) {
 
   mfSheets.forEach(([dateStr, sheetName]) => {
     const date = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-    rowsToObjects(sheetRows(workbook, sheetName)).forEach(row => {
+    const rows = sheetRows(workbook, sheetName);
+    validateRowsHaveColumns(rows, sheetName, ['Instrument', 'Qty.', 'LTP', 'Invested', 'Cur. val', 'P&L']);
+    rowsToObjects(rows).forEach(row => {
       const instrument = String(row.Instrument ?? '').trim();
       if (!instrument || instrument === 'Total') return;
       const category = String(row.Category ?? 'Other').trim();
@@ -980,10 +1062,6 @@ function updateKpis() {
   // Calculate last uploaded total value (sum of invested amounts across all holdings)
   // and this month's gain from breakup_summary net_worth values
   const nw = breakupSummary.net_worth;
-  const dates = breakupSummary.dates;
-  const latestIdx = dates.length - 1;
-  const prevIdx = dates.length - 2;
-
   // Helper: get this month's change in lakhs for a category
   const getMonthlyChangeLakhs = (key) => {
     const vals = nw[key]?.values || [];
@@ -993,17 +1071,17 @@ function updateKpis() {
     return 0;
   };
 
-  // Stocks: last uploaded = sum of invested in latestEquity, gain = change in Stocks (Equity) net_worth
-  const stocksInvestedLakhs = latestEquity.reduce((sum, s) => sum + s.invested, 0) / 100000;
-  const stocksGainLakhs = getMonthlyChangeLakhs('Stocks (Equity)');
-  document.getElementById('kpi-stocks-uploaded').innerText = formatLakhs(stocksInvestedLakhs);
+  // Stocks: current value, gain since the uploaded baseline price.
+  const stocksCurrentLakhs = latestEquity.reduce((sum, s) => sum + s.cur_val, 0) / 100000;
+  const stocksGainLakhs = latestEquity.reduce((sum, s) => sum + (s.thisMonthGain || 0), 0) / 100000;
+  document.getElementById('kpi-stocks-uploaded').innerText = formatLakhs(stocksCurrentLakhs);
   document.getElementById('kpi-stocks-gain').innerText = (stocksGainLakhs >= 0 ? '+' : '') + stocksGainLakhs.toFixed(2) + ' L';
   document.getElementById('kpi-stocks-gain').className = stocksGainLakhs >= 0 ? 'trend-up' : 'trend-down';
 
-  // MFs: last uploaded = sum of invested in latestMf, gain = change in Mutual Funds (Equity) net_worth
-  const mfInvestedLakhs = latestMf.reduce((sum, f) => sum + f.invested, 0) / 100000;
-  const mfGainLakhs = getMonthlyChangeLakhs('Mutual Funds (Equity)');
-  document.getElementById('kpi-mfs-uploaded').innerText = formatLakhs(mfInvestedLakhs);
+  // MFs: current value, gain since the uploaded baseline NAV.
+  const mfCurrentLakhs = latestMf.reduce((sum, f) => sum + f.cur_val, 0) / 100000;
+  const mfGainLakhs = latestMf.reduce((sum, f) => sum + (f.thisMonthGain || 0), 0) / 100000;
+  document.getElementById('kpi-mfs-uploaded').innerText = formatLakhs(mfCurrentLakhs);
   document.getElementById('kpi-mfs-gain').innerText = (mfGainLakhs >= 0 ? '+' : '') + mfGainLakhs.toFixed(2) + ' L';
   document.getElementById('kpi-mfs-gain').className = mfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
 
@@ -1090,9 +1168,9 @@ function renderDailyOverviewTable() {
   // Stocks: daily change = (current LTP - yesterday's close) * qty
   // yesterdayClose is fetched from Google Finance during price refresh
   latestEquity.forEach(s => {
-    const prevClose = s.yesterdayClose || s.lastUploadedPrice;
-    const dailyGain = (s.ltp - prevClose) * s.qty;
-    const dailyGainPct = prevClose > 0 ? ((s.ltp - prevClose) / prevClose) * 100 : 0;
+    const prevClose = s.yesterdayClose || null;
+    const dailyGain = prevClose ? (s.ltp - prevClose) * s.qty : null;
+    const dailyGainPct = prevClose ? ((s.ltp - prevClose) / prevClose) * 100 : null;
     combined.push({
       name: s.instrument,
       type: 'Stock',
@@ -1103,15 +1181,15 @@ function renderDailyOverviewTable() {
     });
   });
 
-  // MFs: daily change = thisMonthGain (MFs don't have daily close data from online)
-  // For MFs, we use the change since last upload as a proxy
+  // MFs: daily change uses previous NAV when the NAV provider returns it.
   latestMf.forEach(f => {
-    const gain = f.thisMonthGain || 0;
-    const gainPct = f.lastUploadedPrice > 0 ? (gain / (f.lastUploadedPrice * f.qty)) * 100 : 0;
+    const previousNav = f.previousNav || null;
+    const gain = previousNav ? (f.price - previousNav) * f.qty : null;
+    const gainPct = previousNav ? ((f.price - previousNav) / previousNav) * 100 : null;
     combined.push({
       name: f.scheme,
       type: 'MF',
-      yesterdayClose: f.lastUploadedPrice,
+      yesterdayClose: previousNav,
       currentLtp: f.price,
       change: gain,
       changePct: gainPct
@@ -1122,13 +1200,13 @@ function renderDailyOverviewTable() {
   const col = dailyOverviewSortCol;
   const asc = dailyOverviewSortAsc;
   if (col === 2) {
-    combined.sort((a, b) => asc ? a.yesterdayClose - b.yesterdayClose : b.yesterdayClose - a.yesterdayClose);
+    combined.sort((a, b) => sortNullableNumber(a.yesterdayClose, b.yesterdayClose, asc));
   } else if (col === 3) {
     combined.sort((a, b) => asc ? a.currentLtp - b.currentLtp : b.currentLtp - a.currentLtp);
   } else if (col === 4) {
-    combined.sort((a, b) => asc ? a.change - b.change : b.change - a.change);
+    combined.sort((a, b) => sortNullableNumber(a.change, b.change, asc));
   } else if (col === 5) {
-    combined.sort((a, b) => asc ? a.changePct - b.changePct : b.changePct - a.changePct);
+    combined.sort((a, b) => sortNullableNumber(a.changePct, b.changePct, asc));
   } else {
     // Default: sort by name
     combined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
@@ -1139,13 +1217,13 @@ function renderDailyOverviewTable() {
     <tr>
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>
-      <td style="text-align: right;">${item.yesterdayClose.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
+      <td style="text-align: right;">${formatNullableNumber(item.yesterdayClose, 2)}</td>
       <td style="text-align: right;">${item.currentLtp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
-      <td style="text-align: right;" class="${item.change >= 0 ? 'trend-up' : 'trend-down'}">
-        ${item.change >= 0 ? '+' : ''}${formatINR(item.change)}
+      <td style="text-align: right;" class="${item.change === null ? '' : item.change >= 0 ? 'trend-up' : 'trend-down'}">
+        ${item.change === null ? 'N/A' : `${item.change >= 0 ? '+' : ''}${formatINR(item.change)}`}
       </td>
-      <td style="text-align: right;" class="${item.changePct >= 0 ? 'trend-up' : 'trend-down'}">
-        ${item.changePct >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%
+      <td style="text-align: right;" class="${item.changePct === null ? '' : item.changePct >= 0 ? 'trend-up' : 'trend-down'}">
+        ${item.changePct === null ? 'N/A' : `${item.changePct >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%`}
       </td>
     </tr>
   `).join('');

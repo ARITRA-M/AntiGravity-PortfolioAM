@@ -1,10 +1,102 @@
 const express = require('express');
+const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SESSION_COOKIE = 'portfolio_session';
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'Portfolio2026!';
+const sessions = new Map();
 
-app.use(express.static(path.join(__dirname)));
+app.use(express.json({ limit: '16kb' }));
+
+function parseCookies(cookieHeader = '') {
+  return Object.fromEntries(cookieHeader.split(';').map(part => {
+    const [key, ...value] = part.trim().split('=');
+    return [key, decodeURIComponent(value.join('=') || '')];
+  }).filter(([key]) => key));
+}
+
+function getSession(req) {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+  if (!token) return null;
+
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(token);
+    return null;
+  }
+  return { token, session };
+}
+
+function requireAuth(req, res, next) {
+  if (getSession(req)) return next();
+  return res.status(401).json({ error: 'Authentication required' });
+}
+
+function setSessionCookie(res, token, expiresAt) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor((expiresAt - Date.now()) / 1000)}${secure}`
+  );
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+}
+
+app.post('/api/login', (req, res) => {
+  const password = String(req.body?.password || '');
+  if (!password || password !== DASHBOARD_PASSWORD) {
+    return res.status(401).json({ error: 'Incorrect dashboard password' });
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  sessions.set(token, { expiresAt });
+  setSessionCookie(res, token, expiresAt);
+  res.json({ authenticated: true, expiresAt });
+});
+
+app.get('/api/session', (req, res) => {
+  const active = getSession(req);
+  if (!active) return res.status(401).json({ authenticated: false });
+  res.json({ authenticated: true, expiresAt: active.session.expiresAt });
+});
+
+app.post('/api/logout', (req, res) => {
+  const active = getSession(req);
+  if (active) sessions.delete(active.token);
+  clearSessionCookie(res);
+  res.json({ authenticated: false });
+});
+
+app.use('/data', requireAuth, express.static(path.join(__dirname, 'data')));
+
+app.get('/vendor/chart.umd.js', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'node_modules', 'chart.js', 'dist', 'chart.umd.js'));
+});
+
+app.get('/vendor/read-excel-file.min.js', (_req, res) => {
+  const file = path.join(__dirname, 'node_modules', 'read-excel-file', 'bundle', 'read-excel-file.min.js');
+  if (!fs.existsSync(file)) return res.status(404).send('Excel parser library is not installed.');
+  res.sendFile(file);
+});
+
+app.use(express.static(path.join(__dirname), {
+  index: false,
+  setHeaders: (res, filePath) => {
+    if (filePath.includes(`${path.sep}data${path.sep}`)) {
+      res.statusCode = 404;
+    }
+  }
+}));
+
+app.use('/api', requireAuth);
 
 // ── Live Price Proxy Endpoints ──────────────────────────────────────────────
 
@@ -205,10 +297,12 @@ app.get('/api/live-mf-nav/:schemeCode', async (req, res) => {
     if (parsed && parsed.data && parsed.data.length > 0) {
       // The latest NAV is the first entry in the data array
       const latest = parsed.data[0];
+      const previous = parsed.data.find((entry, index) => index > 0 && Number(entry.nav) > 0);
       res.json({
         schemeCode: schemeCode,
         schemeName: parsed.meta?.scheme_name || '',
         nav: parseFloat(latest.nav),
+        prevNav: previous ? parseFloat(previous.nav) : null,
         date: latest.date
       });
     } else {
@@ -251,13 +345,17 @@ app.get('/api/search-mf-scheme', async (req, res) => {
 // Express 5 uses path-to-regexp v8+ which does not support bare '*'
 // Use a middleware that catches all unmatched GET requests
 app.use((req, res, next) => {
-  if (req.method === 'GET' && !req.path.startsWith('/api/')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && !req.path.startsWith('/api/')) {
     res.sendFile(path.join(__dirname, 'index.html'));
   } else {
     next();
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Portfolio dashboard running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Portfolio dashboard running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;

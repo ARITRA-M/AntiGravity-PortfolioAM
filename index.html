@@ -11,8 +11,33 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js" onerror="this.onerror=null;this.src='node_modules/chart.js/dist/chart.umd.js';"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" onerror="this.onerror=null;console.error('XLSX CDN failed to load. Excel upload will not work.');"></script>
+  <!-- Vendor scripts: loaded dynamically for GitHub Pages compatibility -->
+  <script>
+    (function() {
+      // Detect if running on GitHub Pages (no local backend server)
+      var isGitHubPages = window.location.hostname.includes('github.io') ||
+                          window.location.hostname.includes('pages.dev') ||
+                          (!window.location.hostname.includes('localhost') &&
+                           !window.location.hostname.includes('127.0.0.1'));
+      
+      function loadScript(src) {
+        var s = document.createElement('script');
+        s.src = src;
+        s.async = false;
+        document.head.appendChild(s);
+      }
+      
+      if (isGitHubPages) {
+        // On GitHub Pages, load from CDN
+        loadScript('https://cdn.jsdelivr.net/npm/chart.js');
+        loadScript('https://cdn.jsdelivr.net/npm/read-excel-file@9/dist/read-excel-file.min.js');
+      } else {
+        // On local server, load from vendor path
+        loadScript('/vendor/chart.umd.js');
+        loadScript('/vendor/read-excel-file.min.js');
+      }
+    })();
+  </script>
 </head>
 <body>
 
@@ -31,6 +56,7 @@
             <span class="refresh-text">Refresh Prices</span>
           </button>
           <span class="refresh-status" id="refresh-status"></span>
+          <span class="data-freshness" id="data-freshness">Bundled data, not live refreshed</span>
         </div>
       </div>
       <div class="time-badge" id="live-time-badge">
@@ -93,21 +119,21 @@
 
       <div class="kpi-card" style="--card-accent: #6366f1;">
         <div>
-          <div class="kpi-title">Stocks (Uploaded)</div>
+          <div class="kpi-title">Stocks Value</div>
           <div class="kpi-value" id="kpi-stocks-uploaded">₹0.00 L</div>
         </div>
         <div class="kpi-sub">
-          This Month: <span id="kpi-stocks-gain" class="trend-up">+0.00 L</span>
+          Since Upload: <span id="kpi-stocks-gain" class="trend-up">+0.00 L</span>
         </div>
       </div>
 
       <div class="kpi-card" style="--card-accent: #10b981;">
         <div>
-          <div class="kpi-title">Mutual Funds (Uploaded)</div>
+          <div class="kpi-title">Mutual Funds Value</div>
           <div class="kpi-value" id="kpi-mfs-uploaded">₹0.00 L</div>
         </div>
         <div class="kpi-sub">
-          This Month: <span id="kpi-mfs-gain" class="trend-up">+0.00 L</span>
+          Since Upload: <span id="kpi-mfs-gain" class="trend-up">+0.00 L</span>
         </div>
       </div>
 
@@ -146,7 +172,7 @@
           <!-- Daily Top Gainers (across Stocks & MFs by value) -->
           <div class="chart-card full-width-card">
             <div class="chart-header">
-              <h3>🔥 Daily Top Gainers (Value Change)</h3>
+              <h3>Daily Movers (Value Change)</h3>
             </div>
             <div class="table-wrapper">
               <table id="daily-overview-table">
@@ -154,8 +180,8 @@
                   <tr>
                     <th onclick="sortDailyOverview(0)">Instrument</th>
                     <th onclick="sortDailyOverview(1)">Type</th>
-                    <th onclick="sortDailyOverview(2)" style="text-align: right;">Yesterday Close (₹)</th>
-                    <th onclick="sortDailyOverview(3)" style="text-align: right;">Current LTP (₹)</th>
+                    <th onclick="sortDailyOverview(2)" style="text-align: right;">Previous Price/NAV (₹)</th>
+                    <th onclick="sortDailyOverview(3)" style="text-align: right;">Current Price/NAV (₹)</th>
                     <th onclick="sortDailyOverview(4)" style="text-align: right;">Change (₹)</th>
                     <th onclick="sortDailyOverview(5)" style="text-align: right;">Change %</th>
                   </tr>
@@ -272,7 +298,7 @@
         <!-- Benchmark Comparison Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Portfolio vs Benchmark Comparison (Model)</h3>
+            <h3>Portfolio vs Benchmark Comparison (Simulated Model)</h3>
             <div class="time-filters">
               <select id="benchmark-select" class="select-filter" onchange="updateBenchmarkChart()">
                 <option value="nifty50">Nifty 50</option>
@@ -289,7 +315,7 @@
         <!-- Benchmark Performance Stats -->
         <div class="chart-card">
           <div class="chart-header">
-            <h3>Performance Comparison</h3>
+            <h3>Performance Comparison (Simulated)</h3>
           </div>
           <div class="benchmark-stats" id="benchmark-stats">
             <!-- Dynamically populated -->
@@ -344,7 +370,7 @@
         <!-- Dividend Charts (side by side) -->
         <div class="chart-card" style="grid-column: span 1;">
           <div class="chart-header">
-            <h3>💰 Dividend History</h3>
+            <h3>Estimated Dividend History</h3>
           </div>
           <div class="chart-container" style="height: 250px;">
             <canvas id="dividend-history-chart"></canvas>
@@ -352,7 +378,7 @@
         </div>
         <div class="chart-card" style="grid-column: span 1;">
           <div class="chart-header">
-            <h3>💰 Dividend by Source</h3>
+            <h3>Estimated Dividend by Source</h3>
           </div>
           <div class="chart-container" style="height: 250px;">
             <canvas id="dividend-source-chart"></canvas>
@@ -364,10 +390,10 @@
           <div class="kpi-grid" style="margin-bottom: 0;">
             <div class="kpi-card" style="--card-accent: var(--accent-green); box-shadow: none; padding: 0.5rem;">
               <div>
-                <div class="kpi-title">Total Dividends (TTM)</div>
+                <div class="kpi-title">Estimated Dividends (TTM)</div>
                 <div class="kpi-value" id="div-ttm-value">₹0.00 L</div>
               </div>
-              <div class="kpi-sub">Trailing 12 Months</div>
+              <div class="kpi-sub">Modeled from holdings</div>
             </div>
             <div class="kpi-card" style="--card-accent: var(--accent-amber); box-shadow: none; padding: 0.5rem;">
               <div>
@@ -829,12 +855,13 @@
   <script src="app.js"></script>
   <script>
     // Service Worker Registration for PWA
+    // Use relative path so it works on both local server and GitHub Pages subpath
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js')
-        .then((registration) => {
+        .then(function(registration) {
           console.log('ServiceWorker registration successful:', registration.scope);
         })
-        .catch((err) => {
+        .catch(function(err) {
           console.log('ServiceWorker registration failed:', err);
         });
     }

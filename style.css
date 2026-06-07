@@ -179,6 +179,12 @@ header {
   color: var(--accent-red);
 }
 
+.data-freshness {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  width: 100%;
+}
+
 .time-badge {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--card-border);
