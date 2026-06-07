@@ -11,7 +11,12 @@ let latestEquity = null;
 let latestMf = null;
 let historicalHoldings = null;
 let uploadedSnapshot = null;
+// Use window.lastRefreshReport for cross-file consistency.
+// api.js sets window.lastRefreshReport after a live price refresh.
+// This let declaration ensures it's available in app.js's scope as well.
 let lastRefreshReport = null;
+// Also expose on window so api.js (which loads before app.js) can set it reliably
+window.lastRefreshReport = null;
 
 // Chart references
 let allocationChart = null;
@@ -448,6 +453,7 @@ function resetDerivedState() {
   benchmarkData.gold.history = [];
   uploadedSnapshot = null;
   lastRefreshReport = null;
+  window.lastRefreshReport = null;
   window._stockNameMap = null;
   heatmapSelectedIndices.clear();
   initializeLiveBaseline();
@@ -497,6 +503,18 @@ function refreshAllTabs() {
       initializedTabs.add(tabId);
       const initFn = tabInitMap[tabId];
       if (initFn) initFn();
+    }
+  }
+
+  // If lastRefreshReport exists, force-update the update-log content.
+  // This handles the case where refreshPrices() just built a new report
+  // and the user may already be on (or will navigate to) the update-log tab.
+  // The report is synced to window.lastRefreshReport by api.js.
+  const report = window.lastRefreshReport || lastRefreshReport;
+  if (report) {
+    const container = document.getElementById('update-log-content');
+    if (container && container.parentElement.classList.contains('active')) {
+      initUpdateLogTab();
     }
   }
 }
@@ -3355,7 +3373,12 @@ function initUpdateLogTab() {
     return;
   }
 
-  const report = lastRefreshReport;
+  // Read from window.lastRefreshReport (set by api.js) with fallback to local scope.
+  // This ensures cross-file consistency, especially important when api.js loads
+  // before app.js on GitHub Pages (Service Worker may serve cached versions).
+  const report = window.lastRefreshReport || lastRefreshReport;
+  // Sync local scope for any other code that references lastRefreshReport directly
+  lastRefreshReport = report;
   console.log('initUpdateLogTab: report =', report);
   if (!report) {
     container.innerHTML = '<div class="update-log-empty"><p>No refresh has been performed yet. Click the <strong>Refresh Prices</strong> button to fetch live data.</p></div>';
