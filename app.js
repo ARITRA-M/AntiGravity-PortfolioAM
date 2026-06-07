@@ -96,6 +96,107 @@ window.addEventListener('DOMContentLoaded', () => {
   initPortfolioUpload();
 });
 
+// ── localStorage persistence helpers ────────────────────────────────────
+const LS_PREFIX = 'ag_portfolio_';
+const LS_KEYS = ['portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings'];
+
+function saveToLocalStorage(summary, breakup, equity, mf, hist) {
+  try {
+    localStorage.setItem(LS_PREFIX + 'portfolio_summary', JSON.stringify(summary));
+    localStorage.setItem(LS_PREFIX + 'breakup_summary', JSON.stringify(breakup));
+    localStorage.setItem(LS_PREFIX + 'latest_equity', JSON.stringify(equity));
+    localStorage.setItem(LS_PREFIX + 'latest_mf', JSON.stringify(mf));
+    localStorage.setItem(LS_PREFIX + 'historical_holdings', JSON.stringify(hist));
+    localStorage.setItem(LS_PREFIX + 'version', APP_VERSION);
+    console.log('Portfolio data saved to localStorage (version:', APP_VERSION + ')');
+  } catch (e) {
+    console.warn('Failed to save portfolio data to localStorage:', e);
+  }
+}
+
+function loadFromLocalStorage() {
+  try {
+    const version = localStorage.getItem(LS_PREFIX + 'version');
+    if (!version) return null;
+    const data = {};
+    for (const key of LS_KEYS) {
+      const raw = localStorage.getItem(LS_PREFIX + key);
+      if (!raw) return null;
+      data[key.replace(/_/g, '_')] = JSON.parse(raw);
+    }
+    console.log('Portfolio data loaded from localStorage (version:', version + ')');
+    return {
+      portfolioSummary: data['portfolio_summary'],
+      breakupSummary: data['breakup_summary'],
+      latestEquity: data['latest_equity'],
+      latestMf: data['latest_mf'],
+      historicalHoldings: data['historical_holdings']
+    };
+  } catch (e) {
+    console.warn('Failed to load portfolio data from localStorage:', e);
+    return null;
+  }
+}
+
+function clearLocalStorageData() {
+  try {
+    for (const key of LS_KEYS) {
+      localStorage.removeItem(LS_PREFIX + key);
+    }
+    localStorage.removeItem(LS_PREFIX + 'version');
+    console.log('Portfolio data cleared from localStorage');
+  } catch (e) {
+    console.warn('Failed to clear localStorage:', e);
+  }
+}
+
+// ── Server-side save (works on localhost with server.js) ────────────────
+async function saveDataToServer(summary, breakup, equity, mf, hist) {
+  // Only attempt on localhost where server.js is running
+  if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+    console.log('Not on localhost; skipping server save. Use "Download JSON" for git commit.');
+    return false;
+  }
+  try {
+    const res = await fetch('/api/save-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ portfolio_summary: summary, breakup_summary: breakup, latest_equity: equity, latest_mf: mf, historical_holdings: hist })
+    });
+    if (res.ok) {
+      console.log('Portfolio data saved to server data/ directory');
+      return true;
+    } else {
+      console.warn('Server save returned:', res.status);
+      return false;
+    }
+  } catch (e) {
+    console.warn('Server save failed (server.js may not be running):', e);
+    return false;
+  }
+}
+
+// ── Download all JSON data as individual files ──────────────────────────
+function downloadAllJson(summary, breakup, equity, mf, hist) {
+  const files = {
+    'portfolio_summary.json': summary,
+    'breakup_summary.json': breakup,
+    'latest_equity.json': equity,
+    'latest_mf.json': mf,
+    'historical_holdings.json': hist
+  };
+  for (const [name, data] of Object.entries(files)) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  console.log('Downloaded all 5 JSON data files for git commit.');
+}
+
 async function loadData() {
   try {
     if (typeof Chart === 'undefined') {
@@ -105,6 +206,39 @@ async function loadData() {
     // Update badge to show loading is in progress
     document.getElementById('live-time-badge').innerText = "Loading portfolio data...";
 
+    // ── Try localStorage first (persists uploaded data across refreshes) ──
+    const cached = loadFromLocalStorage();
+    if (cached) {
+      portfolioSummary = cached.portfolioSummary;
+      breakupSummary = cached.breakupSummary;
+      latestEquity = cached.latestEquity;
+      latestMf = cached.latestMf;
+      historicalHoldings = cached.historicalHoldings;
+
+      initializeLiveBaseline();
+      generateDividendData();
+      generateBenchmarkData();
+
+      const dates = breakupSummary.dates;
+      const latestDate = dates[dates.length - 1];
+      document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
+      updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
+
+      try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
+      try { initOverviewTab(); } catch (e) { console.error('initOverviewTab failed:', e); }
+      try { initStocksTab(); } catch (e) { console.error('initStocksTab failed:', e); }
+      try { initMfsTab(); } catch (e) { console.error('initMfsTab failed:', e); }
+      try { initGrowthTab(); } catch (e) { console.error('initGrowthTab failed:', e); }
+      try { initFixedIncomeTab(); } catch (e) { console.error('initFixedIncomeTab failed:', e); }
+      try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
+      try { initMonthlyTab(); } catch (e) { console.error('initMonthlyTab failed:', e); }
+      try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
+
+      document.getElementById('upload-status').textContent = 'Using locally saved data';
+      return;
+    }
+
+    // ── No localStorage data; fetch from server ──
     // Helper: fetch with timeout to prevent hanging
     async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
       const controller = new AbortController();
@@ -257,6 +391,7 @@ function initPortfolioUpload() {
 
 async function loadWorkbookFile(file) {
   const status = document.getElementById('upload-status');
+  const saveBtn = document.getElementById('save-data-btn');
   try {
     if (typeof readXlsxFile !== 'function') {
       throw new Error('Excel parser could not be loaded. Check your network connection and retry.');
@@ -273,13 +408,27 @@ async function loadWorkbookFile(file) {
     latestMf = parsed.latestMf;
     historicalHoldings = parsed.historicalHoldings;
 
+    // ── Persist to localStorage (survives page refresh) ──
+    saveToLocalStorage(portfolioSummary, breakupSummary, latestEquity, latestMf, historicalHoldings);
+
+    // ── Attempt server save (on localhost, writes JSON to data/ directory) ──
+    const serverSaved = await saveDataToServer(portfolioSummary, breakupSummary, latestEquity, latestMf, historicalHoldings);
+
     resetDerivedState();
     refreshAllTabs();
 
     const latestDate = breakupSummary.dates[breakupSummary.dates.length - 1];
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
     updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
-    if (status) status.textContent = `Loaded ${file.name}`;
+
+    if (serverSaved) {
+      if (status) status.textContent = `✅ ${file.name} — saved to server & local storage`;
+    } else if (!window.__isGitHubPages) {
+      if (status) status.textContent = `✅ ${file.name} — saved locally. ${window.location.hostname.includes('localhost') ? 'Server save failed — is server.js running?' : 'Use "Download JSON" to export for git commit.'}`;
+    } else {
+      if (status) status.textContent = `✅ ${file.name} — saved locally. Download JSON and commit to git for permanent sync.`;
+    }
+    if (saveBtn) saveBtn.style.display = 'inline-block';
   } catch (error) {
     console.error('Failed to load uploaded workbook:', error);
     if (status) status.textContent = error.message || 'Upload failed';
