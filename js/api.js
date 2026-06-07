@@ -346,31 +346,33 @@ async function refreshPrices() {
 
     await Promise.allSettled(mfPromises);
 
-    // 3. Recompute portfolio summary totals from updated data
-    recomputePortfolioFromLiveData();
-
-    // 4. Re-render all tabs
-    refreshAllTabs();
-
-    // 5. Update badge and status
-    badge.innerText = `Live: ${refreshDateStr}`;
-    badge.style.borderColor = 'rgba(16, 185, 129, 0.5)';
-
+    // 3. Compute report totals
     const totalStocks = latestEquity.filter(s => hasLivePriceSource(s.instrument)).length;
     const totalMfs = latestMf.length;
     const mappedMfs = latestMf.filter(f => MF_SCHEME_CODES[f.scheme] || dynamicMfSchemeCodes[f.scheme]).length;
     const skippedStocks = latestEquity.length - totalStocks;
     const missingMfs = totalMfs - mappedMfs;
 
-    let statusMsg = `Stocks: ${stockSuccess}/${totalStocks} | MFs: ${mfSuccess}/${mappedMfs} updated`;
-    if (skippedStocks > 0) statusMsg += ` (${skippedStocks} bonds/SGBs skipped)`;
-    if (missingMfs > 0) statusMsg += ` | ${missingMfs} MFs not found on mfapi.in`;
-
+    // 4. Build refresh report BEFORE re-rendering tabs (initUpdateLogTab reads it)
     lastRefreshReport = {
       refreshedAt: refreshDateStr, stockSuccess, stockFail, mfSuccess, mfFail,
       totalStocks, totalMfs, mappedMfs, skippedStocks, missingMfs,
       stockDetails, mfDetails
     };
+
+    // 5. Recompute portfolio summary totals from updated data
+    recomputePortfolioFromLiveData();
+
+    // 6. Re-render all tabs (initUpdateLogTab will now find lastRefreshReport)
+    refreshAllTabs();
+
+    // 7. Update badge and status
+    badge.innerText = `Live: ${refreshDateStr}`;
+    badge.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+
+    let statusMsg = `Stocks: ${stockSuccess}/${totalStocks} | MFs: ${mfSuccess}/${mappedMfs} updated`;
+    if (skippedStocks > 0) statusMsg += ` (${skippedStocks} bonds/SGBs skipped)`;
+    if (missingMfs > 0) statusMsg += ` | ${missingMfs} MFs not found on mfapi.in`;
 
     if (stockFail > 0 || mfFail > 0) {
       statusMsg += ` | ${stockFail + mfFail} failed (rate limited or API down)`;
