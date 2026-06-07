@@ -202,321 +202,6 @@ const MF_SCHEME_CODES = {
 // Cache for dynamically discovered MF scheme codes (persists across refreshes)
 let dynamicMfSchemeCodes = {};
 
-// ── Helper: Check if an instrument can be refreshed via a live price source ──
-// Returns false for instruments that have no known live price source
-// (e.g., government bonds, corporate bonds, SGBs, debt instruments).
-function hasLivePriceSource(instrument) {
-  // Bonds and debt instruments (start with digits, contain -GS, or known debt symbols)
-  if (/^\d/.test(instrument)) return false;
-  if (instrument.includes('-GS')) return false; // Government Securities
-  if (instrument === 'TVSMNCRPS') return false; // Debt instrument
-  if (instrument === '738REC27TF') return false; // Corporate bond
-  // SGBs (Sovereign Gold Bonds) - not available on any free API
-  if (instrument.startsWith('SGB')) return false;
-  // Everything else can be tried: ETFs (GOLDBEES, BANKIETF, FMCGIETF),
-  // REITs (EMBASSY-RR, MINDSPACE-RR, NXST-RR), and regular equity tickers
-  return true;
-}
-
-// ── Helper: Determine which API source to use for a given instrument ──
-function getPriceSource(instrument) {
-  // REITs (have -RR suffix) - not on Google Finance, use Yahoo Finance
-  if (instrument.includes('-RR')) return 'yahoo';
-  // ETFs and regular stocks - try Google Finance first
-  return 'google';
-}
-
-// ── Live Price Refresh ──────────────────────────────────────────────────────
-let isRefreshing = false;
-
-// ── Helpers for cross-origin API access (GitHub Pages support) ──────────────
-// On GitHub Pages there is no backend proxy, so we use a CORS proxy to fetch
-// APIs directly. Yahoo Finance and mfapi.in return JSON (easy to parse).
-// Google Finance returns HTML, so on GitHub Pages we prefer Yahoo Finance.
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
-
-// Map of API endpoint types to functions that build the direct URL for CORS proxy
-// On GitHub Pages, we use Yahoo Finance for all stocks (returns JSON, easy to parse)
-// and mfapi.in for mutual funds
-const DIRECT_URL_BUILDERS = {
-  'live-stock-price': (ticker) => `https://query1.finance.yahoo.com/v8/finance/chart/${ticker.replace(/-RR$/, '')}.NS`,
-  'live-stock-price-yahoo': (ticker) => `https://query1.finance.yahoo.com/v8/finance/chart/${ticker.replace(/-RR$/, '')}.NS`,
-  'stock-prev-close': (ticker) => `https://query1.finance.yahoo.com/v8/finance/chart/${ticker.replace(/-RR$/, '')}.NS`,
-  'stock-prev-close-yahoo': (ticker) => `https://query1.finance.yahoo.com/v8/finance/chart/${ticker.replace(/-RR$/, '')}.NS`,
-  'live-mf-nav': (schemeCode) => `https://api.mfapi.in/mf/${schemeCode}`,
-  'search-mf-scheme': (query) => `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`
-};
-
-async function fetchWithFallback(url, options = {}) {
-  // First try the URL directly (works on local server with proxy)
-  try {
-    const resp = await fetch(url, options);
-    if (resp.ok) return resp;
-  } catch (_) { /* fall through */ }
-
-  // On GitHub Pages, the /api/ endpoints don't exist, so build direct URLs
-  // and fetch them via the CORS proxy
-  if (window.__isGitHubPages === true) {
-    const pathMatch = url.match(/\/api\/([^/]+)\/(.+)/);
-    if (pathMatch) {
-      const endpointType = pathMatch[1];
-      const param = decodeURIComponent(pathMatch[2]);
-      const urlBuilder = DIRECT_URL_BUILDERS[endpointType];
-      if (urlBuilder) {
-        const directUrl = urlBuilder(param);
-        try {
-          const proxyUrl = CORS_PROXY + encodeURIComponent(directUrl);
-          const resp = await fetch(proxyUrl, options);
-          if (resp.ok) return resp;
-        } catch (_) { /* fall through */ }
-      }
-    }
-  } else {
-    // On local server, try CORS proxy as fallback with the original URL
-    try {
-      const proxyUrl = CORS_PROXY + encodeURIComponent(url);
-      const resp = await fetch(proxyUrl, options);
-      if (resp.ok) return resp;
-    } catch (_) { /* fall through */ }
-  }
-
-  throw new Error('All fetch attempts failed');
-}
-
-async function refreshPrices() {
-  if (isRefreshing) return;
-  isRefreshing = true;
-
-  const btn = document.getElementById('refresh-prices-btn');
-  const status = document.getElementById('refresh-status');
-  const badge = document.getElementById('live-time-badge');
-
-  btn.classList.add('loading');
-  btn.disabled = true;
-  status.className = 'refresh-status visible';
-  status.textContent = 'Fetching latest prices...';
-
-  let stockSuccess = 0;
-  let stockFail = 0;
-  let mfSuccess = 0;
-  let mfFail = 0;
-
-  try {
-    const now = new Date();
-    const refreshDateStr = now.toLocaleString('en-IN', {
-      day: 'numeric', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-
-    // 1. Refresh Stock Prices (via Google Finance proxy, with Yahoo Finance fallback)
-    const stockPromises = latestEquity.map(async (stock) => {
-      const ticker = stock.instrument;
-
-      // Skip instruments with no known live price source (bonds, SGBs, debt)
-      if (!hasLivePriceSource(ticker)) {
-        return;
-      }
-
-      // Save the original uploaded price before overwriting (only on first refresh)
-      if (stock.lastUploadedPrice === undefined) {
-        stock.lastUploadedPrice = stock.ltp;
-      }
-
-      const source = getPriceSource(ticker);
-      const endpoint = source === 'yahoo' ? '/api/live-stock-price-yahoo/' : '/api/live-stock-price/';
-      const prevCloseEndpoint = source === 'yahoo' ? '/api/stock-prev-close-yahoo/' : '/api/stock-prev-close/';
-
-      try {
-        // Fetch both live price and previous close in parallel
-        const [priceResp, prevCloseResp] = await Promise.allSettled([
-          fetchWithFallback(`${endpoint}${encodeURIComponent(ticker)}`),
-          fetchWithFallback(`${prevCloseEndpoint}${encodeURIComponent(ticker)}`)
-        ]);
-
-        // Process live price
-        if (priceResp.status === 'fulfilled') {
-          const data = await priceResp.value.json();
-          if (data.price && data.price > 0) {
-            stock.ltp = data.price;
-            stock.cur_val = stock.qty * data.price;
-            stock.pnl = stock.cur_val - stock.invested;
-            stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
-            stock.lastRefreshDate = refreshDateStr;
-            stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
-            stockSuccess++;
-          } else {
-            stockFail++;
-          }
-        } else {
-          // Live price failed, try Yahoo Finance fallback
-          if (source === 'google') {
-            try {
-              const fallbackResp = await fetchWithFallback(`/api/live-stock-price-yahoo/${encodeURIComponent(ticker)}`);
-              const data = await fallbackResp.json();
-              if (data.price && data.price > 0) {
-                stock.ltp = data.price;
-                stock.cur_val = stock.qty * data.price;
-                stock.pnl = stock.cur_val - stock.invested;
-                stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
-                stock.lastRefreshDate = refreshDateStr;
-                stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
-                stockSuccess++;
-              } else {
-                stockFail++;
-              }
-            } catch (fallbackErr) {
-              stockFail++;
-            }
-          } else {
-            stockFail++;
-          }
-        }
-
-        // Process previous close (non-critical, best-effort)
-        if (prevCloseResp.status === 'fulfilled') {
-          try {
-            const prevData = await prevCloseResp.value.json();
-            if (prevData.prevClose && prevData.prevClose > 0) {
-              stock.yesterdayClose = prevData.prevClose;
-            }
-          } catch (_) { /* ignore prev close parse errors */ }
-        }
-      } catch (e) {
-        stockFail++;
-      }
-    });
-
-    await Promise.allSettled(stockPromises);
-
-    // 2. Refresh MF NAVs (via mfapi.in proxy, with dynamic lookup fallback)
-    const mfPromises = latestMf.map(async (fund) => {
-      let schemeCode = MF_SCHEME_CODES[fund.scheme];
-
-      // null means explicitly marked as not available on mfapi.in — skip entirely
-      if (schemeCode === null) {
-        mfFail++;
-        return;
-      }
-
-      // If not in the static map, try the dynamic cache
-      if (!schemeCode) {
-        schemeCode = dynamicMfSchemeCodes[fund.scheme];
-      }
-
-      // If still not found, try a dynamic search via mfapi.in search API
-      if (!schemeCode) {
-        try {
-          // Extract key terms from the scheme name for searching
-          const searchQuery = fund.scheme
-            .replace(/Direct\s*-?\s*Growth$/i, '')
-            .replace(/Fund\s*Direct\s*-?\s*Growth$/i, '')
-            .replace(/\s*-\s*/g, ' ')
-            .trim();
-          const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(searchQuery)}`);
-          const searchData = await searchResp.json();
-          if (searchData.results && searchData.results.length > 0) {
-            // Find the best match: prefer Direct-Growth plans
-            const directGrowth = searchData.results.find(r =>
-              r.schemeName.toLowerCase().includes('direct') &&
-              r.schemeName.toLowerCase().includes('growth')
-            );
-            const bestMatch = directGrowth || searchData.results[0];
-            schemeCode = bestMatch.schemeCode;
-            // Cache it for future refreshes
-            dynamicMfSchemeCodes[fund.scheme] = schemeCode;
-          }
-        } catch (searchErr) {
-          // Search failed, will be counted as fail below
-        }
-      }
-
-      if (!schemeCode) {
-        mfFail++;
-        return;
-      }
-
-      // Save the original uploaded NAV before overwriting (only on first refresh)
-      if (fund.lastUploadedPrice === undefined) {
-        fund.lastUploadedPrice = fund.price;
-      }
-      try {
-        const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
-        const data = await resp.json();
-        if (data.nav && data.nav > 0) {
-          fund.price = data.nav;
-          fund.cur_val = fund.qty * data.nav;
-          fund.pnl = fund.cur_val - fund.invested;
-          fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
-          fund.lastRefreshDate = refreshDateStr;
-          fund.previousNav = data.prevNav || null;
-          fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
-          mfSuccess++;
-        } else {
-          mfFail++;
-        }
-      } catch (e) {
-        mfFail++;
-      }
-    });
-
-    await Promise.allSettled(mfPromises);
-
-    // 3. Recompute portfolio summary totals from updated data
-    recomputePortfolioFromLiveData();
-
-    // 4. Re-render all tabs
-    refreshAllTabs();
-
-    // 5. Update badge and status
-    badge.innerText = `Live: ${refreshDateStr}`;
-    badge.style.borderColor = 'rgba(16, 185, 129, 0.5)';
-
-    const totalStocks = latestEquity.filter(s => hasLivePriceSource(s.instrument)).length;
-    const totalMfs = latestMf.length;
-    const mappedMfs = latestMf.filter(f => MF_SCHEME_CODES[f.scheme] || dynamicMfSchemeCodes[f.scheme]).length;
-    const skippedStocks = latestEquity.length - totalStocks;
-
-    let statusMsg = `Stocks: ${stockSuccess}/${totalStocks} | MFs: ${mfSuccess}/${mappedMfs} updated`;
-    if (skippedStocks > 0) {
-      statusMsg += ` (${skippedStocks} bonds/SGBs skipped)`;
-    }
-    const missingMfs = totalMfs - mappedMfs;
-    if (missingMfs > 0) {
-      statusMsg += ` | ${missingMfs} MFs not found on mfapi.in`;
-    }
-
-    lastRefreshReport = {
-      refreshedAt: refreshDateStr,
-      stockSuccess,
-      stockFail,
-      mfSuccess,
-      mfFail,
-      totalStocks,
-      totalMfs,
-      mappedMfs,
-      skippedStocks,
-      missingMfs
-    };
-
-    status.className = 'refresh-status visible success';
-    status.textContent = statusMsg;
-    updateDataFreshness(`Live refresh: ${refreshDateStr}. Stocks ${stockSuccess}/${totalStocks}, MFs ${mfSuccess}/${mappedMfs}, skipped ${skippedStocks + missingMfs}.`);
-  } catch (error) {
-    console.error('Price refresh failed:', error);
-    status.className = 'refresh-status visible error';
-    status.textContent = 'Refresh failed. Check console for details.';
-  } finally {
-    btn.classList.remove('loading');
-    btn.disabled = false;
-    isRefreshing = false;
-
-    // Auto-hide status after 8 seconds
-    setTimeout(() => {
-      status.className = 'refresh-status';
-    }, 8000);
-  }
-}
-
 function recomputePortfolioFromLiveData() {
   if (!uploadedSnapshot) initializeLiveBaseline();
 
@@ -534,12 +219,14 @@ function recomputePortfolioFromLiveData() {
   const totalStockVal = latestEquity.reduce((sum, s) => sum + s.cur_val, 0);
   const totalMfVal = latestMf.reduce((sum, f) => sum + f.cur_val, 0);
 
-  const liveStockLakhs = totalStockVal / 100000;
-  const liveMfLakhs = totalMfVal / 100000;
-  const origStockMfRupees = (uploadedSnapshot.stockLakhs + uploadedSnapshot.mfLakhs) * 100000;
-  const liveStockMfRupees = totalStockVal + totalMfVal;
-  const deltaLakhs = (liveStockMfRupees - origStockMfRupees) / 100000;
-  const liveTotalLakhs = uploadedSnapshot.totalLakhs + deltaLakhs;
+  // USE EXACT GAIN DIRECTLY TO AVOID EXCEL SUMMARY TAB VS HOLDINGS TAB INCONSISTENCIES
+  const exactStockGain = latestEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
+  const exactMfGain = latestMf.reduce((sum, f) => sum + f.thisMonthGain, 0);
+  const exactDeltaLakhs = (exactStockGain + exactMfGain) / 100000;
+
+  const liveStockLakhs = uploadedSnapshot.stockLakhs + (exactStockGain / 100000);
+  const liveMfLakhs = uploadedSnapshot.mfLakhs + (exactMfGain / 100000);
+  const liveTotalLakhs = uploadedSnapshot.totalLakhs + exactDeltaLakhs;
 
   portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
@@ -1171,11 +858,19 @@ function getStockHistoryKey(symbol) {
 // ── Daily Overview Table (top gainers across stocks & MFs by daily value) ──
 function renderDailyOverviewTable() {
   const combined = [];
+  let totalStockGain = 0;
+  let totalMfGain = 0;
+
+  // Suppress daily changes on weekends since the markets are closed.
+  const istTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+  const isWeekend = istTime.getDay() === 0 || istTime.getDay() === 6;
 
   // Stocks: daily change = (current LTP - yesterday's close) * qty
   // yesterdayClose is fetched from Google Finance during price refresh
   latestEquity.forEach(s => {
-    const prevClose = s.yesterdayClose || null;
+    let prevClose = s.yesterdayClose || null;
+    if (isWeekend) prevClose = s.ltp; // Zero out daily change on weekends
+
     const dailyGain = prevClose ? (s.ltp - prevClose) * s.qty : null;
     const dailyGainPct = prevClose ? ((s.ltp - prevClose) / prevClose) * 100 : null;
     combined.push({
@@ -1187,11 +882,14 @@ function renderDailyOverviewTable() {
       change: dailyGain,
       changePct: dailyGainPct
     });
+    if (dailyGain !== null) totalStockGain += dailyGain;
   });
 
   // MFs: daily change uses previous NAV when the NAV provider returns it.
   latestMf.forEach(f => {
-    const previousNav = f.previousNav || null;
+    let previousNav = f.previousNav || null;
+    if (isWeekend) previousNav = f.price; // Zero out daily change on weekends
+
     const gain = previousNav ? (f.price - previousNav) * f.qty : null;
     const gainPct = previousNav ? ((f.price - previousNav) / previousNav) * 100 : null;
     combined.push({
@@ -1203,7 +901,44 @@ function renderDailyOverviewTable() {
       change: gain,
       changePct: gainPct
     });
+    if (gain !== null) totalMfGain += gain;
   });
+
+  const totalGain = totalStockGain + totalMfGain;
+
+  // Render Daily Summaries
+  const dailySummaryEl = document.getElementById('daily-summary-kpis');
+  if (dailySummaryEl) {
+    dailySummaryEl.innerHTML = `
+      <div class="kpi-card" style="--card-accent: #6366f1;">
+        <div>
+          <div class="kpi-title">Total Daily Change (Stocks)</div>
+          <div class="kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
+            ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)}
+          </div>
+        </div>
+        <div class="kpi-sub">Since yesterday's close</div>
+      </div>
+      <div class="kpi-card" style="--card-accent: #10b981;">
+        <div>
+          <div class="kpi-title">Total Daily Change (MFs)</div>
+          <div class="kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
+            ${totalMfGain >= 0 ? '+' : ''}${formatINR(totalMfGain)}
+          </div>
+        </div>
+        <div class="kpi-sub">Since previous NAV</div>
+      </div>
+      <div class="kpi-card total-card">
+        <div>
+          <div class="kpi-title">Total Combined Change</div>
+          <div class="kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
+            ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)}
+          </div>
+        </div>
+        <div class="kpi-sub">Stocks + Mutual Funds</div>
+      </div>
+    `;
+  }
 
   // Sort by selected column
   const col = dailyOverviewSortCol;
@@ -1263,6 +998,8 @@ function sortMonthlyOverview(colIdx) {
 // ── Monthly Overview Table (top gainers from last upload) ──────────────────
 function renderMonthlyOverviewTable() {
   const combined = [];
+  let totalStockMonthlyGain = 0;
+  let totalMfMonthlyGain = 0;
 
   // Stocks: monthly gain = thisMonthGain
   latestEquity.forEach(s => {
@@ -1277,6 +1014,7 @@ function renderMonthlyOverviewTable() {
       gain: gain,
       gainPct: gainPct
     });
+    totalStockMonthlyGain += gain;
   });
 
   // MFs: monthly gain = thisMonthGain
@@ -1292,7 +1030,44 @@ function renderMonthlyOverviewTable() {
       gain: gain,
       gainPct: gainPct
     });
+    totalMfMonthlyGain += gain;
   });
+
+  const totalMonthlyGain = totalStockMonthlyGain + totalMfMonthlyGain;
+
+  // Render Monthly Summaries
+  const monthlySummaryEl = document.getElementById('monthly-summary-kpis');
+  if (monthlySummaryEl) {
+    monthlySummaryEl.innerHTML = `
+      <div class="kpi-card" style="--card-accent: #6366f1;">
+        <div>
+          <div class="kpi-title">Total Gain (Stocks)</div>
+          <div class="kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
+            ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)}
+          </div>
+        </div>
+        <div class="kpi-sub">Since last upload</div>
+      </div>
+      <div class="kpi-card" style="--card-accent: #10b981;">
+        <div>
+          <div class="kpi-title">Total Gain (MFs)</div>
+          <div class="kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
+            ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)}
+          </div>
+        </div>
+        <div class="kpi-sub">Since last upload</div>
+      </div>
+      <div class="kpi-card total-card">
+        <div>
+          <div class="kpi-title">Total Combined Gain</div>
+          <div class="kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
+            ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)}
+          </div>
+        </div>
+        <div class="kpi-sub">Stocks + Mutual Funds</div>
+      </div>
+    `;
+  }
 
   // Sort by selected column
   const col = monthlyOverviewSortCol;

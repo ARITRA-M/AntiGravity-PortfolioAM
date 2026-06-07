@@ -2,7 +2,7 @@
   "name": "Portfolio Intelligence & Performance Analytics",
   "short_name": "Portfolio Analytics",
   "description": "Interactive long-term performance & asset intelligence dashboard",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#0b0f19",
   "theme_color": "#0b0f19",
