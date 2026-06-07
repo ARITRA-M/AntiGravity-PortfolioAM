@@ -56,6 +56,7 @@
       <button class="tab-btn" onclick="switchTab('fixed-income')">Fixed Income</button>
       <button class="tab-btn" onclick="switchTab('nps')">NPS</button>
       <button class="tab-btn" onclick="switchTab('monthly')">Monthly Changes</button>
+      <button class="tab-btn" onclick="switchTab('update-log')">📋 Update Log</button>
     </div>
 
     <!-- KPI Section (Common across tabs) -->
@@ -829,6 +830,19 @@
       </div>
     </div>
 
+    <!-- Update Log Tab -->
+    <div id="update-log-tab" class="tab-content">
+      <div class="dashboard-grid">
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>📋 Latest Update Log</h3>
+          </div>
+          <div id="update-log-content">
+            <!-- Dynamically populated by initUpdateLogTab() -->
+          </div>
+        </div>
+      </div>
+    </div>
 
   </div>
 

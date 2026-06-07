@@ -19,6 +19,21 @@ function getPriceSource(instrument) {
 // ── Live Price Refresh ──────────────────────────────────────────────────────
 let isRefreshing = false;
 
+// ── Response Cache ──────────────────────────────────────────────────────────
+// Prevents duplicate fetches of the same ticker within a single refresh cycle
+const PRICE_CACHE = new Map();
+const CACHE_TTL_MS = 30000;
+
+function getCachedPrice(key) {
+  const entry = PRICE_CACHE.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) return entry;
+  return null;
+}
+
+function setCachedPrice(key, data) {
+  PRICE_CACHE.set(key, { ...data, timestamp: Date.now() });
+}
+
 // ── Helpers for cross-origin API access (GitHub Pages support) ──────────────
 // On GitHub Pages there is no backend proxy. Strategy:
 //   - Stocks: fetch via Yahoo Finance (returns JSON with price + prevClose in one call)
@@ -60,11 +75,20 @@ function parseYahooChart(data) {
   };
 }
 
-async function fetchWithFallback(url, options = {}) {
+const MAX_RETRIES = 2;
+const BACKOFF_BASE_MS = 1000;
+
+async function fetchWithFallback(url, options = {}, retryCount = 0) {
   // First try the URL directly (works on local server with proxy)
   try {
     const resp = await fetch(url, { ...options, signal: AbortSignal.timeout(8000) });
     if (resp.ok) return resp;
+    // Retry on 429 (rate limited) with exponential backoff
+    if (resp.status === 429 && retryCount < MAX_RETRIES) {
+      const delay = BACKOFF_BASE_MS * Math.pow(2, retryCount);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchWithFallback(url, options, retryCount + 1);
+    }
   } catch (_) { /* fall through */ }
 
   // Build the direct URL for the GitHub Pages fallback
@@ -95,7 +119,20 @@ async function fetchWithFallback(url, options = {}) {
     const proxyUrl = CORS_PROXY + encodeURIComponent(directUrl);
     const resp = await fetch(proxyUrl, { ...options, signal: AbortSignal.timeout(12000) });
     if (resp.ok) return resp;
+    // Retry on 429 with exponential backoff
+    if (resp.status === 429 && retryCount < MAX_RETRIES) {
+      const delay = BACKOFF_BASE_MS * Math.pow(2, retryCount + 1);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchWithFallback(url, options, retryCount + 1);
+    }
   } catch (_) { /* fall through */ }
+
+  // Final retry with backoff if we haven't exhausted retries
+  if (retryCount < MAX_RETRIES) {
+    const delay = BACKOFF_BASE_MS * Math.pow(2, retryCount);
+    await new Promise(resolve => setTimeout(resolve, delay));
+    return fetchWithFallback(url, options, retryCount + 1);
+  }
 
   throw new Error('All fetch attempts failed');
 }
@@ -105,18 +142,35 @@ async function fetchWithFallback(url, options = {}) {
 // On local server: calls /api/stock-quote (Google, 1 round-trip) or /api/stock-quote-yahoo
 // On GitHub Pages: calls Yahoo via CORS proxy, parses both fields from response
 async function fetchStockQuote(ticker, source) {
+  // Check cache first to avoid duplicate fetches
+  const cacheKey = `stock:${ticker}:${source}`;
+  const cached = getCachedPrice(cacheKey);
+  if (cached) return { price: cached.price, prevClose: cached.prevClose };
+
   const endpoint = source === 'yahoo' ? '/api/stock-quote-yahoo/' : '/api/stock-quote/';
   const resp = await fetchWithFallback(`${endpoint}${encodeURIComponent(ticker)}`);
+
+  let price, prevClose;
 
   // Local server returns { price, prevClose } directly
   if (!window.__isGitHubPages) {
     const data = await resp.json();
-    return { price: data.price ?? null, prevClose: data.prevClose ?? null };
+    price = data.price ?? null;
+    prevClose = data.prevClose ?? null;
+  } else {
+    // GitHub Pages: response is raw Yahoo Finance JSON — parse it ourselves
+    const data = await resp.json();
+    const parsed = parseYahooChart(data);
+    price = parsed?.price ?? null;
+    prevClose = parsed?.prevClose ?? null;
   }
 
-  // GitHub Pages: response is raw Yahoo Finance JSON — parse it ourselves
-  const data = await resp.json();
-  return parseYahooChart(data) ?? { price: null, prevClose: null };
+  // Cache the result
+  if (price != null) {
+    setCachedPrice(cacheKey, { price, prevClose });
+  }
+
+  return { price, prevClose };
 }
 
 async function refreshPrices() {
@@ -135,6 +189,10 @@ async function refreshPrices() {
   let stockFail = 0;
   let mfSuccess = 0;
   let mfFail = 0;
+  let rateLimitedCount = 0;
+  let cacheHitCount = 0;
+  const stockDetails = [];
+  const mfDetails = [];
 
   try {
     const now = new Date();
@@ -158,6 +216,7 @@ async function refreshPrices() {
 
       if (!hasLivePriceSource(ticker)) {
         updateProgress(`Skipped ${ticker}`);
+        stockDetails.push({ instrument: ticker, status: 'skipped', price: null, prevClose: null, error: null });
         return;
       }
 
@@ -180,6 +239,7 @@ async function refreshPrices() {
           stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
           if (prevClose && prevClose > 0) stock.yesterdayClose = prevClose;
           stockSuccess++;
+          stockDetails.push({ instrument: ticker, status: 'success', price, prevClose, error: null });
         } else {
           // Single-call failed → try Yahoo as explicit fallback (Google stocks only)
           if (source === 'google') {
@@ -193,11 +253,24 @@ async function refreshPrices() {
               stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
               if (fpc && fpc > 0) stock.yesterdayClose = fpc;
               stockSuccess++;
-            } else { stockFail++; }
-          } else { stockFail++; }
+              stockDetails.push({ instrument: ticker, status: 'success', price: fp, prevClose: fpc, error: null });
+            } else {
+              stockFail++;
+              stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'No valid price from fallback' });
+            }
+          } else {
+            stockFail++;
+            stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'No valid price from primary source' });
+          }
         }
       } catch (e) {
         stockFail++;
+        const errMsg = e.message || String(e);
+        stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: errMsg });
+        // Detect rate-limit errors
+        if (errMsg.includes('429') || errMsg.includes('rate') || errMsg.includes('too many')) {
+          rateLimitedCount++;
+        }
       }
       updateProgress(ticker);
     });
@@ -208,7 +281,7 @@ async function refreshPrices() {
     const mfPromises = latestMf.map(async (fund) => {
       let schemeCode = MF_SCHEME_CODES[fund.scheme];
 
-      if (schemeCode === null) { mfFail++; updateProgress(fund.scheme); return; }
+      if (schemeCode === null) { mfFail++; mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Explicitly excluded' }); updateProgress(fund.scheme); return; }
       if (!schemeCode) schemeCode = dynamicMfSchemeCodes[fund.scheme];
 
       // Dynamic lookup if still not found
@@ -233,9 +306,27 @@ async function refreshPrices() {
         } catch (_) { /* ignore */ }
       }
 
-      if (!schemeCode) { mfFail++; updateProgress(fund.scheme); return; }
+      if (!schemeCode) { mfFail++; mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Scheme code not found' }); updateProgress(fund.scheme); return; }
 
       if (fund.lastUploadedPrice === undefined) fund.lastUploadedPrice = fund.price;
+
+      // Check MF cache
+      const mfCacheKey = `mf:${schemeCode}`;
+      const cachedMf = getCachedPrice(mfCacheKey);
+      if (cachedMf) {
+        cacheHitCount++;
+        fund.price = cachedMf.nav;
+        fund.cur_val = fund.qty * cachedMf.nav;
+        fund.pnl = fund.cur_val - fund.invested;
+        fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
+        fund.lastRefreshDate = refreshDateStr;
+        fund.previousNav = cachedMf.prevNav || null;
+        fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
+        mfSuccess++;
+        mfDetails.push({ scheme: fund.scheme, status: 'success', nav: cachedMf.nav, prevNav: cachedMf.prevNav, error: null });
+        updateProgress(fund.scheme);
+        return;
+      }
 
       try {
         const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
@@ -266,8 +357,21 @@ async function refreshPrices() {
           fund.previousNav = data.prevNav || null;
           fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
           mfSuccess++;
-        } else { mfFail++; }
-      } catch (e) { mfFail++; }
+          mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, error: null });
+          // Cache the MF result
+          setCachedPrice(mfCacheKey, { nav: data.nav, prevNav: data.prevNav });
+        } else {
+          mfFail++;
+          mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Invalid NAV response' });
+        }
+      } catch (e) {
+        mfFail++;
+        const errMsg = e.message || String(e);
+        mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: errMsg });
+        if (errMsg.includes('429') || errMsg.includes('rate') || errMsg.includes('too many')) {
+          rateLimitedCount++;
+        }
+      }
       updateProgress(fund.scheme);
     });
 
@@ -295,7 +399,9 @@ async function refreshPrices() {
 
     lastRefreshReport = {
       refreshedAt: refreshDateStr, stockSuccess, stockFail, mfSuccess, mfFail,
-      totalStocks, totalMfs, mappedMfs, skippedStocks, missingMfs
+      totalStocks, totalMfs, mappedMfs, skippedStocks, missingMfs,
+      rateLimitedCount, cacheHitCount,
+      stockDetails, mfDetails
     };
 
     if (stockFail > 0 || mfFail > 0) {

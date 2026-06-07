@@ -1,5 +1,5 @@
 // Tab IDs
-const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly'];
+const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log'];
 
 // Global state
 let portfolioSummary = null;
@@ -165,6 +165,7 @@ async function loadData() {
     try { initFixedIncomeTab(); } catch (e) { console.error('initFixedIncomeTab failed:', e); }
     try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
     try { initMonthlyTab(); } catch (e) { console.error('initMonthlyTab failed:', e); }
+    try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
   } catch (error) {
     console.error("Error loading portfolio data:", error);
     document.getElementById('live-time-badge').innerText = "Error loading data!";
@@ -346,6 +347,7 @@ function refreshAllTabs() {
   initFixedIncomeTab();
   initNpsTab();
   initMonthlyTab();
+  initUpdateLogTab();
 }
 
 function updateDataFreshness(message) {
@@ -3093,6 +3095,81 @@ function initMonthlyTab() {
   renderMonthlyMovers();
   renderMonthlyActivityChart();
   renderTradingActivityLog();
+}
+
+// ── Update Log Tab ──────────────────────────────────────────────────────────
+function initUpdateLogTab() {
+  const container = document.getElementById('update-log-content');
+  if (!container) return;
+
+  const report = lastRefreshReport;
+  if (!report) {
+    container.innerHTML = '<div class="update-log-empty"><p>No refresh has been performed yet. Click the <strong>Refresh Prices</strong> button to fetch live data.</p></div>';
+    return;
+  }
+
+  let html = '';
+
+  // ── Summary Cards ──
+  html += '<div class="update-log-summary">';
+  html += `<div class="update-log-card total"><span class="log-label">Refreshed At</span><span class="log-value">${escapeHtml(report.refreshedAt)}</span></div>`;
+  html += `<div class="update-log-card success"><span class="log-label">Stocks OK</span><span class="log-value">${report.stockSuccess}/${report.totalStocks}</span></div>`;
+  html += `<div class="update-log-card error"><span class="log-label">Stocks Failed</span><span class="log-value">${report.stockFail}</span></div>`;
+  html += `<div class="update-log-card success"><span class="log-label">MFs OK</span><span class="log-value">${report.mfSuccess}/${report.mappedMfs}</span></div>`;
+  html += `<div class="update-log-card error"><span class="log-label">MFs Failed</span><span class="log-value">${report.mfFail}</span></div>`;
+  html += `<div class="update-log-card warn"><span class="log-label">Skipped</span><span class="log-value">${report.skippedStocks} bonds</span></div>`;
+  if (report.missingMfs > 0) {
+    html += `<div class="update-log-card warn"><span class="log-label">MFs Not Found</span><span class="log-value">${report.missingMfs}</span></div>`;
+  }
+  html += '</div>';
+
+  // ── Per-Stock Details Table ──
+  if (report.stockDetails && report.stockDetails.length > 0) {
+    html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📈 Stock Refresh Details</h3>';
+    html += '<div class="table-wrapper"><table class="update-log-table">';
+    html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Prev Close (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
+    for (const s of report.stockDetails) {
+      const statusClass = s.status === 'success' ? 'status-ok' : 'status-fail';
+      const statusText = s.status === 'success' ? '✅ OK' : (s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed');
+      const price = s.price != null ? s.price.toFixed(2) : '—';
+      const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
+      const changePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
+        ? ((s.price - s.prevClose) / s.prevClose * 100).toFixed(2) + '%'
+        : '—';
+      const error = s.error ? escapeHtml(s.error) : '—';
+      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${prevClose}</td><td>${changePct}</td><td class="error-cell">${error}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // ── Per-MF Details Table ──
+  if (report.mfDetails && report.mfDetails.length > 0) {
+    html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📊 Mutual Fund NAV Details</h3>';
+    html += '<div class="table-wrapper"><table class="update-log-table">';
+    html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>Prev NAV (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
+    for (const m of report.mfDetails) {
+      const statusClass = m.status === 'success' ? 'status-ok' : 'status-fail';
+      const statusText = m.status === 'success' ? '✅ OK' : '❌ Failed';
+      const nav = m.nav != null ? m.nav.toFixed(4) : '—';
+      const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
+      const changePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
+        ? ((m.nav - m.prevNav) / m.prevNav * 100).toFixed(2) + '%'
+        : '—';
+      const error = m.error ? escapeHtml(m.error) : '—';
+      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${prevNav}</td><td>${changePct}</td><td class="error-cell">${error}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  // ── Reliability Notes ──
+  if (report.rateLimitedCount > 0) {
+    html += `<div class="update-log-note">⚠️ ${report.rateLimitedCount} requests were rate-limited and retried with exponential backoff.</div>`;
+  }
+  if (report.cacheHitCount > 0) {
+    html += `<div class="update-log-note">💡 ${report.cacheHitCount} prices served from cache (same ticker refreshed multiple times).</div>`;
+  }
+
+  container.innerHTML = html;
 }
 
 // Build the heatmap month data array (used for selection and filtering)
