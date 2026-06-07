@@ -11,7 +11,7 @@ const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'Portfolio2026!';
 const sessions = new Map();
 
-app.use(express.json({ limit: '16kb' }));
+app.use(express.json({ limit: '50mb' }));
 
 function parseCookies(cookieHeader = '') {
   return Object.fromEntries(cookieHeader.split(';').map(part => {
