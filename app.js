@@ -1654,11 +1654,12 @@ function initGrowthTab() {
   });
 
   // 2. Component XIRR Over Time (Line Chart)
-  // Find the index for June 2022 to start from there (avoids early outlier artifacts)
-  const xirrStartIdx = dates.findIndex(d => d >= '2022-06-01');
+  // Start from Jan 2023 to avoid early outlier artifacts
+  const xirrStartIdx = dates.findIndex(d => d >= '2023-01-01');
   const xirrDates = dates.slice(xirrStartIdx);
   
   const xirrSec = breakupSummary.xirr;
+  const nwSecXirr = breakupSummary.net_worth;
   const xirrDatasets = [];
   
   Object.keys(xirrSec).forEach(key => {
@@ -1667,19 +1668,23 @@ function initGrowthTab() {
       const vals = xirrSec[key].values;
       // Skip components that are all zeros (never had XIRR data)
       const hasData = vals.some(v => v !== 0);
-      if (hasData) {
-        xirrDatasets.push({
-          label: label,
-          data: vals.slice(xirrStartIdx).map(v => v * 100),
-          borderColor: getAssetColor(label),
-          backgroundColor: getAssetColor(label) + '33',
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          tension: 0.3,
-          fill: false
-        });
-      }
+      if (!hasData) return;
+      
+      // Exclude components with current value < 5 lakhs (too small for meaningful XIRR)
+      const currentVal = nwSecXirr[key] ? nwSecXirr[key].values[nwSecXirr[key].values.length - 1] : 0;
+      if (currentVal < 5) return;
+      
+      xirrDatasets.push({
+        label: label,
+        data: vals.slice(xirrStartIdx).map(v => v * 100),
+        borderColor: getAssetColor(label),
+        backgroundColor: getAssetColor(label) + '33',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.3,
+        fill: false
+      });
     }
   });
   
