@@ -1269,6 +1269,21 @@ tr:hover td {
   padding: 1rem;
 }
 
+/* Mover grid wrapper — equal-width side-by-side gainers & losers */
+.movers-grid-wrapper {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .movers-grid-wrapper {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
 .mover-item {
   display: flex;
   justify-content: space-between;
@@ -1276,6 +1291,8 @@ tr:hover td {
   padding: 0.75rem;
   background: rgba(255, 255, 255, 0.02);
   border-radius: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .mover-info {
@@ -1289,11 +1306,17 @@ tr:hover td {
 .mover-name {
   font-weight: 700;
   font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mover-sector {
   font-size: 0.75rem;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mover-detail {

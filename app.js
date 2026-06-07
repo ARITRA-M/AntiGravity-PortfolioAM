@@ -1168,7 +1168,7 @@ function renderDailyOverviewTable() {
         <div>
           <div class="kpi-title">Total Daily Change (Stocks)</div>
           <div class="kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalStockGain >= 0 ? '+' : ''}${formatLakhs(totalStockGain)}
+            ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)}
           </div>
         </div>
         <div class="kpi-sub">Since yesterday's close</div>
@@ -1177,7 +1177,7 @@ function renderDailyOverviewTable() {
         <div>
           <div class="kpi-title">Total Daily Change (MFs)</div>
           <div class="kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalMfGain >= 0 ? '+' : ''}${formatLakhs(totalMfGain)}
+            ${totalMfGain >= 0 ? '+' : ''}${formatINR(totalMfGain)}
           </div>
         </div>
         <div class="kpi-sub">Since previous NAV</div>
@@ -1186,7 +1186,7 @@ function renderDailyOverviewTable() {
         <div>
           <div class="kpi-title">Total Combined Change</div>
           <div class="kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalGain >= 0 ? '+' : ''}${formatLakhs(totalGain)}
+            ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)}
           </div>
         </div>
         <div class="kpi-sub">Stocks + Mutual Funds</div>
@@ -1308,7 +1308,7 @@ function renderMonthlyOverviewTable() {
         <div>
           <div class="kpi-title">Total Gain (Stocks)</div>
           <div class="kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatLakhs(totalStockMonthlyGain)}
+            ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)}
           </div>
         </div>
         <div class="kpi-sub">Since last upload</div>
@@ -1317,7 +1317,7 @@ function renderMonthlyOverviewTable() {
         <div>
           <div class="kpi-title">Total Gain (MFs)</div>
           <div class="kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatLakhs(totalMfMonthlyGain)}
+            ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)}
           </div>
         </div>
         <div class="kpi-sub">Since last upload</div>
@@ -1326,7 +1326,7 @@ function renderMonthlyOverviewTable() {
         <div>
           <div class="kpi-title">Total Combined Gain</div>
           <div class="kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalMonthlyGain >= 0 ? '+' : ''}${formatLakhs(totalMonthlyGain)}
+            ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)}
           </div>
         </div>
         <div class="kpi-sub">Stocks + Mutual Funds</div>
@@ -1364,10 +1364,10 @@ function renderMonthlyOverviewTable() {
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td><span class="sector-tag">${item.type === 'Stock' ? '📊 Stock' : '📁 MF'}</span></td>
       <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
-      <td style="text-align: right;">${formatLakhs(item.uploadedVal)}</td>
-      <td style="text-align: right;">${formatLakhs(item.currentVal)}</td>
+      <td style="text-align: right;">${formatINR(item.uploadedVal)}</td>
+      <td style="text-align: right;">${formatINR(item.currentVal)}</td>
       <td style="text-align: right;" class="${item.gain >= 0 ? 'trend-up' : 'trend-down'}">
-        ${item.gain >= 0 ? '+' : ''}${formatLakhs(item.gain)}
+        ${item.gain >= 0 ? '+' : ''}${formatINR(item.gain)}
       </td>
       <td style="text-align: right;" class="${item.gainPct >= 0 ? 'trend-up' : 'trend-down'}">
         ${item.gainPct >= 0 ? '+' : ''}${item.gainPct.toFixed(2)}%
