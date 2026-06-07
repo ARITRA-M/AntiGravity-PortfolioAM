@@ -430,4 +430,49 @@ portfolio_summary = {
 with open(os.path.join(out_dir, "portfolio_summary.json"), "w") as f:
     json.dump(portfolio_summary, f, indent=2)
 print("Saved portfolio_summary.json")
+
+# ── Auto-bump version constants in app.js and sw.js ──────────────────────
+today_str = datetime.date.today().strftime("%Y-%m-%d")
+
+app_js_path = "app.js"
+sw_js_path = "sw.js"
+
+# Bump APP_VERSION in app.js
+if os.path.exists(app_js_path):
+    with open(app_js_path, "r") as f:
+        app_js = f.read()
+    app_js_new = re.sub(
+        r'(const APP_VERSION\s*=\s*)\'[^\']*\'',
+        r"\1'" + today_str + "'",
+        app_js
+    )
+    if app_js_new != app_js:
+        with open(app_js_path, "w") as f:
+            f.write(app_js_new)
+        print(f"Bumped APP_VERSION in {app_js_path} → {today_str}")
+    else:
+        print(f"APP_VERSION in {app_js_path} already up to date ({today_str})")
+else:
+    print(f"WARNING: {app_js_path} not found, skipping APP_VERSION bump")
+
+# Bump CACHE_NAME version in sw.js
+if os.path.exists(sw_js_path):
+    with open(sw_js_path, "r") as f:
+        sw_js = f.read()
+    match = re.search(r"const CACHE_NAME\s*=\s*'portfolio-analytics-v(\d+)'", sw_js)
+    if match:
+        current_ver = int(match.group(1))
+        new_ver = current_ver + 1
+        sw_js_new = sw_js.replace(
+            f"'portfolio-analytics-v{current_ver}'",
+            f"'portfolio-analytics-v{new_ver}'"
+        )
+        with open(sw_js_path, "w") as f:
+            f.write(sw_js_new)
+        print(f"Bumped CACHE_NAME in {sw_js_path} → portfolio-analytics-v{new_ver}")
+    else:
+        print(f"WARNING: Could not find CACHE_NAME in {sw_js_path}, skipping bump")
+else:
+    print(f"WARNING: {sw_js_path} not found, skipping CACHE_NAME bump")
+
 print("ALL PREPROCESSING AND ENRICHMENT COMPLETE! SUCCESS!")
