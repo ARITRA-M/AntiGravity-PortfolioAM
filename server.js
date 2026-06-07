@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -409,29 +410,76 @@ app.get('/api/search-mf-scheme', async (req, res) => {
   }
 });
 
-// ── Save portfolio data to server (persists uploaded Excel data) ──────────
+// ── Commit portfolio data to GitHub (one-click deploy) ───────────────────
 const ALLOWED_SAVE_KEYS = new Set(['portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings']);
-app.post('/api/save-data', (req, res) => {
-  try {
-    const dataDir = path.join(__dirname, 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
 
+app.post('/api/commit-data', (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const commitMsg = `Update portfolio data ${todayStr}`;
+    const results = [];
+
+    // 1. Save JSON data files
+    const dataDir = path.join(__dirname, 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
     let savedCount = 0;
     for (const [key, value] of Object.entries(req.body)) {
       if (ALLOWED_SAVE_KEYS.has(key)) {
         const filePath = path.join(dataDir, key + '.json');
         fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf-8');
         savedCount++;
-        console.log(`Saved ${key}.json to data/ directory`);
       }
     }
+    results.push(`Saved ${savedCount} data files`);
 
-    res.json({ success: true, savedCount, message: `Saved ${savedCount} data files. Run git commit to deploy.` });
+    // 2. Bump APP_VERSION in app.js → today's date
+    const appJsPath = path.join(__dirname, 'app.js');
+    const appContent = fs.readFileSync(appJsPath, 'utf-8');
+    const appUpdated = appContent.replace(
+      /const APP_VERSION\s*=\s*'[\d-]+'/,
+      `const APP_VERSION = '${todayStr}'`
+    );
+    if (appUpdated !== appContent) {
+      fs.writeFileSync(appJsPath, appUpdated, 'utf-8');
+      results.push(`APP_VERSION → ${todayStr}`);
+    }
+
+    // 3. Bump CACHE_NAME in sw.js → increment vN → vN+1
+    const swJsPath = path.join(__dirname, 'sw.js');
+    const swContent = fs.readFileSync(swJsPath, 'utf-8');
+    const verMatch = swContent.match(/portfolio-analytics-v(\d+)/);
+    if (verMatch) {
+      const newVer = parseInt(verMatch[1]) + 1;
+      const swUpdated = swContent.replace(
+        `portfolio-analytics-v${verMatch[1]}`,
+        `portfolio-analytics-v${newVer}`
+      );
+      fs.writeFileSync(swJsPath, swUpdated, 'utf-8');
+      results.push(`CACHE_NAME → v${newVer}`);
+    }
+
+    // 4. Git operations
+    const repoDir = __dirname;
+    const execOpts = { cwd: repoDir, encoding: 'utf-8', timeout: 30000 };
+
+    // 4a. git add .
+    execSync('git add .', execOpts);
+    results.push('git add .');
+
+    // 4b. git commit
+    execSync(`git commit -m "${commitMsg}"`, execOpts);
+    results.push(`git commit: "${commitMsg}"`);
+
+    // 4c. git push
+    const pushOutput = execSync('git push origin main', execOpts).trim();
+    results.push(`git push: ${pushOutput.split('\n').pop()}`);
+
+    console.log(`✅ ${results.join(' | ')}`);
+    res.json({ success: true, message: `✅ Committed & pushed! Mobile will sync within 10 min.`, details: results });
   } catch (e) {
-    console.error('Failed to save portfolio data:', e);
-    res.status(500).json({ error: 'Failed to save portfolio data: ' + e.message });
+    const errMsg = e.stderr || e.message || 'Unknown error';
+    console.error('Commit failed:', errMsg);
+    res.status(500).json({ error: 'Commit failed: ' + errMsg });
   }
 });
 

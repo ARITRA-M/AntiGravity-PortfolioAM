@@ -150,29 +150,56 @@ function clearLocalStorageData() {
   }
 }
 
-// ── Server-side save (works on localhost with server.js) ────────────────
-async function saveDataToServer(summary, breakup, equity, mf, hist) {
-  // Only attempt on localhost where server.js is running
+// ── One-click "Commit to GitHub" (saves data, bumps versions, git push) ─
+async function commitData() {
+  const btn = document.getElementById('commit-btn');
+  const status = document.getElementById('upload-status');
+  if (!portfolioSummary) {
+    if (status) status.textContent = '⚠️ No data to commit. Upload an Excel file first.';
+    return;
+  }
+  // Only works on localhost where server.js is running
   if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-    console.log('Not on localhost; skipping server save. Use "Download JSON" for git commit.');
-    return false;
+    if (status) status.textContent = '⚠️ Commit only works on the local machine (localhost). Download JSON and push to git manually.';
+    return;
   }
   try {
-    const res = await fetch('/api/save-data', {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing...'; }
+    if (status) status.textContent = 'Committing to GitHub...';
+
+    const res = await fetch('/api/commit-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ portfolio_summary: summary, breakup_summary: breakup, latest_equity: equity, latest_mf: mf, historical_holdings: hist })
+      body: JSON.stringify({
+        portfolio_summary: portfolioSummary,
+        breakup_summary: breakupSummary,
+        latest_equity: latestEquity,
+        latest_mf: latestMf,
+        historical_holdings: historicalHoldings
+      })
     });
-    if (res.ok) {
-      console.log('Portfolio data saved to server data/ directory');
-      return true;
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      // Update APP_VERSION in memory to match what server just wrote
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (APP_VERSION !== todayStr) {
+        // Flag that version was bumped — page reload will pick up new value
+        console.log('APP_VERSION will be updated on next page load');
+      }
+      if (status) status.textContent = '✅ ' + data.message;
+      // Show details in console
+      if (data.details) console.log('Commit details:', data.details.join(' | '));
+    } else if (res.status === 401) {
+      if (status) status.textContent = '🔒 Session expired. Please unlock the portfolio first.';
     } else {
-      console.warn('Server save returned:', res.status);
-      return false;
+      if (status) status.textContent = '❌ ' + (data.error || 'Commit failed. Check server logs.');
     }
   } catch (e) {
-    console.warn('Server save failed (server.js may not be running):', e);
-    return false;
+    if (status) status.textContent = '❌ Commit failed: ' + e.message;
+    console.error('commitData error:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 Commit to GitHub'; }
   }
 }
 
@@ -411,9 +438,6 @@ async function loadWorkbookFile(file) {
     // ── Persist to localStorage (survives page refresh) ──
     saveToLocalStorage(portfolioSummary, breakupSummary, latestEquity, latestMf, historicalHoldings);
 
-    // ── Attempt server save (on localhost, writes JSON to data/ directory) ──
-    const serverSaved = await saveDataToServer(portfolioSummary, breakupSummary, latestEquity, latestMf, historicalHoldings);
-
     resetDerivedState();
     refreshAllTabs();
 
@@ -421,14 +445,15 @@ async function loadWorkbookFile(file) {
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
     updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
 
-    if (serverSaved) {
-      if (status) status.textContent = `✅ ${file.name} — saved to server & local storage`;
-    } else if (!window.__isGitHubPages) {
-      if (status) status.textContent = `✅ ${file.name} — saved locally. ${window.location.hostname.includes('localhost') ? 'Server save failed — is server.js running?' : 'Use "Download JSON" to export for git commit.'}`;
-    } else {
-      if (status) status.textContent = `✅ ${file.name} — saved locally. Download JSON and commit to git for permanent sync.`;
-    }
+    // Show action buttons after successful upload
+    if (status) status.textContent = `✅ ${file.name} — saved locally. Hit "Commit to GitHub" to deploy permanently.`;
     if (saveBtn) saveBtn.style.display = 'inline-block';
+    const commitBtn = document.getElementById('commit-btn');
+    if (commitBtn) {
+      commitBtn.style.display = 'inline-flex';
+      commitBtn.disabled = false;
+      commitBtn.textContent = '🚀 Commit to GitHub';
+    }
   } catch (error) {
     console.error('Failed to load uploaded workbook:', error);
     if (status) status.textContent = error.message || 'Upload failed';
