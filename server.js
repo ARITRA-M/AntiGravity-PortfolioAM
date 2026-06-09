@@ -280,6 +280,39 @@ app.get('/api/stock-quote-yahoo/:symbol', async (req, res) => {
   }
 });
 
+// ── Real BSE Sensex daily change (current price vs previous close) ──
+// Fetches ^BSESN from Yahoo Finance and returns the daily change %.
+app.get('/api/sensex-daily-change', async (req, res) => {
+  const cacheKey = 'sensex:change';
+  const cached = getCached(cacheKey);
+  if (cached) return res.json({ ...cached, cached: true });
+
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN';
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }
+    }, 8000);
+    if (!response.ok) return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
+    const data = await response.json();
+    const r = data?.chart?.result?.[0];
+    if (!r?.meta?.regularMarketPrice || !r?.meta?.chartPreviousClose) {
+      return res.status(404).json({ error: 'Incomplete Sensex data from Yahoo Finance' });
+    }
+    const price = r.meta.regularMarketPrice;
+    const prevClose = r.meta.chartPreviousClose;
+    const dailyChangePct = ((price - prevClose) / prevClose) * 100;
+    const marketTime = r.meta.regularMarketTime;
+    const result = { price, prevClose, dailyChangePct, marketTime, source: 'yahoo', timestamp: Math.floor(Date.now() / 1000) };
+    setCache(cacheKey, result);
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: 'Failed to fetch Sensex data: ' + e.message });
+  }
+});
+
 // Yahoo Finance individual endpoints (legacy, served from cache populated above)
 app.get('/api/live-stock-price-yahoo/:symbol', async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();

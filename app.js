@@ -99,6 +99,26 @@ function getSimulatedSensexDailyChangePct(forDate) {
   return drift + noise;
 }
 
+// ── Real Sensex daily change (fetched from Yahoo Finance via server proxy) ──
+// Falls back to simulation when fetch fails or server is unavailable.
+let _sensexDailyPctReal = null;
+
+async function fetchSensexDailyChange() {
+  try {
+    const res = await fetch('/api/sensex-daily-change');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data && data.dailyChangePct != null) {
+      _sensexDailyPctReal = data.dailyChangePct;
+      return data.dailyChangePct;
+    }
+    throw new Error('Invalid response');
+  } catch {
+    // Fall back to simulation
+    return null;
+  }
+}
+
 const SECTOR_MAP = {
   AJANTPHARM: 'Pharmaceuticals', CIPLA: 'Pharmaceuticals', DRREDDY: 'Pharmaceuticals', ERIS: 'Pharmaceuticals',
   JBCHEPHARM: 'Pharmaceuticals', LALPATHLAB: 'Healthcare & Diagnostics', MANKIND: 'Pharmaceuticals',
@@ -134,6 +154,13 @@ const SECTOR_MAP = {
 
 window.addEventListener('DOMContentLoaded', () => {
   initPortfolioUpload();
+  // Kick off Sensex fetch; once resolved the overview tab will re-render
+  fetchSensexDailyChange().then(() => {
+    const dailySummaryEl = document.getElementById('daily-summary-kpis');
+    if (dailySummaryEl && dailySummaryEl.offsetParent !== null) {
+      renderDailyOverviewTable();
+    }
+  });
 });
 
 // ── localStorage persistence helpers ────────────────────────────────────
@@ -528,6 +555,13 @@ function setLatestSectionValue(section, key, value) {
 
 function refreshAllTabs() {
   updateKpis();
+  // Refresh real Sensex data (non-blocking)
+  fetchSensexDailyChange().then(() => {
+    const dailySummaryEl = document.getElementById('daily-summary-kpis');
+    if (dailySummaryEl && dailySummaryEl.offsetParent !== null) {
+      renderDailyOverviewTable();
+    }
+  });
   
   // Only initialize the currently visible tab (others load lazily on first visit)
   const activeTab = document.querySelector('.tab-content.active');
@@ -1203,8 +1237,8 @@ function renderDailyOverviewTable() {
   const dailyTotalPrev = totalPrevStockValue + totalPrevMfValue;
   const dailyTotalPct = dailyTotalPrev > 0 ? (totalGain / dailyTotalPrev) * 100 : 0;
 
-  // ── Simulated Sensex daily change (for reference); last completed trading day ──
-  const sensexDailyPct = getSimulatedSensexDailyChangePct();
+  // ── Sensex daily change (real data if available, simulated fallback) ──
+  const sensexDailyPct = _sensexDailyPctReal != null ? _sensexDailyPctReal : getSimulatedSensexDailyChangePct();
 
   // Apply daily type filter (All / Stocks / MFs)
   const filteredCombined = dailyTypeFilter === 'all'
@@ -1252,7 +1286,7 @@ function renderDailyOverviewTable() {
             ${sensexDailyPct >= 0 ? '+' : ''}${sensexDailyPct.toFixed(2)}%
           </div>
         </div>
-        <div class="kpi-sub">Simulated daily change</div>
+        <div class="kpi-sub">Daily change (BSE Sensex)</div>
       </div>
     `;
   }
