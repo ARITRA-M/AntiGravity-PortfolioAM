@@ -1129,6 +1129,14 @@ tr:hover td {
     overflow-x: hidden;
     max-width: 100%;
   }
+  /* Constrain grid/flex children so tables scroll inside their wrappers */
+  .chart-card {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .dashboard-grid > * {
+    min-width: 0;
+  }
 
   /* Stocks table: hide Sector (col2), Uploaded Price (col5), Purchase Price (col6), Last Refreshed (col12) */
   #stocks-table th:nth-child(2), #stocks-table td:nth-child(2),
