@@ -998,10 +998,20 @@ tr:hover td {
     font-size: 0.8rem;
   }
   .kpi-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.6rem;
   }
   .kpi-value {
-    font-size: 1.8rem;
+    font-size: 1.15rem;
+  }
+  .kpi-card {
+    padding: 0.75rem;
+  }
+  .kpi-title {
+    font-size: 0.62rem;
+  }
+  .kpi-sub {
+    font-size: 0.68rem;
   }
   .tabs-navigation {
     gap: 0.4rem;
@@ -1136,6 +1146,15 @@ tr:hover td {
   }
   .dashboard-grid > * {
     min-width: 0;
+  }
+
+  /* Cap the frozen first column so long MF names can't cover the screen —
+     other columns must stay visible scrolling beneath it */
+  .table-wrapper th:first-child,
+  .table-wrapper td:first-child {
+    max-width: 38vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* Stocks table: hide Sector (col2), Uploaded Price (col5), Purchase Price (col6), Last Refreshed (col12) */
@@ -1847,7 +1866,7 @@ tr:hover td {
 
 @media (max-width: 768px) {
   .monthly-summary-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
   
   .heatmap-grid {
