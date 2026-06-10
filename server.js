@@ -8,7 +8,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SESSION_COOKIE = 'portfolio_session';
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'Portfolio2026!';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD;
+if (!DASHBOARD_PASSWORD) {
+  console.error('DASHBOARD_PASSWORD environment variable is required.');
+  console.error('Start the server with: DASHBOARD_PASSWORD=<your password> npm run dev');
+  process.exit(1);
+}
 const sessions = new Map();
 
 app.use(express.json({ limit: '50mb' }));

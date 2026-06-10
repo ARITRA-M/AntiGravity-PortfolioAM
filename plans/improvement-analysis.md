@@ -13,7 +13,7 @@ After a thorough analysis of the entire codebase (app.js ~3800 lines, index.html
 **File:** [`auth.js`](auth.js:93)
 
 ```javascript
-if (password !== 'Portfolio2026!') {
+if (password !== '<redacted>') {
 ```
 
 The dashboard password is hardcoded in plaintext in the client-side bundle. On GitHub Pages, the entire auth.js is served to every visitor. Anyone can view the password via browser DevTools.
@@ -27,10 +27,10 @@ The dashboard password is hardcoded in plaintext in the client-side bundle. On G
 **File:** [`server.js`](server.js:10)
 
 ```javascript
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'Portfolio2026!';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '<redacted>';
 ```
 
-While environment variable override is supported, the fallback default password `Portfolio2026!` is the same as the client-side one. Should be removed and the env var made required.
+While environment variable override is supported, the fallback default password `<redacted>` is the same as the client-side one. Should be removed and the env var made required.
 
 ---
 
