@@ -1755,6 +1755,16 @@ tr:hover td {
   background: rgba(239, 68, 68, 0.03);
 }
 
+.update-log-table tr.status-stale td {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.update-log-table tr.status-skip td {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
 .update-log-table tr.status-fail .error-cell {
   font-size: 0.8rem;
   max-width: 250px;

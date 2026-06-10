@@ -280,6 +280,51 @@ app.get('/api/stock-quote-yahoo/:symbol', async (req, res) => {
   }
 });
 
+// ── Real BSE Sensex month-to-date change (current price vs last trading day of previous month) ──
+app.get('/api/sensex-monthly-change', async (req, res) => {
+  const cacheKey = 'sensex:monthly';
+  const cached = getCached(cacheKey);
+  if (cached) return res.json({ ...cached, cached: true });
+
+  // Fetch from 15 days before month start to now so the response includes
+  // the last trading day of the previous month as the MTD baseline.
+  const now = new Date();
+  const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const period1 = Math.floor((monthStartMs - 15 * 24 * 60 * 60 * 1000) / 1000);
+  const period2 = Math.floor(now.getTime() / 1000);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN?period1=${period1}&period2=${period2}&interval=1d`;
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }
+    }, 8000);
+    if (!response.ok) return res.status(502).json({ error: `Yahoo Finance returned status ${response.status}` });
+    const data = await response.json();
+    const r = data?.chart?.result?.[0];
+    const closes = r?.indicators?.quote?.[0]?.close;
+    const timestamps = r?.timestamp;
+    const currentPrice = r?.meta?.regularMarketPrice;
+    if (!closes || !timestamps || !currentPrice) return res.status(404).json({ error: 'Incomplete Sensex monthly data' });
+    // Find the last close strictly before the 1st of the current month
+    let monthStartClose = null;
+    for (let i = 0; i < timestamps.length; i++) {
+      const dayMs = timestamps[i] * 1000;
+      if (dayMs < monthStartMs && closes[i] != null) {
+        monthStartClose = closes[i];
+      }
+    }
+    if (!monthStartClose) return res.status(404).json({ error: 'No previous-month close found' });
+    const monthlyChangePct = ((currentPrice - monthStartClose) / monthStartClose) * 100;
+    const result = { price: currentPrice, monthStartClose, monthlyChangePct, source: 'yahoo', timestamp: Math.floor(Date.now() / 1000) };
+    setCache(cacheKey, result);
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: 'Failed to fetch Sensex monthly data: ' + e.message });
+  }
+});
+
 // ── Real BSE Sensex daily change (current price vs previous close) ──
 // Fetches ^BSESN from Yahoo Finance and returns the daily change %.
 app.get('/api/sensex-daily-change', async (req, res) => {

@@ -1,19 +1,51 @@
 // ── Helper: Check if an instrument can be refreshed via a live price source ──
-// Returns false for instruments that have no known live price source
-// (e.g., government bonds, corporate bonds, SGBs, debt instruments).
 function hasLivePriceSource(instrument) {
   if (/^\d/.test(instrument)) return false;         // Bonds (start with digits)
   if (instrument.includes('-GS')) return false;      // Government Securities
-  if (instrument === 'TVSMNCRPS') return false;      // Debt instrument
-  if (instrument === '738REC27TF') return false;     // Corporate bond
-  if (instrument.startsWith('SGB')) return false;    // Sovereign Gold Bonds
+  if (instrument === 'TVSMNCRPS') return false;      // Debt — no free API
+  if (instrument === '738REC27TF') return false;     // Corporate bond — no free API
+  // SGBs are now refreshed via gold price proxy — handled separately
   return true;
+}
+
+// Instruments that are stable debt (no live price API — keep uploaded value)
+const STABLE_DEBT_INSTRUMENTS = new Set(['TVSMNCRPS', '738REC27TF']);
+// Detect bonds by digit-start or -GS suffix
+function isStableDebt(instrument) {
+  return STABLE_DEBT_INSTRUMENTS.has(instrument) ||
+         /^\d/.test(instrument) ||
+         instrument.includes('-GS');
 }
 
 // ── Helper: Determine which API source to use for a given instrument ──
 function getPriceSource(instrument) {
   if (instrument.includes('-RR')) return 'yahoo';  // REITs not on Google Finance
   return 'google';
+}
+
+// ── Price Snapshot Persistence (localStorage) ───────────────────────────────
+// Stores the last successfully fetched price for each instrument so that
+// when a subsequent refresh fails, the stale-but-valid value is retained.
+const PRICE_SNAPSHOTS_KEY = 'ag_portfolio_price_snapshots';
+
+function loadAllPriceSnapshots() {
+  try {
+    const raw = localStorage.getItem(PRICE_SNAPSHOTS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function savePriceSnapshot(instrument, data) {
+  try {
+    const all = loadAllPriceSnapshots();
+    all[instrument] = data;
+    localStorage.setItem(PRICE_SNAPSHOTS_KEY, JSON.stringify(all));
+  } catch { /* localStorage may be full */ }
+}
+
+function loadPriceSnapshot(instrument) {
+  const all = loadAllPriceSnapshots();
+  return all[instrument] || null;
 }
 
 // ── Live Price Refresh ──────────────────────────────────────────────────────
@@ -199,22 +231,58 @@ async function refreshPrices() {
       hour: '2-digit', minute: '2-digit'
     });
 
-    const stocksToRefresh = latestEquity.filter(s => hasLivePriceSource(s.instrument));
-    const totalItems = stocksToRefresh.length + latestEquity.filter(s => !hasLivePriceSource(s.instrument)).length;
     let done = 0;
+    const totalItems = latestEquity.length;
 
     const updateProgress = (label) => {
       done++;
       status.textContent = `${label} (${done}/${totalItems + latestMf.length})…`;
     };
 
+    // Fetch GOLDBEES.NS once for all SGB refreshes (1 gram gold proxy = GOLDBEES × 100)
+    let goldPricePerGram = null;
+    const sgbInstruments = latestEquity.filter(s => s.instrument.startsWith('SGB'));
+    if (sgbInstruments.length > 0) {
+      try {
+        const { price } = await fetchStockQuote('GOLDBEES', 'yahoo');
+        if (price && price > 0) goldPricePerGram = price * 100;
+      } catch (_) { /* use snapshot fallback per SGB below */ }
+    }
+
     // 1. Refresh Stock Prices — ONE request per stock (price + prevClose together)
-    const stockPromises = latestEquity.map(async (stock) => {
+    // Process in batches of 5 with a 400ms delay between batches to avoid rate limiting
+    const STOCK_BATCH_SIZE = 5;
+    const STOCK_BATCH_DELAY_MS = 400;
+
+    async function refreshOneStock(stock) {
       const ticker = stock.instrument;
 
-      if (!hasLivePriceSource(ticker)) {
-        updateProgress(`Skipped ${ticker}`);
-        stockDetails.push({ instrument: ticker, status: 'skipped', price: null, prevClose: null, error: null });
+      // Stable debt instruments — no live price API; keep uploaded value
+      if (isStableDebt(ticker)) {
+        updateProgress(ticker);
+        stockDetails.push({ instrument: ticker, status: 'stable', price: stock.ltp, prevClose: null, error: null });
+        return;
+      }
+
+      // SGBs — priced at current gold price per gram (GOLDBEES × 100 proxy)
+      if (ticker.startsWith('SGB')) {
+        if (stock.lastUploadedPrice === undefined) stock.lastUploadedPrice = stock.ltp;
+        const goldPrice = goldPricePerGram ?? loadPriceSnapshot(ticker)?.price ?? null;
+        if (goldPrice && goldPrice > 0) {
+          stock.ltp = goldPrice;
+          stock.cur_val = stock.qty * goldPrice;
+          stock.pnl = stock.cur_val - stock.invested;
+          stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
+          stock.lastRefreshDate = refreshDateStr;
+          stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
+          stockSuccess++;
+          stockDetails.push({ instrument: ticker, status: 'success', price: goldPrice, prevClose: null, error: null });
+          savePriceSnapshot(ticker, { price: goldPrice, prevClose: null, refreshDate: refreshDateStr });
+        } else {
+          stockFail++;
+          stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'Gold price unavailable' });
+        }
+        updateProgress(ticker);
         return;
       }
 
@@ -238,6 +306,8 @@ async function refreshPrices() {
           if (prevClose && prevClose > 0) stock.yesterdayClose = prevClose;
           stockSuccess++;
           stockDetails.push({ instrument: ticker, status: 'success', price, prevClose, error: null });
+          // Persist snapshot for fallback on future failures
+          savePriceSnapshot(ticker, { price, prevClose, refreshDate: refreshDateStr });
         } else {
           // Single-call failed → try Yahoo as explicit fallback (Google stocks only)
           if (source === 'google') {
@@ -252,23 +322,70 @@ async function refreshPrices() {
               if (fpc && fpc > 0) stock.yesterdayClose = fpc;
               stockSuccess++;
               stockDetails.push({ instrument: ticker, status: 'success', price: fp, prevClose: fpc, error: null });
+              savePriceSnapshot(ticker, { price: fp, prevClose: fpc, refreshDate: refreshDateStr });
             } else {
-              stockFail++;
-              stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'No valid price from fallback' });
+              // Both sources failed — use snapshot fallback
+              const snap = loadPriceSnapshot(ticker);
+              if (snap) {
+                stock.ltp = snap.price;
+                stock.cur_val = stock.qty * snap.price;
+                stock.pnl = stock.cur_val - stock.invested;
+                stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
+                stock.lastRefreshDate = snap.refreshDate + ' (stale)';
+                stock.yesterdayClose = snap.prevClose || stock.yesterdayClose;
+                stockSuccess++;
+                stockDetails.push({ instrument: ticker, status: 'stale', price: snap.price, prevClose: snap.prevClose, error: null });
+              } else {
+                stockFail++;
+                stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'No valid price from fallback' });
+              }
             }
           } else {
-            stockFail++;
-            stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'No valid price from primary source' });
+            // Primary source failed (Yahoo stock) — use snapshot fallback
+            const snap = loadPriceSnapshot(ticker);
+            if (snap) {
+              stock.ltp = snap.price;
+              stock.cur_val = stock.qty * snap.price;
+              stock.pnl = stock.cur_val - stock.invested;
+              stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
+              stock.lastRefreshDate = snap.refreshDate + ' (stale)';
+              stock.yesterdayClose = snap.prevClose || stock.yesterdayClose;
+              stockSuccess++;
+              stockDetails.push({ instrument: ticker, status: 'stale', price: snap.price, prevClose: snap.prevClose, error: null });
+            } else {
+              stockFail++;
+              stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'No valid price from primary source' });
+            }
           }
         }
       } catch (e) {
-        stockFail++;
-        stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: e.message || String(e) });
+        // Exception — use snapshot fallback
+        const snap = loadPriceSnapshot(ticker);
+        if (snap) {
+          stock.ltp = snap.price;
+          stock.cur_val = stock.qty * snap.price;
+          stock.pnl = stock.cur_val - stock.invested;
+          stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
+          stock.lastRefreshDate = snap.refreshDate + ' (stale)';
+          stock.yesterdayClose = snap.prevClose || stock.yesterdayClose;
+          stockSuccess++;
+          stockDetails.push({ instrument: ticker, status: 'stale', price: snap.price, prevClose: snap.prevClose, error: null });
+        } else {
+          stockFail++;
+          stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: e.message || String(e) });
+        }
       }
       updateProgress(ticker);
-    });
+    }
 
-    await Promise.allSettled(stockPromises);
+    // Run stocks in batches to avoid rate limiting
+    for (let i = 0; i < latestEquity.length; i += STOCK_BATCH_SIZE) {
+      const batch = latestEquity.slice(i, i + STOCK_BATCH_SIZE);
+      await Promise.allSettled(batch.map(s => refreshOneStock(s)));
+      if (i + STOCK_BATCH_SIZE < latestEquity.length) {
+        await new Promise(r => setTimeout(r, STOCK_BATCH_DELAY_MS));
+      }
+    }
 
     // 2. Refresh MF NAVs
     const mfPromises = latestMf.map(async (fund) => {
@@ -333,13 +450,43 @@ async function refreshPrices() {
           fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
           mfSuccess++;
           mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, error: null });
+          // Persist snapshot for fallback on future failures
+          savePriceSnapshot(fund.scheme, { nav: data.nav, prevNav: data.prevNav, refreshDate: refreshDateStr });
         } else {
-          mfFail++;
-          mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Invalid NAV response' });
+          // Primary source failed — use snapshot fallback
+          const snap = loadPriceSnapshot(fund.scheme);
+          if (snap) {
+            fund.price = snap.nav;
+            fund.cur_val = fund.qty * snap.nav;
+            fund.pnl = fund.cur_val - fund.invested;
+            fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
+            fund.lastRefreshDate = snap.refreshDate + ' (stale)';
+            fund.previousNav = snap.prevNav || null;
+            fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
+            mfSuccess++;
+            mfDetails.push({ scheme: fund.scheme, status: 'stale', nav: snap.nav, prevNav: snap.prevNav, error: null });
+          } else {
+            mfFail++;
+            mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Invalid NAV response' });
+          }
         }
       } catch (e) {
-        mfFail++;
-        mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: e.message || String(e) });
+        // Exception — use snapshot fallback
+        const snap = loadPriceSnapshot(fund.scheme);
+        if (snap) {
+          fund.price = snap.nav;
+          fund.cur_val = fund.qty * snap.nav;
+          fund.pnl = fund.cur_val - fund.invested;
+          fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
+          fund.lastRefreshDate = snap.refreshDate + ' (stale)';
+          fund.previousNav = snap.prevNav || null;
+          fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
+          mfSuccess++;
+          mfDetails.push({ scheme: fund.scheme, status: 'stale', nav: snap.nav, prevNav: snap.prevNav, error: null });
+        } else {
+          mfFail++;
+          mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: e.message || String(e) });
+        }
       }
       updateProgress(fund.scheme);
     });
@@ -347,10 +494,11 @@ async function refreshPrices() {
     await Promise.allSettled(mfPromises);
 
     // 3. Compute report totals
-    const totalStocks = latestEquity.filter(s => hasLivePriceSource(s.instrument)).length;
+    const stableDebtCount = latestEquity.filter(s => isStableDebt(s.instrument)).length;
+    const totalStocks = latestEquity.length - stableDebtCount;
     const totalMfs = latestMf.length;
-    const mappedMfs = latestMf.filter(f => MF_SCHEME_CODES[f.scheme] || dynamicMfSchemeCodes[f.scheme]).length;
-    const skippedStocks = latestEquity.length - totalStocks;
+    const mappedMfs = latestMf.filter(f => MF_SCHEME_CODES[f.scheme] != null || dynamicMfSchemeCodes[f.scheme]).length;
+    const skippedStocks = 0; // nothing skipped anymore — bonds show as stable
     const missingMfs = totalMfs - mappedMfs;
 
     // 4. Build refresh report BEFORE re-rendering tabs (initUpdateLogTab reads it)
@@ -365,7 +513,12 @@ async function refreshPrices() {
     // 5. Recompute portfolio summary totals from updated data
     recomputePortfolioFromLiveData();
 
-    // 6. Re-render all tabs (initUpdateLogTab will now find lastRefreshReport)
+    // 6. Persist refreshed prices to localStorage so page reload keeps live prices.
+    // Deliberately does NOT save breakupSummary — its latest values are mutated with live data
+    // and saving that would corrupt the uploadedSnapshot baseline on next reload.
+    saveRefreshedPrices(latestEquity, latestMf);
+
+    // 7. Re-render all tabs (initUpdateLogTab will now find lastRefreshReport)
     refreshAllTabs();
 
     // 7. Update badge and status
