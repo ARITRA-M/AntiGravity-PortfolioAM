@@ -1,6 +1,9 @@
 const assert = require('assert');
 const http = require('http');
 
+// The server requires DASHBOARD_PASSWORD; tests use a throwaway value.
+process.env.DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'test-password-' + Date.now();
+
 const app = require('../server');
 
 function request(baseUrl, path, options = {}) {
@@ -38,7 +41,7 @@ async function run() {
     const goodLogin = await request(baseUrl, '/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: process.env.DASHBOARD_PASSWORD || 'Portfolio2026!' })
+      body: JSON.stringify({ password: process.env.DASHBOARD_PASSWORD })
     });
     assert.strictEqual(goodLogin.status, 200, 'correct password should unlock session');
 
@@ -51,7 +54,11 @@ async function run() {
     assert.strictEqual(unlockedData.status, 200, 'unlocked session should read portfolio data');
 
     const parsed = await unlockedData.json();
-    assert.ok(parsed.total_net_worth_lakhs > 0, 'portfolio summary should parse as JSON');
+    // File may be a plaintext summary or an AES-GCM envelope (post-encryption)
+    assert.ok(
+      parsed.total_net_worth_lakhs > 0 || parsed.__encrypted === true,
+      'portfolio summary should parse as JSON (plaintext or encrypted envelope)'
+    );
   } finally {
     await new Promise(resolve => server.close(resolve));
   }

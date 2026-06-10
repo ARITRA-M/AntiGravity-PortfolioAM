@@ -27,6 +27,15 @@ function clearAuthToken() {
   if (IS_GITHUB_PAGES) {
     localStorage.removeItem(CLIENT_AUTH_CONFIG.storageKey);
   }
+  if (typeof PortfolioCrypto !== 'undefined') PortfolioCrypto.clearKey();
+}
+
+// Fetch the reference data file used to verify the password (it is an
+// AES-GCM envelope after scripts/encrypt-data.js has been run).
+async function fetchVerificationEnvelope() {
+  const resp = await fetch('data/breakup_summary.json?auth=' + Date.now(), { credentials: 'same-origin' });
+  if (!resp.ok) return null;
+  try { return await resp.json(); } catch (_) { return null; }
 }
 
 // --- Client-side auth helpers (GitHub Pages) ---
@@ -76,6 +85,17 @@ async function unlockApp(overlay, password) {
     throw new Error('Incorrect dashboard password.');
   }
 
+  // Derive the data-decryption key from the same password (data files are
+  // encrypted at rest; the server only gates access, it can't decrypt them).
+  try {
+    const envelope = await fetchVerificationEnvelope();
+    if (envelope && PortfolioCrypto.isEnvelope(envelope)) {
+      await PortfolioCrypto.unlockWithPassword(password, envelope);
+    }
+  } catch (e) {
+    throw new Error('Login OK, but data files are encrypted with a different password.');
+  }
+
   authState = true;
   overlay.remove();
   document.body.style.overflow = '';
@@ -88,10 +108,18 @@ async function unlockApp(overlay, password) {
 
 // --- Client-side unlock (GitHub Pages) ---
 
-function unlockAppClient(overlay, password) {
-  // Simple password check - in production, change this or use a more secure method
-  if (password !== 'Portfolio2026!') {
-    throw new Error('Incorrect password. Please try again.');
+async function unlockAppClient(overlay, password) {
+  // The password is verified by decrypting the data files — there is no
+  // stored password to compare against (and nothing useful to steal: the
+  // files on GitHub Pages are AES-256-GCM ciphertext).
+  const envelope = await fetchVerificationEnvelope();
+  if (!envelope) {
+    throw new Error('Could not load portfolio data to verify the password.');
+  }
+  if (PortfolioCrypto.isEnvelope(envelope)) {
+    await PortfolioCrypto.unlockWithPassword(password, envelope); // throws if wrong
+  } else {
+    console.warn('Data files are not encrypted yet — run scripts/encrypt-data.js and push.');
   }
 
   localStorage.setItem(CLIENT_AUTH_CONFIG.storageKey, generateClientToken());
@@ -141,7 +169,7 @@ function showLogin(message = '') {
 
     try {
       if (IS_GITHUB_PAGES) {
-        unlockAppClient(overlay, passwordInput.value);
+        await unlockAppClient(overlay, passwordInput.value);
       } else {
         await unlockApp(overlay, passwordInput.value);
       }
@@ -171,8 +199,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (appContainer) appContainer.style.display = 'none';
 
   if (IS_GITHUB_PAGES) {
-    // On GitHub Pages, use client-side auth
-    if (isClientAuthenticated()) {
+    // On GitHub Pages, the session is valid only if the token is fresh AND
+    // the data-decryption key is still cached.
+    if (isClientAuthenticated() && await PortfolioCrypto.hasKey()) {
       authState = true;
       if (appContainer) appContainer.style.display = '';
       if (typeof loadData === 'function') loadData();

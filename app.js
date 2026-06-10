@@ -348,16 +348,25 @@ async function commitData() {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing...'; }
     if (status) status.textContent = 'Committing to GitHub...';
 
+    // Encrypt every file before it touches disk / GitHub — the repo is
+    // public, so plaintext must never be committed once encryption is on.
+    const payload = {
+      portfolio_summary: portfolioSummary,
+      breakup_summary: breakupSummary,
+      latest_equity: latestEquity,
+      latest_mf: latestMf,
+      historical_holdings: historicalHoldings
+    };
+    if (typeof PortfolioCrypto !== 'undefined' && await PortfolioCrypto.hasKey()) {
+      for (const k of Object.keys(payload)) {
+        payload[k] = await PortfolioCrypto.encryptObject(payload[k]);
+      }
+    }
+
     const res = await fetch('/api/commit-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        portfolio_summary: portfolioSummary,
-        breakup_summary: breakupSummary,
-        latest_equity: latestEquity,
-        latest_mf: latestMf,
-        historical_holdings: historicalHoldings
-      })
+      body: JSON.stringify(payload)
     });
 
     const data = await res.json();
@@ -379,6 +388,25 @@ async function commitData() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🚀 Commit'; }
   }
+}
+
+// Parse a data-file response, transparently decrypting AES-GCM envelopes.
+// Throws if the file is encrypted and no valid key is cached (the caller's
+// error path sends the user back to the unlock screen).
+async function parsePortfolioJson(resp) {
+  const obj = await resp.json();
+  if (typeof PortfolioCrypto === 'undefined' || !PortfolioCrypto.isEnvelope(obj)) return obj;
+  const data = await PortfolioCrypto.decryptEnvelope(obj);
+  if (data === null) {
+    if (typeof clearAuthToken === 'function') clearAuthToken();
+    if (typeof showLogin === 'function') {
+      const appContainer = document.querySelector('.app-container');
+      if (appContainer) appContainer.style.display = 'none';
+      if (!document.getElementById('auth-overlay')) showLogin('Please unlock again to decrypt your data.');
+    }
+    throw new Error('Data is encrypted and no valid key is available.');
+  }
+  return data;
 }
 
 async function loadData() {
@@ -403,7 +431,7 @@ async function loadData() {
       const _cb = APP_VERSION;
       try {
         const bsResp = await fetch(`data/breakup_summary.json?${_cb}`, { credentials: 'same-origin' });
-        breakupSummary = await bsResp.json();
+        breakupSummary = await parsePortfolioJson(bsResp);
       } catch (e) {
         console.warn('Could not fetch fresh breakup_summary, falling back:', e);
         // Last resort: if server unavailable, derive a minimal snapshot from per-instrument data
@@ -472,11 +500,11 @@ async function loadData() {
       throw new Error('One or more portfolio data files could not be loaded.');
     }
 
-    portfolioSummary = await resSummary.json();
-    breakupSummary = await resBreakup.json();
-    latestEquity = await resEquity.json();
-    latestMf = await resMf.json();
-    historicalHoldings = await resHist.json();
+    portfolioSummary = await parsePortfolioJson(resSummary);
+    breakupSummary = await parsePortfolioJson(resBreakup);
+    latestEquity = await parsePortfolioJson(resEquity);
+    latestMf = await parsePortfolioJson(resMf);
+    historicalHoldings = await parsePortfolioJson(resHist);
 
     initializeLiveBaseline();
 
