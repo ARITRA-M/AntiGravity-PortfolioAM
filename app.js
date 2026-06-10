@@ -99,22 +99,120 @@ function getSimulatedSensexDailyChangePct(forDate) {
   return drift + noise;
 }
 
-// ── Real Sensex daily change (fetched from Yahoo Finance via server proxy) ──
-// Falls back to simulation when fetch fails or server is unavailable.
+// ── Real Sensex daily + monthly change (fetched from Yahoo Finance via server proxy) ──
 let _sensexDailyPctReal = null;
+// Pre-seed from localStorage snapshot so the first render has a value immediately
+let _sensexMonthlyPctReal = (() => {
+  try {
+    const raw = localStorage.getItem('ag_portfolio_sensex_monthly_snapshot');
+    const snap = raw ? JSON.parse(raw) : null;
+    return snap?.monthlyChangePct ?? null;
+  } catch { return null; }
+})();
+
+const SENSEX_SNAPSHOT_KEY = 'ag_portfolio_sensex_snapshot';
+const SENSEX_MONTHLY_SNAPSHOT_KEY = 'ag_portfolio_sensex_monthly_snapshot';
+
+function loadSensexSnapshot() {
+  try {
+    const raw = localStorage.getItem(SENSEX_SNAPSHOT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveSensexSnapshot(data) {
+  try {
+    localStorage.setItem(SENSEX_SNAPSHOT_KEY, JSON.stringify(data));
+  } catch { /* localStorage may be full */ }
+}
+
+function loadSensexMonthlySnapshot() {
+  try {
+    const raw = localStorage.getItem(SENSEX_MONTHLY_SNAPSHOT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveSensexMonthlySnapshot(data) {
+  try {
+    localStorage.setItem(SENSEX_MONTHLY_SNAPSHOT_KEY, JSON.stringify(data));
+  } catch { /* localStorage may be full */ }
+}
 
 async function fetchSensexDailyChange() {
   try {
-    const res = await fetch('/api/sensex-daily-change');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    let data;
+    if (window.__isGitHubPages) {
+      const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN';
+      const res = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl), { signal: AbortSignal.timeout(12000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.json();
+      const r = raw?.chart?.result?.[0];
+      if (!r?.meta?.regularMarketPrice || !r?.meta?.chartPreviousClose) throw new Error('Incomplete data');
+      const price = r.meta.regularMarketPrice;
+      const prevClose = r.meta.chartPreviousClose;
+      data = { dailyChangePct: ((price - prevClose) / prevClose) * 100, price, prevClose };
+    } else {
+      const res = await fetch('/api/sensex-daily-change');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    }
     if (data && data.dailyChangePct != null) {
       _sensexDailyPctReal = data.dailyChangePct;
+      saveSensexSnapshot({ dailyChangePct: data.dailyChangePct, price: data.price, prevClose: data.prevClose, timestamp: Date.now() });
       return data.dailyChangePct;
     }
     throw new Error('Invalid response');
   } catch {
-    // Fall back to simulation
+    const snap = loadSensexSnapshot();
+    if (snap && snap.dailyChangePct != null) {
+      _sensexDailyPctReal = snap.dailyChangePct;
+      return snap.dailyChangePct;
+    }
+    return null;
+  }
+}
+
+async function fetchSensexMonthlyChange() {
+  try {
+    let data;
+    if (window.__isGitHubPages) {
+      const now = new Date();
+      const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      const period1 = Math.floor((monthStartMs - 15 * 24 * 60 * 60 * 1000) / 1000);
+      const period2 = Math.floor(now.getTime() / 1000);
+      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN?period1=${period1}&period2=${period2}&interval=1d`;
+      const res = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl), { signal: AbortSignal.timeout(12000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.json();
+      const r = raw?.chart?.result?.[0];
+      const closes = r?.indicators?.quote?.[0]?.close;
+      const timestamps = r?.timestamp;
+      const currentPrice = r?.meta?.regularMarketPrice;
+      if (!closes || !timestamps || !currentPrice) throw new Error('Incomplete data');
+      let monthStartClose = null;
+      for (let i = 0; i < timestamps.length; i++) {
+        if (timestamps[i] * 1000 < monthStartMs && closes[i] != null) monthStartClose = closes[i];
+      }
+      if (!monthStartClose) throw new Error('No previous-month close found');
+      data = { monthlyChangePct: ((currentPrice - monthStartClose) / monthStartClose) * 100 };
+    } else {
+      const res = await fetch('/api/sensex-monthly-change');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    }
+    if (data && data.monthlyChangePct != null) {
+      _sensexMonthlyPctReal = data.monthlyChangePct;
+      saveSensexMonthlySnapshot({ monthlyChangePct: data.monthlyChangePct, timestamp: Date.now() });
+      return data.monthlyChangePct;
+    }
+    throw new Error('Invalid response');
+  } catch {
+    const snap = loadSensexMonthlySnapshot();
+    if (snap && snap.monthlyChangePct != null) {
+      _sensexMonthlyPctReal = snap.monthlyChangePct;
+      return snap.monthlyChangePct;
+    }
     return null;
   }
 }
@@ -154,23 +252,27 @@ const SECTOR_MAP = {
 
 window.addEventListener('DOMContentLoaded', () => {
   initPortfolioUpload();
-  // Kick off Sensex fetch; once resolved the overview tab will re-render
+  // Kick off Sensex fetch; once resolved the overview tabs will re-render
   fetchSensexDailyChange().then(() => {
     const dailySummaryEl = document.getElementById('daily-summary-kpis');
     if (dailySummaryEl && dailySummaryEl.offsetParent !== null) {
       renderDailyOverviewTable();
     }
   });
+  fetchSensexMonthlyChange().then(() => {
+    if (latestEquity) renderMonthlyOverviewTable();
+  });
 });
 
 // ── localStorage persistence helpers ────────────────────────────────────
 const LS_PREFIX = 'ag_portfolio_';
-const LS_KEYS = ['portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings'];
+// breakup_summary is intentionally excluded — it is always fetched fresh from the server
+// to prevent baseline corruption from in-memory live-price mutations being persisted.
+const LS_KEYS = ['portfolio_summary', 'latest_equity', 'latest_mf', 'historical_holdings'];
 
-function saveToLocalStorage(summary, breakup, equity, mf, hist) {
+function saveToLocalStorage(summary, _breakup, equity, mf, hist) {
   try {
     localStorage.setItem(LS_PREFIX + 'portfolio_summary', JSON.stringify(summary));
-    localStorage.setItem(LS_PREFIX + 'breakup_summary', JSON.stringify(breakup));
     localStorage.setItem(LS_PREFIX + 'latest_equity', JSON.stringify(equity));
     localStorage.setItem(LS_PREFIX + 'latest_mf', JSON.stringify(mf));
     localStorage.setItem(LS_PREFIX + 'historical_holdings', JSON.stringify(hist));
@@ -178,6 +280,17 @@ function saveToLocalStorage(summary, breakup, equity, mf, hist) {
     console.log('Portfolio data saved to localStorage (version:', APP_VERSION + ')');
   } catch (e) {
     console.warn('Failed to save portfolio data to localStorage:', e);
+  }
+}
+
+// Called after a live price refresh — saves updated prices only.
+function saveRefreshedPrices(equity, mf) {
+  try {
+    localStorage.setItem(LS_PREFIX + 'latest_equity', JSON.stringify(equity));
+    localStorage.setItem(LS_PREFIX + 'latest_mf', JSON.stringify(mf));
+    console.log('Refreshed prices saved to localStorage');
+  } catch (e) {
+    console.warn('Failed to save refreshed prices to localStorage:', e);
   }
 }
 
@@ -189,12 +302,11 @@ function loadFromLocalStorage() {
     for (const key of LS_KEYS) {
       const raw = localStorage.getItem(LS_PREFIX + key);
       if (!raw) return null;
-      data[key.replace(/_/g, '_')] = JSON.parse(raw);
+      data[key] = JSON.parse(raw);
     }
     console.log('Portfolio data loaded from localStorage (version:', version + ')');
     return {
       portfolioSummary: data['portfolio_summary'],
-      breakupSummary: data['breakup_summary'],
       latestEquity: data['latest_equity'],
       latestMf: data['latest_mf'],
       historicalHoldings: data['historical_holdings']
@@ -210,6 +322,8 @@ function clearLocalStorageData() {
     for (const key of LS_KEYS) {
       localStorage.removeItem(LS_PREFIX + key);
     }
+    // Also clear any stale breakup_summary that may exist from before this fix
+    localStorage.removeItem(LS_PREFIX + 'breakup_summary');
     localStorage.removeItem(LS_PREFIX + 'version');
     console.log('Portfolio data cleared from localStorage');
   } catch (e) {
@@ -280,11 +394,24 @@ async function loadData() {
     const cached = loadFromLocalStorage();
     if (cached) {
       portfolioSummary = cached.portfolioSummary;
-      breakupSummary = cached.breakupSummary;
       latestEquity = cached.latestEquity;
       latestMf = cached.latestMf;
       historicalHoldings = cached.historicalHoldings;
 
+      // Always fetch breakup_summary fresh from server — never cache it — to prevent
+      // baseline drift from in-memory live-price mutations being persisted across reloads.
+      const _cb = APP_VERSION;
+      try {
+        const bsResp = await fetch(`data/breakup_summary.json?${_cb}`, { credentials: 'same-origin' });
+        breakupSummary = await bsResp.json();
+      } catch (e) {
+        console.warn('Could not fetch fresh breakup_summary, falling back:', e);
+        // Last resort: if server unavailable, derive a minimal snapshot from per-instrument data
+        breakupSummary = null;
+      }
+
+      if (!breakupSummary) { /* fall through to full server load below */ }
+      else {
       initializeLiveBaseline();
       generateBenchmarkData();
 
@@ -305,9 +432,10 @@ async function loadData() {
 
       document.getElementById('upload-status').textContent = 'Using locally saved data';
       return;
+      } // end else (breakupSummary fetched ok)
     }
 
-    // ── No localStorage data; fetch from server ──
+    // ── No localStorage data (or breakup_summary fetch failed); fetch from server ──
     // Helper: fetch with timeout to prevent hanging
     async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
       const controller = new AbortController();
@@ -401,8 +529,7 @@ const MF_SCHEME_CODES = {
   "Kotak Midcap Fund Direct-Growth": 119775,
   "PGIM India Global Equity Opportunities FoF Direct-Growth": 138528,
   "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth": 149910,
-  // Not available on mfapi.in; skip refresh to avoid wrong match
-  "Nippon India Nifty IT Index Fund Direct - Growth": null
+  "Nippon India Nifty IT Index Fund Direct - Growth": 152392
 };
 
 // Cache for dynamically discovered MF scheme codes (persists across refreshes)
@@ -411,21 +538,12 @@ let dynamicMfSchemeCodes = {};
 function recomputePortfolioFromLiveData() {
   if (!uploadedSnapshot) initializeLiveBaseline();
 
-  // Recompute thisMonthGain for all stocks: (current LTP - uploaded LTP) * qty
-  latestEquity.forEach(s => {
-    s.thisMonthGain = (s.ltp - s.lastUploadedPrice) * s.qty;
-  });
+  // Recompute thisMonthGain for all stocks/MFs: (current price - uploaded price) * qty
+  latestEquity.forEach(s => { s.thisMonthGain = (s.ltp - s.lastUploadedPrice) * s.qty; });
+  latestMf.forEach(f => { f.thisMonthGain = (f.price - f.lastUploadedPrice) * f.qty; });
 
-  // Recompute thisMonthGain for all MFs: (current NAV - uploaded NAV) * qty
-  latestMf.forEach(f => {
-    f.thisMonthGain = (f.price - f.lastUploadedPrice) * f.qty;
-  });
-
-  // Recompute total equity value from live stock + MF data
-  const totalStockVal = latestEquity.reduce((sum, s) => sum + s.cur_val, 0);
-  const totalMfVal = latestMf.reduce((sum, f) => sum + f.cur_val, 0);
-
-  // USE EXACT GAIN DIRECTLY TO AVOID EXCEL SUMMARY TAB VS HOLDINGS TAB INCONSISTENCIES
+  // Use exact per-instrument delta on top of the Excel summary baseline to avoid
+  // rounding discrepancies between the summary tab total and the per-row sum.
   const exactStockGain = latestEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
   const exactMfGain = latestMf.reduce((sum, f) => sum + f.thisMonthGain, 0);
   const exactDeltaLakhs = (exactStockGain + exactMfGain) / 100000;
@@ -438,6 +556,8 @@ function recomputePortfolioFromLiveData() {
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
   portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
 
+  // Update latest breakupSummary data points for Growth tab chart display only —
+  // this mutation is intentionally NOT saved to localStorage (see saveRefreshedPrices)
   setLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)', liveStockLakhs);
   setLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)', liveMfLakhs);
   setLatestSectionValue(breakupSummary.net_worth, 'Total', liveTotalLakhs);
@@ -523,23 +643,28 @@ function resetDerivedState() {
 
 function initializeLiveBaseline() {
   latestEquity.forEach(s => {
-    s.lastUploadedPrice = s.ltp;
+    // Preserve lastUploadedPrice if already set (restored from localStorage after a refresh)
+    if (s.lastUploadedPrice === undefined) s.lastUploadedPrice = s.ltp;
     s.lastRefreshedPrice = s.ltp;
-    s.thisMonthGain = 0;
-    s.yesterdayClose = null;
+    if (s.thisMonthGain === undefined) s.thisMonthGain = 0;
+    if (s.yesterdayClose === undefined) s.yesterdayClose = null;
   });
   latestMf.forEach(f => {
-    f.lastUploadedPrice = f.price;
+    if (f.lastUploadedPrice === undefined) f.lastUploadedPrice = f.price;
     f.lastRefreshedPrice = f.price;
-    f.thisMonthGain = 0;
-    f.previousNav = null;
+    if (f.thisMonthGain === undefined) f.thisMonthGain = 0;
+    if (f.previousNav === undefined) f.previousNav = null;
   });
-  uploadedSnapshot = {
-    totalLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Total'),
-    stockLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)'),
-    mfLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)'),
-    npsELakhs: getLatestSectionValue(breakupSummary.net_worth, 'NPS E (Equity)')
-  };
+  // Only derive from breakupSummary on a fresh upload; on reload, uploadedSnapshot
+  // is restored from localStorage before this runs to preserve the true baseline.
+  if (!uploadedSnapshot) {
+    uploadedSnapshot = {
+      totalLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Total'),
+      stockLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)'),
+      mfLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)'),
+      npsELakhs: getLatestSectionValue(breakupSummary.net_worth, 'NPS E (Equity)')
+    };
+  }
 }
 
 function getLatestSectionValue(section, key) {
@@ -561,6 +686,9 @@ function refreshAllTabs() {
     if (dailySummaryEl && dailySummaryEl.offsetParent !== null) {
       renderDailyOverviewTable();
     }
+  });
+  fetchSensexMonthlyChange().then(() => {
+    if (latestEquity) renderMonthlyOverviewTable();
   });
   
   // Only initialize the currently visible tab (others load lazily on first visit)
@@ -1397,15 +1525,9 @@ function renderMonthlyOverviewTable() {
   const totalUploadedVal = totalStockUploadedVal + totalMfUploadedVal;
   const monthlyTotalPct = totalUploadedVal > 0 ? (totalMonthlyGain / totalUploadedVal) * 100 : 0;
 
-  // ── Simulated Sensex monthly change (for reference) ──
-  // Use benchmark data: compare last two monthly data points
-  const sensexHist = benchmarkData.sensex && benchmarkData.sensex.history;
-  let sensexMonthlyPct = 0;
-  if (sensexHist && sensexHist.length >= 2) {
-    const prev = sensexHist[sensexHist.length - 2].value;
-    const curr = sensexHist[sensexHist.length - 1].value;
-    sensexMonthlyPct = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
-  }
+  // ── Real Sensex monthly change (falls back to 0 if not yet fetched) ──
+  const sensexMonthlyPct = _sensexMonthlyPctReal ?? 0;
+  const sensexMonthlyLabel = _sensexMonthlyPctReal != null ? 'Month-to-date change (BSE Sensex)' : 'Monthly change (loading…)';
 
   // Apply monthly type filter (All / Stocks / MFs)
   const filteredCombined = monthlyTypeFilter === 'all'
@@ -1453,7 +1575,7 @@ function renderMonthlyOverviewTable() {
             ${sensexMonthlyPct >= 0 ? '+' : ''}${sensexMonthlyPct.toFixed(2)}%
           </div>
         </div>
-        <div class="kpi-sub">Simulated monthly change</div>
+        <div class="kpi-sub">${sensexMonthlyLabel}</div>
       </div>
     `;
   }
@@ -2829,6 +2951,7 @@ function renderStocksTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
+      <td style="text-align: right;">${s.lastRefreshDate || '—'}</td>
     </tr>
   `}).join('');
 }
@@ -2886,6 +3009,7 @@ function sortStocks(colIdx) {
       case 8: valA = a.pnl; valB = b.pnl; break;
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 11: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
     }
     
     if (typeof valA === 'string') {
@@ -3212,6 +3336,7 @@ function renderMfsTable(data) {
   body.innerHTML = data.map(f => {
     const uploadedPrice = f.lastUploadedPrice !== undefined ? `₹${f.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:4})}` : '—';
     const gain = f.thisMonthGain || 0;
+    const lastRefreshed = f.lastRefreshDate || '—';
     return `
     <tr>
       <td class="instrument-cell" title="${escapeAttr(f.scheme)}">${escapeHtml(f.scheme)}</td>
@@ -3231,6 +3356,7 @@ function renderMfsTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
+      <td style="text-align: right;">${escapeHtml(lastRefreshed)}</td>
     </tr>
   `}).join('');
 }
@@ -3555,8 +3681,8 @@ function initUpdateLogTab() {
     html += '<div class="table-wrapper"><table class="update-log-table">';
     html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Prev Close (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
     for (const s of report.stockDetails) {
-      const statusClass = s.status === 'success' ? 'status-ok' : 'status-fail';
-      const statusText = s.status === 'success' ? '✅ OK' : (s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed');
+      const statusClass = s.status === 'success' ? 'status-ok' : s.status === 'stale' ? 'status-stale' : (s.status === 'skipped' || s.status === 'stable') ? 'status-skip' : 'status-fail';
+      const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
       const price = s.price != null ? s.price.toFixed(2) : '—';
       const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
       const changePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
@@ -3574,8 +3700,8 @@ function initUpdateLogTab() {
     html += '<div class="table-wrapper"><table class="update-log-table">';
     html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>Prev NAV (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
     for (const m of report.mfDetails) {
-      const statusClass = m.status === 'success' ? 'status-ok' : 'status-fail';
-      const statusText = m.status === 'success' ? '✅ OK' : '❌ Failed';
+      const statusClass = m.status === 'success' ? 'status-ok' : m.status === 'stale' ? 'status-stale' : m.status === 'skipped' ? 'status-skip' : 'status-fail';
+      const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
       const nav = m.nav != null ? m.nav.toFixed(4) : '—';
       const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
       const changePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
@@ -4226,6 +4352,7 @@ function sortMfs(colIdx) {
       case 8: valA = a.pnl; valB = b.pnl; break;
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 11: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
     }
     
     if (typeof valA === 'string') {
