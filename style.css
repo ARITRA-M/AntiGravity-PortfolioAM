@@ -1119,6 +1119,56 @@ tr:hover td {
   }
 }
 
+/* ── Mobile: prevent page-level horizontal overflow ── */
+@media (max-width: 768px) {
+  html, body {
+    overflow-x: hidden;
+    max-width: 100%;
+  }
+  .app-container {
+    overflow-x: hidden;
+    max-width: 100%;
+  }
+
+  /* Stocks table: hide Sector (col2), Uploaded Price (col5), Purchase Price (col6), Last Refreshed (col12) */
+  #stocks-table th:nth-child(2), #stocks-table td:nth-child(2),
+  #stocks-table th:nth-child(5), #stocks-table td:nth-child(5),
+  #stocks-table th:nth-child(6), #stocks-table td:nth-child(6),
+  #stocks-table th:nth-child(12), #stocks-table td:nth-child(12) {
+    display: none;
+  }
+
+  /* MFs table: hide Category (col2), Uploaded NAV (col5), Purchase NAV (col6), Last Refreshed (col12) */
+  #mfs-table th:nth-child(2), #mfs-table td:nth-child(2),
+  #mfs-table th:nth-child(5), #mfs-table td:nth-child(5),
+  #mfs-table th:nth-child(6), #mfs-table td:nth-child(6),
+  #mfs-table th:nth-child(12), #mfs-table td:nth-child(12) {
+    display: none;
+  }
+
+  /* Daily overview: hide Quantity (col2), Previous Price (col3) */
+  #daily-overview-table th:nth-child(2), #daily-overview-table td:nth-child(2),
+  #daily-overview-table th:nth-child(3), #daily-overview-table td:nth-child(3) {
+    display: none;
+  }
+
+  /* Monthly overview: hide Quantity (col2) */
+  #monthly-overview-table th:nth-child(2), #monthly-overview-table td:nth-child(2) {
+    display: none;
+  }
+
+  /* Fixed income: hide Total Invested (col5), Total Returns (col6) */
+  #fixed-income-table th:nth-child(5), #fixed-income-table td:nth-child(5),
+  #fixed-income-table th:nth-child(6), #fixed-income-table td:nth-child(6) {
+    display: none;
+  }
+
+  /* Trading activity: hide Type (col3) */
+  #trading-activity-table th:nth-child(3), #trading-activity-table td:nth-child(3) {
+    display: none;
+  }
+}
+
 /* Authentication Overlay */
 #auth-overlay {
   position: fixed;
