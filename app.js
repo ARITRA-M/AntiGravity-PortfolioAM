@@ -144,7 +144,7 @@ async function fetchSensexDailyChange() {
     let data;
     if (window.__isGitHubPages) {
       const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN';
-      const res = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl), { signal: AbortSignal.timeout(12000) });
+      const res = await fetchViaCorsProxy(yahooUrl, {}, 12000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const raw = await res.json();
       const r = raw?.chart?.result?.[0];
@@ -182,7 +182,7 @@ async function fetchSensexMonthlyChange() {
       const period1 = Math.floor((monthStartMs - 15 * 24 * 60 * 60 * 1000) / 1000);
       const period2 = Math.floor(now.getTime() / 1000);
       const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN?period1=${period1}&period2=${period2}&interval=1d`;
-      const res = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl), { signal: AbortSignal.timeout(12000) });
+      const res = await fetchViaCorsProxy(yahooUrl, {}, 12000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const raw = await res.json();
       const r = raw?.chart?.result?.[0];

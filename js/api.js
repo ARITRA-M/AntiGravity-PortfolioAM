@@ -72,7 +72,33 @@ function setCachedPrice(key, data) {
 //   - MFs: fetch mfapi.in DIRECTLY (it has open CORS headers — no proxy needed!)
 // The CORS proxy is only needed for stocks on GitHub Pages because Yahoo Finance
 // blocks direct browser requests due to CORS policy.
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+// Multiple proxies are tried in rotation — any one of them can go down for
+// hours at a time (allorigins outage 2026-06-11 hung every refresh on mobile).
+const CORS_PROXIES = [
+  (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)
+];
+// Sticky index of the last proxy that worked, so one outage costs a single
+// failed request per session instead of one per stock.
+let _workingProxyIdx = 0;
+
+async function fetchViaCorsProxy(targetUrl, options = {}, timeoutMs = 8000) {
+  let lastErr = null;
+  for (let i = 0; i < CORS_PROXIES.length; i++) {
+    const idx = (_workingProxyIdx + i) % CORS_PROXIES.length;
+    try {
+      const resp = await fetch(CORS_PROXIES[idx](targetUrl), { ...options, signal: AbortSignal.timeout(timeoutMs) });
+      if (resp.ok) {
+        _workingProxyIdx = idx;
+        return resp;
+      }
+      lastErr = new Error('Proxy HTTP ' + resp.status);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('All CORS proxies failed');
+}
 
 // Builds the direct URL for a given endpoint+param for GitHub Pages mode
 function buildDirectUrl(endpointType, param) {
@@ -146,17 +172,11 @@ async function fetchWithFallback(url, options = {}, retryCount = 0) {
     } catch (_) { /* fall through */ }
   }
 
-  // For Yahoo Finance, we must go through the CORS proxy (no CORS headers on browser requests)
+  // For Yahoo Finance, we must go through a CORS proxy (no CORS headers on
+  // browser requests). fetchViaCorsProxy rotates across proxies internally.
   try {
-    const proxyUrl = CORS_PROXY + encodeURIComponent(directUrl);
-    const resp = await fetch(proxyUrl, { ...options, signal: AbortSignal.timeout(12000) });
+    const resp = await fetchViaCorsProxy(directUrl, options, 10000);
     if (resp.ok) return resp;
-    // Retry on 429 with exponential backoff
-    if (resp.status === 429 && retryCount < MAX_RETRIES) {
-      const delay = BACKOFF_BASE_MS * Math.pow(2, retryCount + 1);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return fetchWithFallback(url, options, retryCount + 1);
-    }
   } catch (_) { /* fall through */ }
 
   // Final retry with backoff if we haven't exhausted retries
