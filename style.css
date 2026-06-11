@@ -867,9 +867,15 @@ tr:hover td {
   line-height: 1.4;
 }
 
-/* ── Responsive: Global overflow containment ── */
-* {
+/* ── Responsive: smooth touch scrolling, scoped to actual scroll containers
+   (a global * rule here is known to break scrolling on mobile WebKit) ── */
+.table-wrapper,
+.tabs-navigation,
+.explorer-list-card {
   -webkit-overflow-scrolling: touch;
+}
+.table-wrapper {
+  touch-action: pan-x pan-y;
 }
 
 /* Responsive */
@@ -1116,7 +1122,9 @@ tr:hover td {
   }
 }
 
-/* Touch-friendly improvements */
+/* Touch-friendly improvements — tablets/desktop touchscreens only.
+   On phones (≤768px) this must NOT override the compact table padding,
+   which is why it is gated on min-width. */
 @media (hover: none) and (pointer: coarse) {
   .tab-btn {
     min-height: 44px;
@@ -1124,6 +1132,8 @@ tr:hover td {
   .explorer-item {
     min-height: 44px;
   }
+}
+@media (hover: none) and (pointer: coarse) and (min-width: 769px) {
   th, td {
     padding: 0.75rem 1rem;
   }

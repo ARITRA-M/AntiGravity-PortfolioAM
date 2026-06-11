@@ -1,5 +1,5 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v15';
+const CACHE_NAME = 'portfolio-analytics-v16';
 
 // Determine the base path - works on both local server (/) and GitHub Pages subpath
 const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '') || '';
@@ -19,13 +19,17 @@ const ASSETS_TO_CACHE = [
   BASE_PATH + '/icons/icon-512.png'
 ];
 
-// JS files that should use stale-while-revalidate (always fetch latest from network,
-// use cache only as immediate fallback while updating in background)
+// Files that should use stale-while-revalidate (serve cached immediately,
+// fetch latest in background). CSS and HTML are included so style/layout
+// fixes reach devices without requiring a cache-version bump.
 const JS_FILES = new Set([
   '/app.js',
   '/auth.js',
   '/js/crypto.js',
-  '/js/api.js'
+  '/js/api.js',
+  '/style.css',
+  '/index.html',
+  '/'
 ]);
 
 // Install event - cache assets
