@@ -4576,8 +4576,6 @@ function _applyMoversMode(mode) {
   document.getElementById('monthly-losers-list').innerHTML =
     losers.slice(0, 5).map(d => makeRow(d, false)).join('') || empty;
 
-  // Update subheadings
-  const modeLabel = mode === 'abs' ? 'by absolute ₹' : 'by % return';
   const wh = document.getElementById('movers-winners-heading');
   const lh = document.getElementById('movers-losers-heading');
   if (wh) wh.textContent = `Top Winners — ${modeLabel}`;
