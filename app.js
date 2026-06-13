@@ -4468,68 +4468,62 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
   _lastMoversData = [];
   const isFiltered = heatmapSelectedIndices.size > 0;
 
-  if (!isFiltered) {
-    // No heatmap filter → show cumulative P&L from the latest upload data.
-    // This matches what the old Stock Analytics section showed and avoids
-    // period-boundary edge cases (splits, first-entry LTP artefacts).
-    latestEquity.forEach(stock => {
-      _lastMoversData.push({
-        name: stock.instrument,
-        sector: stock.sector,
-        qty: stock.qty,
-        pctGain: stock.gain_pct || 0,
-        absGain: stock.pnl     || 0,
-        source: 'cumulative',
-      });
-    });
-  } else {
-    // Heatmap filter active → compute period return from historical LTP.
-    //
-    // Uses ltp (price per unit) so new purchases during the period don't
-    // inflate the gain. Splits/bonus-issues are detected and corrected:
-    // after a 10:1 split endQty/startQty ≈ 10 and endLtp×10 ≈ startLtp,
-    // so we scale startLtp down to the post-split denomination before comparing.
-    latestEquity.forEach(stock => {
-      const clean    = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const stockKey = window._stockNameMap[clean] || stock.instrument;
-      const hist     = historicalHoldings.stocks[stockKey];
-      if (!hist) return;
+  // Always use LTP-based comparison from historicalHoldings so results are
+  // consistent with the Stock Analytics price graphs.
+  // • No filter  → full history range (first entry → last entry) per stock.
+  // • With filter → heatmap-selected date range.
+  // gain_pct / pnl from the upload are intentionally NOT used: they reflect
+  // Zerodha's avg-cost basis which can diverge wildly from price-chart returns
+  // (e.g. ENRIN showing 1438% because the avg-cost is from a very early buy).
+  latestEquity.forEach(stock => {
+    const clean    = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const stockKey = window._stockNameMap[clean] || stock.instrument;
+    const hist     = historicalHoldings.stocks[stockKey];
+    if (!hist) return;
 
-      const history = hist.history;
-      let startEntry = null;
+    const history = hist.history;
+    let startEntry, endEntry;
+
+    if (!isFiltered) {
+      // Full history: first and last recorded entries for this stock.
+      startEntry = history[0];
+      endEntry   = history[history.length - 1];
+    } else {
+      startEntry = null;
       for (let h = 0; h < history.length; h++) {
         if (history[h].date >= selectedStartDate) { startEntry = history[h]; break; }
       }
       if (!startEntry && history.length > 0) startEntry = history[0];
-      let endEntry = null;
+      endEntry = null;
       for (let h = history.length - 1; h >= 0; h--) {
         if (history[h].date <= selectedEndDate) { endEntry = history[h]; break; }
       }
-      if (!startEntry || !endEntry || startEntry === endEntry) return;
+    }
 
-      const startLtp = startEntry.ltp || 0;
-      const endLtp   = endEntry.ltp   || 0;
-      if (startLtp <= 0 || endLtp <= 0) return;
+    if (!startEntry || !endEntry || startEntry === endEntry) return;
 
-      // Split/bonus detection: if qty grew by ≥2× and endLtp × qtyRatio ≈ startLtp
-      // (within 8%), this is a corporate action — scale startLtp to post-split terms.
-      const qtyRatio = startEntry.qty > 0 ? endEntry.qty / startEntry.qty : 1;
-      const isSplit  = qtyRatio >= 1.9 && Math.abs(endLtp * qtyRatio / startLtp - 1) < 0.08;
-      const adjustedStartLtp = isSplit ? startLtp / qtyRatio : startLtp;
+    const startLtp = startEntry.ltp || 0;
+    const endLtp   = endEntry.ltp   || 0;
+    if (startLtp <= 0 || endLtp <= 0) return;
 
-      const pctGain = ((endLtp - adjustedStartLtp) / adjustedStartLtp) * 100;
-      const absGain = startEntry.qty * (endLtp - adjustedStartLtp);
+    // Split/bonus detection: qty grew ≥2× and endLtp×qtyRatio ≈ startLtp (within 8%)
+    // → scale startLtp to post-split denomination before comparing.
+    const qtyRatio        = startEntry.qty > 0 ? endEntry.qty / startEntry.qty : 1;
+    const isSplit         = qtyRatio >= 1.9 && Math.abs(endLtp * qtyRatio / startLtp - 1) < 0.08;
+    const adjustedStartLtp = isSplit ? startLtp / qtyRatio : startLtp;
 
-      _lastMoversData.push({
-        name: stock.instrument,
-        sector: stock.sector,
-        qty: startEntry.qty,
-        pctGain,
-        absGain,
-        source: 'period',
-      });
+    const pctGain = ((endLtp - adjustedStartLtp) / adjustedStartLtp) * 100;
+    const absGain = startEntry.qty * (endLtp - adjustedStartLtp);
+
+    _lastMoversData.push({
+      name: stock.instrument,
+      sector: stock.sector,
+      qty: startEntry.qty,
+      pctGain,
+      absGain,
+      source: isFiltered ? 'period' : 'full history',
     });
-  }
+  });
 
   _applyMoversMode(_moversMode);
 }
