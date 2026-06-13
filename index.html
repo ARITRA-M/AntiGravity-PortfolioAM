@@ -309,7 +309,10 @@
         <!-- Benchmark Comparison Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3 id="benchmark-chart-heading">Portfolio vs Benchmark Comparison</h3>
+            <div>
+              <h3 id="benchmark-chart-heading" style="margin:0;">Portfolio vs Benchmark Comparison</h3>
+              <p style="font-size:0.75rem; color:var(--text-muted); margin:0.15rem 0 0;">Time-weighted return (contribution-timing neutral) — indexed to 100 at start.</p>
+            </div>
             <div class="time-filters">
               <select id="benchmark-select" class="select-filter" onchange="updateBenchmarkChart()">
                 <option value="nifty50">Nifty 50</option>
@@ -339,7 +342,7 @@
           <div class="chart-header">
             <h3>XIRR — Portfolio vs Benchmarks</h3>
             <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0;">
-              Benchmark XIRR is computed by replaying your monthly contributions into the benchmark at its month-end price.
+              Money-weighted XIRR (reflects your contribution timing). Benchmark XIRR replays your monthly contributions into the benchmark at its month-end price — so it differs from the time-weighted graph above.
             </p>
           </div>
           <div class="table-wrapper">
@@ -466,8 +469,9 @@
                   <th onclick="sortStocks(7)" style="text-align: right;">Valuation (₹)</th>
                   <th onclick="sortStocks(8)" style="text-align: right;">P&L (₹)</th>
                   <th onclick="sortStocks(9)" style="text-align: right;">Gain %</th>
-                  <th onclick="sortStocks(10)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
-                  <th onclick="sortStocks(11)" style="text-align: right;">Last Refreshed</th>
+                  <th onclick="sortStocks(10)" style="text-align: right;" title="Money-weighted annualized return from this holding's contribution history">XIRR</th>
+                  <th onclick="sortStocks(11)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
+                  <th onclick="sortStocks(12)" style="text-align: right;">Last Refreshed</th>
                 </tr>
               </thead>
               <tbody id="stocks-table-body">
@@ -566,8 +570,9 @@
                   <th onclick="sortMfs(7)" style="text-align: right;">Valuation (₹)</th>
                   <th onclick="sortMfs(8)" style="text-align: right;">P&L (₹)</th>
                   <th onclick="sortMfs(9)" style="text-align: right;">Gain %</th>
-                  <th onclick="sortMfs(10)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
-                  <th onclick="sortMfs(11)" style="text-align: right;">Last Refreshed</th>
+                  <th onclick="sortMfs(10)" style="text-align: right;" title="Money-weighted annualized return from this holding's contribution history">XIRR</th>
+                  <th onclick="sortMfs(11)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
+                  <th onclick="sortMfs(12)" style="text-align: right;">Last Refreshed</th>
                 </tr>
               </thead>
               <tbody id="mfs-table-body">
