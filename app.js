@@ -277,18 +277,39 @@ function saveToLocalStorage(summary, _breakup, equity, mf, hist) {
     localStorage.setItem(LS_PREFIX + 'latest_mf', JSON.stringify(mf));
     localStorage.setItem(LS_PREFIX + 'historical_holdings', JSON.stringify(hist));
     localStorage.setItem(LS_PREFIX + 'version', APP_VERSION);
+    // A fresh upload invalidates any prior refresh report — drop it so a later
+    // reload doesn't apply stale live deltas onto the new upload's baseline.
+    localStorage.removeItem(LS_PREFIX + 'refresh_report');
     console.log('Portfolio data saved to localStorage (version:', APP_VERSION + ')');
   } catch (e) {
     console.warn('Failed to save portfolio data to localStorage:', e);
   }
 }
 
-// Called after a live price refresh — saves updated prices only.
+// Called after a live price refresh — persists the refreshed prices so they
+// survive a page reload.
+//
+// IMPORTANT: this writes a COMPLETE, loadable set (version + all LS_KEYS) so
+// loadFromLocalStorage() will actually return it on reload — even when using
+// bundled data with no manual upload (the upload path was previously the only
+// thing that set `version`, which is why refreshed prices used to vanish).
+//
+// It deliberately does NOT persist breakup_summary. That file stays
+// server-fetched and pristine so the `uploadedSnapshot` baseline can never
+// drift — the root cause of the old "portfolio value decremented on every
+// refresh" bug. On reload, live totals are recomputed from that clean
+// baseline plus the per-instrument deltas instead.
 function saveRefreshedPrices(equity, mf) {
   try {
     localStorage.setItem(LS_PREFIX + 'latest_equity', JSON.stringify(equity));
     localStorage.setItem(LS_PREFIX + 'latest_mf', JSON.stringify(mf));
-    console.log('Refreshed prices saved to localStorage');
+    localStorage.setItem(LS_PREFIX + 'portfolio_summary', JSON.stringify(portfolioSummary));
+    localStorage.setItem(LS_PREFIX + 'historical_holdings', JSON.stringify(historicalHoldings));
+    localStorage.setItem(LS_PREFIX + 'version', APP_VERSION);
+    if (window.lastRefreshReport) {
+      localStorage.setItem(LS_PREFIX + 'refresh_report', JSON.stringify(window.lastRefreshReport));
+    }
+    console.log('Refreshed prices + report saved to localStorage');
   } catch (e) {
     console.warn('Failed to save refreshed prices to localStorage:', e);
   }
@@ -324,6 +345,7 @@ function clearLocalStorageData() {
     }
     // Also clear any stale breakup_summary that may exist from before this fix
     localStorage.removeItem(LS_PREFIX + 'breakup_summary');
+    localStorage.removeItem(LS_PREFIX + 'refresh_report');
     localStorage.removeItem(LS_PREFIX + 'version');
     console.log('Portfolio data cleared from localStorage');
   } catch (e) {
@@ -446,12 +468,36 @@ async function loadData() {
       if (!breakupSummary) { /* fall through to full server load below */ }
       else {
       initializeLiveBaseline();
+
+      // Restore the persisted refresh report (Update Log + per-stock refresh
+      // times) and, if a refresh has happened, recompute live totals from the
+      // pristine server baseline + preserved per-instrument deltas. Because
+      // breakupSummary is always fetched fresh (never persisted), uploadedSnapshot
+      // stays at the true upload-time baseline, so this cannot drift downward.
+      let hadRefresh = false;
+      try {
+        const savedReport = localStorage.getItem(LS_PREFIX + 'refresh_report');
+        if (savedReport) {
+          window.lastRefreshReport = JSON.parse(savedReport);
+          lastRefreshReport = window.lastRefreshReport;
+          hadRefresh = true;
+        }
+      } catch (_) { /* ignore a corrupt report */ }
+      if (hadRefresh) {
+        recomputePortfolioFromLiveData();
+      }
+
       generateBenchmarkData();
 
       const dates = breakupSummary.dates;
       const latestDate = dates[dates.length - 1];
-      document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
-      updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
+      if (hadRefresh) {
+        document.getElementById('live-time-badge').innerText = `Live: ${window.lastRefreshReport.refreshedAt}`;
+        updateDataFreshness(`Live refresh: ${window.lastRefreshReport.refreshedAt} (restored). Showing last refreshed prices.`);
+      } else {
+        document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
+        updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
+      }
 
       try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
       try { initOverviewTab(); } catch (e) { console.error('initOverviewTab failed:', e); }
@@ -3712,7 +3758,7 @@ function initUpdateLogTab() {
   if (report.stockDetails && report.stockDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📈 Stock Refresh Details</h3>';
     html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Prev Close (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
+    html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Prev Close (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
     for (const s of report.stockDetails) {
       const statusClass = s.status === 'success' ? 'status-ok' : s.status === 'stale' ? 'status-stale' : (s.status === 'skipped' || s.status === 'stable') ? 'status-skip' : 'status-fail';
       const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
@@ -3721,8 +3767,9 @@ function initUpdateLogTab() {
       const changePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
         ? ((s.price - s.prevClose) / s.prevClose * 100).toFixed(2) + '%'
         : '—';
+      const lastRefresh = s.lastRefresh ? escapeHtml(s.lastRefresh) : '—';
       const error = s.error ? escapeHtml(s.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${prevClose}</td><td>${changePct}</td><td class="error-cell">${error}</td></tr>`;
+      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${prevClose}</td><td>${changePct}</td><td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
     }
     html += '</tbody></table></div>';
   }
@@ -3731,7 +3778,7 @@ function initUpdateLogTab() {
   if (report.mfDetails && report.mfDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📊 Mutual Fund NAV Details</h3>';
     html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>Prev NAV (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
+    html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>Prev NAV (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
     for (const m of report.mfDetails) {
       const statusClass = m.status === 'success' ? 'status-ok' : m.status === 'stale' ? 'status-stale' : m.status === 'skipped' ? 'status-skip' : 'status-fail';
       const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
@@ -3740,8 +3787,9 @@ function initUpdateLogTab() {
       const changePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
         ? ((m.nav - m.prevNav) / m.prevNav * 100).toFixed(2) + '%'
         : '—';
+      const lastRefresh = m.lastRefresh ? escapeHtml(m.lastRefresh) : '—';
       const error = m.error ? escapeHtml(m.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${prevNav}</td><td>${changePct}</td><td class="error-cell">${error}</td></tr>`;
+      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${prevNav}</td><td>${changePct}</td><td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
     }
     html += '</tbody></table></div>';
   }
