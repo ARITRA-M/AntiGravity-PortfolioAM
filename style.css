@@ -1381,6 +1381,17 @@ tr:hover td {
   margin-left: 0.35rem;
 }
 
+.movers-subheading {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 0.5rem 1rem;
+}
+
+.movers-inner-grid {
+  margin-top: 0.75rem;
+}
+
 .monthly-movers-list {
   display: flex;
   flex-direction: column;

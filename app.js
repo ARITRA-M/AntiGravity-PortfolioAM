@@ -4135,7 +4135,6 @@ function initMonthlyTab() {
   renderMonthlySummary();
   renderMonthlyChangeChart();
   renderMonthlyMovers();
-  renderMonthlyAbsoluteMovers();
   renderMonthlyActivityChart();
   renderTradingActivityLog();
 }
@@ -4302,7 +4301,6 @@ function updateAllSections() {
   renderMonthlySummary(count, startIndex, endIndex);
   renderMonthlyChangeChart(count, startIndex, endIndex);
   renderMonthlyMovers(count, startIndex, endIndex);
-  renderMonthlyAbsoluteMovers(count, startIndex, endIndex);
   renderMonthlyActivityChart(count, startIndex, endIndex);
   renderTradingActivityLog(count, startIndex, endIndex);
 }
@@ -4435,149 +4433,19 @@ function renderMonthlyChangeChart(count = 12, startIndex = 0, endIndex = null) {
   });
 }
 
+// Cached mover results — reused by switchMoversMode without re-querying history
+let _lastMoversData = [];
+let _moversMode = 'pct'; // 'pct' | 'abs'
+
 function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
-  const dates = breakupSummary.dates;
-  const nwTotal = breakupSummary.net_worth["Total"].values;
-  
-  // If endIndex not provided, use the last available index
-  if (endIndex === null) endIndex = nwTotal.length - 1;
-  
-  // Calculate total change over the entire selected period for each holding
-  const gainers = [];
-  const losers = [];
-  
-  // Determine the start and end dates for the selected period
-  const selectedStartDate = dates[startIndex];
-  const selectedEndDate = dates[endIndex];
-  
-  // Build a cached name-to-key map for faster lookups (reuse if already built)
-  if (!window._stockNameMap) {
-    window._stockNameMap = {};
-    const stockKeys = Object.keys(historicalHoldings.stocks);
-    stockKeys.forEach(key => {
-      const upper = key.toUpperCase();
-      const clean = upper.replace(/[^A-Z0-9]/g, '');
-      window._stockNameMap[clean] = key;
-      const withoutLtd = clean.replace(/LTD$/, '').replace(/LIMITED$/, '').trim();
-      if (withoutLtd && withoutLtd !== clean) window._stockNameMap[withoutLtd] = key;
-      const words = upper.split(/[^A-Z0-9]+/).filter(w => w.length > 2);
-      if (words.length > 1) {
-        if (!window._stockNameMap[words[0]]) {
-          window._stockNameMap[words[0]] = key;
-        }
-      }
-      if (upper.includes('&')) {
-        upper.split('&').forEach(p => {
-          const trimmed = p.replace(/[^A-Z0-9]/g, '').trim();
-          if (trimmed.length >= 3 && !window._stockNameMap[trimmed]) {
-            window._stockNameMap[trimmed] = key;
-          }
-        });
-      }
-    });
-  }
-  
-  latestEquity.forEach(stock => {
-    // Use the cached name map for fast lookup
-    const cleanSymbol = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const stockKey = window._stockNameMap[cleanSymbol] || stock.instrument;
-    const histStock = historicalHoldings.stocks[stockKey];
-    
-    let periodChange = 0;
-    if (histStock) {
-      const history = histStock.history;
-      
-      // Find the entry closest to the selected start date (first entry at or after start)
-      let startEntry = null;
-      for (let h = 0; h < history.length; h++) {
-        if (history[h].date >= selectedStartDate) {
-          startEntry = history[h];
-          break;
-        }
-      }
-      // If no entry at or after start, use the first available entry
-      if (!startEntry && history.length > 0) {
-        startEntry = history[0];
-      }
-      
-      // Find the entry closest to the selected end date (last entry at or before end)
-      let endEntry = null;
-      for (let h = history.length - 1; h >= 0; h--) {
-        if (history[h].date <= selectedEndDate) {
-          endEntry = history[h];
-          break;
-        }
-      }
-      
-      // Calculate total percentage change over the selected period
-      if (startEntry && endEntry && startEntry !== endEntry) {
-        periodChange = startEntry.cur_val > 0
-          ? ((endEntry.cur_val - startEntry.cur_val) / startEntry.cur_val) * 100
-          : 0;
-      } else if (startEntry && endEntry && startEntry === endEntry) {
-        // Only one data point in range — change is 0
-        periodChange = 0;
-      }
-    }
-    
-    const changeObj = {
-      name: stock.instrument,
-      sector: stock.sector,
-      qty: stock.qty,
-      change: periodChange,
-      value: stock.cur_val
-    };
-    
-    if (periodChange >= 0) {
-      gainers.push(changeObj);
-    } else {
-      losers.push(changeObj);
-    }
-  });
-  
-  gainers.sort((a, b) => b.change - a.change);
-  losers.sort((a, b) => a.change - b.change);
-  
-  // Render gainers
-  const gainersContainer = document.getElementById('monthly-gainers-list');
-  gainersContainer.innerHTML = gainers.slice(0, 5).map(g => `
-    <div class="mover-item">
-      <div class="mover-info">
-        <div class="mover-name">${escapeHtml(g.name)}</div>
-        <div class="mover-sector">${escapeHtml(g.sector)}</div>
-      </div>
-      <div class="mover-detail">
-        <span class="mover-qty">Qty: ${g.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</span>
-        <span class="mover-change trend-up">+${g.change.toFixed(2)}%</span>
-      </div>
-    </div>
-  `).join('');
-
-  // Render losers
-  const losersContainer = document.getElementById('monthly-losers-list');
-  losersContainer.innerHTML = losers.slice(0, 5).map(l => `
-    <div class="mover-item">
-      <div class="mover-info">
-        <div class="mover-name">${escapeHtml(l.name)}</div>
-        <div class="mover-sector">${escapeHtml(l.sector)}</div>
-      </div>
-      <div class="mover-detail">
-        <span class="mover-qty">Qty: ${l.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</span>
-        <span class="mover-change trend-down">${l.change.toFixed(2)}%</span>
-      </div>
-    </div>
-  `).join('');
-}
-
-function renderMonthlyAbsoluteMovers(count = 1, startIndex = 0, endIndex = null) {
-  const dates = breakupSummary.dates;
+  const dates  = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
   if (endIndex === null) endIndex = nwTotal.length - 1;
 
   const selectedStartDate = dates[startIndex];
   const selectedEndDate   = dates[endIndex];
 
-  // Build stock-key lookup map if not already done (same logic as renderMonthlyMovers)
+  // Build stock-key lookup map once per session
   if (!window._stockNameMap) {
     window._stockNameMap = {};
     Object.keys(historicalHoldings.stocks).forEach(key => {
@@ -4597,56 +4465,93 @@ function renderMonthlyAbsoluteMovers(count = 1, startIndex = 0, endIndex = null)
     });
   }
 
-  const results = [];
+  _lastMoversData = [];
   latestEquity.forEach(stock => {
-    const cleanSymbol = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const stockKey  = window._stockNameMap[cleanSymbol] || stock.instrument;
-    const histStock = historicalHoldings.stocks[stockKey];
-    if (!histStock) return;
+    const clean    = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const stockKey = window._stockNameMap[clean] || stock.instrument;
+    const hist     = historicalHoldings.stocks[stockKey];
+    if (!hist) return;
 
-    const history = histStock.history;
-    let startEntry = history.find(h => h.date >= selectedStartDate) || history[0];
-    let endEntry   = null;
+    const history = hist.history;
+    let startEntry = null;
+    for (let h = 0; h < history.length; h++) {
+      if (history[h].date >= selectedStartDate) { startEntry = history[h]; break; }
+    }
+    if (!startEntry && history.length > 0) startEntry = history[0];
+    let endEntry = null;
     for (let h = history.length - 1; h >= 0; h--) {
       if (history[h].date <= selectedEndDate) { endEntry = history[h]; break; }
     }
     if (!startEntry || !endEntry || startEntry === endEntry) return;
 
-    const absGain = endEntry.cur_val - startEntry.cur_val;
-    const pctGain = startEntry.cur_val > 0 ? (absGain / startEntry.cur_val) * 100 : 0;
-    results.push({ name: stock.instrument, sector: stock.sector, absGain, pctGain });
+    // Use ltp (price per unit) so new purchases during the period don't inflate the gain.
+    // absGain = gain on the start-of-period position size (startQty × price change).
+    const startLtp = startEntry.ltp || 0;
+    const endLtp   = endEntry.ltp   || 0;
+    const pctGain  = startLtp > 0 ? ((endLtp - startLtp) / startLtp) * 100 : 0;
+    const absGain  = startEntry.qty * (endLtp - startLtp);
+
+    _lastMoversData.push({
+      name: stock.instrument,
+      sector: stock.sector,
+      qty: startEntry.qty,
+      pctGain,
+      absGain,
+    });
   });
 
-  const winners = [...results].sort((a, b) => b.absGain - a.absGain);
-  const losers  = [...results].sort((a, b) => a.absGain - b.absGain);
+  _applyMoversMode(_moversMode);
+}
 
-  const fmt = v => (v >= 0 ? '+' : '') + formatINR(Math.abs(v));
+function _applyMoversMode(mode) {
+  const sorted  = [..._lastMoversData].sort((a, b) =>
+    mode === 'abs' ? b.absGain - a.absGain : b.pctGain - a.pctGain
+  );
+  const winners = sorted.filter(d => (mode === 'abs' ? d.absGain : d.pctGain) >= 0);
+  const losers  = [..._lastMoversData].sort((a, b) =>
+    mode === 'abs' ? a.absGain - b.absGain : a.pctGain - b.pctGain
+  ).filter(d => (mode === 'abs' ? d.absGain : d.pctGain) < 0);
 
-  document.getElementById('monthly-abs-winners-list').innerHTML = winners.slice(0, 5).map(w => `
-    <div class="mover-item">
-      <div class="mover-info">
-        <div class="mover-name">${escapeHtml(w.name)}</div>
-        <div class="mover-sector">${escapeHtml(w.sector)}</div>
-      </div>
-      <div class="mover-detail">
-        <span class="mover-change trend-up">${fmt(w.absGain)}</span>
-        <span class="mover-qty">(+${w.pctGain.toFixed(1)}%)</span>
-      </div>
-    </div>
-  `).join('') || '<div class="mover-item" style="color:var(--text-muted)">No data for selected period</div>';
+  const fmtAbs = v => (v >= 0 ? '+' : '−') + formatINR(Math.abs(v));
+  const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  const empty  = '<div class="mover-item" style="color:var(--text-muted);padding:0.5rem 1rem">No data for selected period</div>';
 
-  document.getElementById('monthly-abs-losers-list').innerHTML = losers.slice(0, 5).map(l => `
-    <div class="mover-item">
-      <div class="mover-info">
-        <div class="mover-name">${escapeHtml(l.name)}</div>
-        <div class="mover-sector">${escapeHtml(l.sector)}</div>
-      </div>
-      <div class="mover-detail">
-        <span class="mover-change trend-down">${fmt(l.absGain)}</span>
-        <span class="mover-qty">(${l.pctGain.toFixed(1)}%)</span>
-      </div>
-    </div>
-  `).join('') || '<div class="mover-item" style="color:var(--text-muted)">No data for selected period</div>';
+  const makeRow = (d, isWinner) => {
+    const primary   = mode === 'abs' ? fmtAbs(d.absGain) : fmtPct(d.pctGain);
+    const secondary = mode === 'abs' ? fmtPct(d.pctGain) : fmtAbs(d.absGain);
+    const cls       = isWinner ? 'trend-up' : 'trend-down';
+    return `
+      <div class="mover-item">
+        <div class="mover-info">
+          <div class="mover-name">${escapeHtml(d.name)}</div>
+          <div class="mover-sector">${escapeHtml(d.sector)}</div>
+        </div>
+        <div class="mover-detail">
+          <span class="mover-change ${cls}">${primary}</span>
+          <span class="mover-qty">${secondary}</span>
+        </div>
+      </div>`;
+  };
+
+  document.getElementById('monthly-gainers-list').innerHTML =
+    winners.slice(0, 5).map(d => makeRow(d, true)).join('') || empty;
+  document.getElementById('monthly-losers-list').innerHTML =
+    losers.slice(0, 5).map(d => makeRow(d, false)).join('') || empty;
+
+  // Update subheadings
+  const modeLabel = mode === 'abs' ? 'by absolute ₹' : 'by % return';
+  const wh = document.getElementById('movers-winners-heading');
+  const lh = document.getElementById('movers-losers-heading');
+  if (wh) wh.textContent = `Top Winners — ${modeLabel}`;
+  if (lh) lh.textContent = `Top Losers — ${modeLabel}`;
+}
+
+function switchMoversMode(mode, btn) {
+  _moversMode = mode;
+  _applyMoversMode(mode);
+  document.querySelectorAll('#movers-mode-pct, #movers-mode-abs')
+    .forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
 }
 
 function renderMonthlyHeatmap() {
