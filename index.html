@@ -359,24 +359,6 @@
         </div>
       </div>
 
-      <!-- Top Performers Highlights -->
-      <div class="top-performers-grid">
-        <!-- Stock Winners -->
-        <div class="performer-card winners">
-          <h4>🔥 Top Stock Winners (Absolute Gain)</h4>
-          <div class="performer-list" id="stock-winners-list">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-
-        <!-- Stock Losers -->
-        <div class="performer-card losers">
-          <h4>⚠️ Top Stock Losers (Absolute Loss)</h4>
-          <div class="performer-list" id="stock-losers-list">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-      </div>
 
       <div class="dashboard-grid">
         <!-- Charts Section (on top, before graphs) -->
@@ -782,11 +764,11 @@
           </div>
         </div>
 
-        <!-- Top Monthly Gainers & Losers -->
+        <!-- Top Monthly Gainers & Losers (% return) -->
         <div class="movers-grid-wrapper">
           <div class="chart-card">
             <div class="chart-header">
-              <h3>Top Monthly Gainers</h3>
+              <h3>Top Gainers <span class="movers-mode-label">by % return</span></h3>
             </div>
             <div class="monthly-movers-list" id="monthly-gainers-list">
               <!-- Dynamically populated -->
@@ -795,9 +777,30 @@
 
           <div class="chart-card">
             <div class="chart-header">
-              <h3>Top Monthly Losers</h3>
+              <h3>Top Losers <span class="movers-mode-label">by % return</span></h3>
             </div>
             <div class="monthly-movers-list" id="monthly-losers-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Top Winners & Losers (absolute ₹ gain) — filter-aware -->
+        <div class="movers-grid-wrapper">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Top Winners <span class="movers-mode-label">by absolute ₹ gain</span></h3>
+            </div>
+            <div class="monthly-movers-list" id="monthly-abs-winners-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Top Losers <span class="movers-mode-label">by absolute ₹ loss</span></h3>
+            </div>
+            <div class="monthly-movers-list" id="monthly-abs-losers-list">
               <!-- Dynamically populated -->
             </div>
           </div>
