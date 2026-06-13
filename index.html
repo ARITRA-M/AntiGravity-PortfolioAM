@@ -28,7 +28,10 @@
     // version. Known static hosts are assumed static immediately; on localhost
     // we probe for the backend so the very same files work either way.
     window.__staticMode = window.__isGitHubPages;
-    window.__staticModeReady = (async () => {
+    // Probe for a portfolio backend. Reusable so it can be re-run at unlock
+    // time — the server may be started or stopped after the page has loaded,
+    // and a stale once-at-load value otherwise causes "Failed to fetch".
+    window.__detectStaticMode = async () => {
       if (window.__isGitHubPages) return (window.__staticMode = true);
       try {
         const r = await fetch('api/session', { headers: { Accept: 'application/json' } });
@@ -45,7 +48,8 @@
         window.__staticMode = true;               // nothing answered → no backend
       }
       return window.__staticMode;
-    })();
+    };
+    window.__staticModeReady = window.__detectStaticMode();
   </script>
 </head>
 <body>
