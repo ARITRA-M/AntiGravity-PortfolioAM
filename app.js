@@ -3923,13 +3923,17 @@ function updateBenchmarkChart() {
 }
 
 // Compute a Time-Weighted Return index array (starts at 1.0).
-// Each sub-period return = nw[i] / (nw[i-1] + newContribution[i])
+// Each sub-period return = nw[i] / (nw[i-1] + newMoney[i])
 // so that fresh cash inflows don't distort the performance line.
-function computeTWRIndex(nwArr, contribArr) {
+//
+// newMoneyArr should be the per-period ₹ inflow (i.e. monthly capital added),
+// NOT a cumulative series and NOT a % share — use
+// breakupSummary.new_investment["Total Investment"].values.
+function computeTWRIndex(nwArr, newMoneyArr) {
   const idx = [1];
   for (let i = 1; i < nwArr.length; i++) {
-    const delta = contribArr[i] - contribArr[i - 1];
-    const base = nwArr[i - 1] + (delta > 0 ? delta : 0);
+    const newMoney = newMoneyArr[i] || 0;
+    const base = nwArr[i - 1] + Math.max(newMoney, 0);
     idx.push(idx[idx.length - 1] * (base > 0 ? nwArr[i] / base : 1));
   }
   return idx;
@@ -3939,7 +3943,7 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
   const dates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
-  const contribTotal = breakupSummary.contribution["Total"].values;
+  const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
 
   // Update heading to reflect real vs simulated data source.
   const isSimulated = benchmark.name.includes('(simulated)');
@@ -3959,7 +3963,7 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
   // ── Time-Weighted Return (TWR) Index for Portfolio ──
   // Uses computeTWRIndex() so fresh cash inflows don't distort the line.
   // Normalised to 100 for direct side-by-side comparison with benchmark.
-  const twrIdx = computeTWRIndex(nwTotal, contribTotal);
+  const twrIdx = computeTWRIndex(nwTotal, newMoneyTotal);
   const portfolioNormalized = twrIdx.map(v => (v / twrIdx[0]) * 100);
 
   // Normalise benchmark to start at 100 at the same date as the portfolio.
@@ -4019,13 +4023,13 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
 function updateBenchmarkStats(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
   const nwTotal = breakupSummary.net_worth["Total"].values;
-  const contribTotal = breakupSummary.contribution["Total"].values;
+  const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
   const lastIdx = nwTotal.length - 1;
   
   const benchFirst = benchmark.history[0].value;
   const benchLast = benchmark.history[benchmark.history.length - 1].value;
 
-  const twrIdx = computeTWRIndex(nwTotal, contribTotal);
+  const twrIdx = computeTWRIndex(nwTotal, newMoneyTotal);
   const twrStart = twrIdx[0];
   const twrEnd = twrIdx[twrIdx.length - 1];
 
@@ -4068,14 +4072,14 @@ function updateBenchmarkStats(benchmarkKey) {
 function renderRollingReturnsChart() {
   const dates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
-  const contribTotal = breakupSummary.contribution["Total"].values;
+  const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
   
   // Calculate 12-month rolling returns (cash-flow adjusted)
   // Using total-return-index values to strip out new-investment effects
   const rollingReturns = [];
   const labels = [];
   
-  const twrIdx = computeTWRIndex(nwTotal, contribTotal);
+  const twrIdx = computeTWRIndex(nwTotal, newMoneyTotal);
   for (let i = 12; i < nwTotal.length; i++) {
     const ret = twrIdx[i - 12] > 0 ? ((twrIdx[i] / twrIdx[i - 12]) - 1) * 100 : 0;
     rollingReturns.push(ret);
