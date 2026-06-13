@@ -189,6 +189,39 @@ async function fetchWithFallback(url, options = {}, retryCount = 0) {
   throw new Error('All fetch attempts failed');
 }
 
+// ── Bulk quote helper: many symbols per request via Yahoo's spark endpoint ──
+// One request returns price + previous close for ≈20 symbols, so a full
+// portfolio refresh needs a handful of requests instead of one per stock.
+//   price     = meta.regularMarketPrice (matches the chart endpoint exactly)
+//   prevClose = second-to-last daily close (spark's meta.chartPreviousClose is
+//               the pre-range value, so it is NOT used)
+// Returns Map<yahooTicker, { price, prevClose }> for symbols that resolved.
+async function fetchSparkQuotes(tickers) {
+  const out = new Map();
+  const BATCH = 20;
+  const batches = [];
+  for (let i = 0; i < tickers.length; i += BATCH) batches.push(tickers.slice(i, i + BATCH));
+
+  await Promise.all(batches.map(async (batch) => {
+    const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batch.map(encodeURIComponent).join(',')}&range=5d&interval=1d`;
+    try {
+      const res = await fetchViaCorsProxy(url, {}, 12000);
+      if (!res.ok) return;
+      const raw = await res.json();
+      for (const r of (raw?.spark?.result || [])) {
+        const resp = r?.response?.[0];
+        if (!resp) continue;
+        const closes = (resp.indicators?.quote?.[0]?.close || []).filter(c => c != null);
+        const price = resp.meta?.regularMarketPrice ?? closes[closes.length - 1] ?? null;
+        const prevClose = closes.length >= 2 ? closes[closes.length - 2]
+                        : (resp.meta?.chartPreviousClose ?? null);
+        if (price != null && price > 0) out.set(r.symbol, { price, prevClose });
+      }
+    } catch (_) { /* a failed batch just means those stocks fall back to per-stock fetch */ }
+  }));
+  return out;
+}
+
 // ── Single-call stock quote helper ─────────────────────────────────────────
 // Fetches both current price and previous close in ONE request.
 // On local server: calls /api/stock-quote (Google, 1 round-trip) or /api/stock-quote-yahoo
@@ -269,13 +302,31 @@ async function refreshPrices() {
       } catch (_) { /* use snapshot fallback per SGB below */ }
     }
 
-    // 1. Refresh Stock Prices — ONE request per stock (price + prevClose together)
-    // Processed in batches with a short delay between them to stay under Yahoo's
-    // rate limit. Tuned up from 5/400ms now that the CORS proxy rotation is in
-    // place: a rate-limited stock still resolves via its snapshot fallback, so
-    // larger/faster batches improve latency without sacrificing reliability.
+    // 1. Refresh Stock Prices.
+    // Fast path: a single bulk prefetch (Yahoo "spark", ≈20 symbols/request)
+    // resolves almost every stock in a handful of requests. Any symbol the
+    // bulk call misses falls back to the per-stock fetch below, batched with a
+    // short delay to respect rate limits. So the common case is a few requests
+    // instead of ~80, with no loss of reliability.
     const STOCK_BATCH_SIZE = 8;
     const STOCK_BATCH_DELAY_MS = 250;
+
+    // Build the Yahoo ticker for an instrument (strip REIT suffix, add .NS).
+    const yahooTickerOf = (instr) => instr.replace(/-RR$/, '') + '.NS';
+
+    // Bulk-prefetch all live-priced equities (excludes bonds and SGBs, which
+    // are handled separately). Keyed by Yahoo ticker.
+    let sparkQuotes = new Map();
+    try {
+      const bulkTickers = latestEquity
+        .filter(s => !isStableDebt(s.instrument) && !s.instrument.startsWith('SGB'))
+        .map(s => yahooTickerOf(s.instrument));
+      if (bulkTickers.length) sparkQuotes = await fetchSparkQuotes(bulkTickers);
+    } catch (_) { sparkQuotes = new Map(); }
+
+    // Counts real network calls in the current batch so we can skip the
+    // inter-batch delay when every stock was served from the bulk prefetch.
+    let netCallsInBatch = 0;
 
     async function refreshOneStock(stock) {
       const ticker = stock.instrument;
@@ -317,7 +368,16 @@ async function refreshPrices() {
       const source = getPriceSource(ticker);
 
       try {
-        const { price, prevClose } = await fetchStockQuote(ticker, source);
+        // Fast path: serve from the bulk spark prefetch (no per-stock network).
+        // Miss → fall back to the single-stock fetch (counts as a network call).
+        const pre = sparkQuotes.get(yahooTickerOf(ticker));
+        let price, prevClose;
+        if (pre) {
+          ({ price, prevClose } = pre);
+        } else {
+          netCallsInBatch++;
+          ({ price, prevClose } = await fetchStockQuote(ticker, source));
+        }
 
         if (price && price > 0) {
           stock.ltp = price;
@@ -510,11 +570,13 @@ async function refreshPrices() {
     // backend, no rate-limit contention with the Yahoo proxy).
     const mfRefreshDone = Promise.allSettled(latestMf.map(refreshOneMf));
 
-    // Run stocks in rate-limit-friendly batches.
+    // Run stocks in batches. Spark-served stocks make no network call, so the
+    // rate-limit delay is only paid between batches that actually hit the API.
     for (let i = 0; i < latestEquity.length; i += STOCK_BATCH_SIZE) {
       const batch = latestEquity.slice(i, i + STOCK_BATCH_SIZE);
+      netCallsInBatch = 0;
       await Promise.allSettled(batch.map(s => refreshOneStock(s)));
-      if (i + STOCK_BATCH_SIZE < latestEquity.length) {
+      if (i + STOCK_BATCH_SIZE < latestEquity.length && netCallsInBatch > 0) {
         await new Promise(r => setTimeout(r, STOCK_BATCH_DELAY_MS));
       }
     }
