@@ -205,7 +205,7 @@ async function fetchStockQuote(ticker, source) {
   let price, prevClose;
 
   // Local server returns { price, prevClose } directly
-  if (!window.__isGitHubPages) {
+  if (!window.__staticMode) {
     const data = await resp.json();
     price = data.price ?? null;
     prevClose = data.prevClose ?? null;
@@ -444,7 +444,7 @@ async function refreshPrices() {
         const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
 
         let data;
-        if (window.__isGitHubPages) {
+        if (window.__staticMode) {
           // On GitHub Pages, mfapi.in is fetched directly — parse its native format
           const raw = await resp.json();
           if (raw?.data?.length > 0) {

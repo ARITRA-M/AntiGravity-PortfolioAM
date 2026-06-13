@@ -1,14 +1,18 @@
 // Authentication for Portfolio Dashboard
-// - On local server: uses server-side session auth (/api/session, /api/login)
-// - On GitHub Pages: uses client-side localStorage-based auth with password check
+// - Backend mode (npm run dev): server-side session auth (/api/session, /api/login)
+// - Static mode (GitHub Pages or npm run static): client-side auth — the
+//   password is verified by decrypting the data files in the browser.
 
 let authState = false;
 
-// Detect if running on GitHub Pages (no local backend server)
-// Uses the global flag set in index.html for consistency
-const IS_GITHUB_PAGES = window.__isGitHubPages === true;
+// Static mode = no portfolio backend. Resolved asynchronously in index.html
+// (instant for known static hosts, probed on localhost). Always read it
+// through this helper so control flow waits for the probe where needed.
+function isStaticMode() {
+  return window.__staticMode === true;
+}
 
-// Client-side auth config (only used on GitHub Pages)
+// Client-side auth config (only used in static mode)
 const CLIENT_AUTH_CONFIG = {
   storageKey: 'portfolio_auth_token',
   tokenExpiry: 7 * 24 * 60 * 60 * 1000 // 7 days
@@ -24,9 +28,7 @@ function getAuthHeaders() {
 
 function clearAuthToken() {
   authState = false;
-  if (IS_GITHUB_PAGES) {
-    localStorage.removeItem(CLIENT_AUTH_CONFIG.storageKey);
-  }
+  localStorage.removeItem(CLIENT_AUTH_CONFIG.storageKey);
   if (typeof PortfolioCrypto !== 'undefined') PortfolioCrypto.clearKey();
 }
 
@@ -106,12 +108,12 @@ async function unlockApp(overlay, password) {
   if (typeof loadData === 'function') loadData();
 }
 
-// --- Client-side unlock (GitHub Pages) ---
+// --- Client-side unlock (static mode) ---
 
 async function unlockAppClient(overlay, password) {
   // The password is verified by decrypting the data files — there is no
   // stored password to compare against (and nothing useful to steal: the
-  // files on GitHub Pages are AES-256-GCM ciphertext).
+  // served files are AES-256-GCM ciphertext).
   const envelope = await fetchVerificationEnvelope();
   if (!envelope) {
     throw new Error('Could not load portfolio data to verify the password.');
@@ -145,13 +147,13 @@ function showLogin(message = '') {
       <div class="auth-card">
         <div class="auth-icon">Lock</div>
         <h2>Portfolio Dashboard</h2>
-        <p class="auth-subtitle">${IS_GITHUB_PAGES ? 'Enter password to access your portfolio dashboard.' : 'Unlock this server session to view your portfolio dashboard.'}</p>
+        <p class="auth-subtitle">${isStaticMode() ? 'Enter password to access your portfolio dashboard.' : 'Unlock this server session to view your portfolio dashboard.'}</p>
         <form id="auth-form">
           <input type="password" id="auth-password" placeholder="Dashboard password" autocomplete="current-password" />
           <p id="auth-error" class="auth-error">${escapeAuthHtml(message)}</p>
           <button type="submit" class="auth-btn">Unlock Dashboard</button>
         </form>
-        <p class="auth-note">${IS_GITHUB_PAGES ? 'Session expires in 7 days.' : 'The portfolio files are served only after this session is unlocked.'}</p>
+        <p class="auth-note">${isStaticMode() ? 'Session expires in 7 days.' : 'The portfolio files are served only after this session is unlocked.'}</p>
       </div>
     </div>
   `;
@@ -168,7 +170,7 @@ function showLogin(message = '') {
     submitButton.textContent = 'Unlocking...';
 
     try {
-      if (IS_GITHUB_PAGES) {
+      if (isStaticMode()) {
         await unlockAppClient(overlay, passwordInput.value);
       } else {
         await unlockApp(overlay, passwordInput.value);
@@ -198,9 +200,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const appContainer = document.querySelector('.app-container');
   if (appContainer) appContainer.style.display = 'none';
 
-  if (IS_GITHUB_PAGES) {
-    // On GitHub Pages, the session is valid only if the token is fresh AND
-    // the data-decryption key is still cached.
+  // Wait for the backend probe so we pick the right auth path on localhost.
+  await (window.__staticModeReady || Promise.resolve());
+
+  if (isStaticMode()) {
+    // Static mode: session is valid only if the token is fresh AND the
+    // data-decryption key is still cached in this browser.
     if (isClientAuthenticated() && await PortfolioCrypto.hasKey()) {
       authState = true;
       if (appContainer) appContainer.style.display = '';
@@ -209,7 +214,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       showLogin();
     }
   } else {
-    // On local server, use server-side session auth
+    // Backend mode: server-side session auth
     const unlocked = await checkSession();
     if (unlocked) {
       if (appContainer) appContainer.style.display = '';
