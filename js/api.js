@@ -270,9 +270,12 @@ async function refreshPrices() {
     }
 
     // 1. Refresh Stock Prices — ONE request per stock (price + prevClose together)
-    // Process in batches of 5 with a 400ms delay between batches to avoid rate limiting
-    const STOCK_BATCH_SIZE = 5;
-    const STOCK_BATCH_DELAY_MS = 400;
+    // Processed in batches with a short delay between them to stay under Yahoo's
+    // rate limit. Tuned up from 5/400ms now that the CORS proxy rotation is in
+    // place: a rate-limited stock still resolves via its snapshot fallback, so
+    // larger/faster batches improve latency without sacrificing reliability.
+    const STOCK_BATCH_SIZE = 8;
+    const STOCK_BATCH_DELAY_MS = 250;
 
     async function refreshOneStock(stock) {
       const ticker = stock.instrument;
@@ -398,17 +401,9 @@ async function refreshPrices() {
       updateProgress(ticker);
     }
 
-    // Run stocks in batches to avoid rate limiting
-    for (let i = 0; i < latestEquity.length; i += STOCK_BATCH_SIZE) {
-      const batch = latestEquity.slice(i, i + STOCK_BATCH_SIZE);
-      await Promise.allSettled(batch.map(s => refreshOneStock(s)));
-      if (i + STOCK_BATCH_SIZE < latestEquity.length) {
-        await new Promise(r => setTimeout(r, STOCK_BATCH_DELAY_MS));
-      }
-    }
-
-    // 2. Refresh MF NAVs
-    const mfPromises = latestMf.map(async (fund) => {
+    // 2. Refresh one MF NAV (mfapi.in — a different backend from the stock
+    // proxy, so MF refresh can run concurrently with the stock batches).
+    async function refreshOneMf(fund) {
       let schemeCode = MF_SCHEME_CODES[fund.scheme];
 
       if (schemeCode === null) { mfFail++; mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Explicitly excluded' }); updateProgress(fund.scheme); return; }
@@ -509,9 +504,23 @@ async function refreshPrices() {
         }
       }
       updateProgress(fund.scheme);
-    });
+    }
 
-    await Promise.allSettled(mfPromises);
+    // Kick off MF refresh now so it overlaps the stock batches (different
+    // backend, no rate-limit contention with the Yahoo proxy).
+    const mfRefreshDone = Promise.allSettled(latestMf.map(refreshOneMf));
+
+    // Run stocks in rate-limit-friendly batches.
+    for (let i = 0; i < latestEquity.length; i += STOCK_BATCH_SIZE) {
+      const batch = latestEquity.slice(i, i + STOCK_BATCH_SIZE);
+      await Promise.allSettled(batch.map(s => refreshOneStock(s)));
+      if (i + STOCK_BATCH_SIZE < latestEquity.length) {
+        await new Promise(r => setTimeout(r, STOCK_BATCH_DELAY_MS));
+      }
+    }
+
+    // Make sure the concurrent MF refresh has finished before reporting.
+    await mfRefreshDone;
 
     // 3. Compute report totals
     const stableDebtCount = latestEquity.filter(s => isStableDebt(s.instrument)).length;
@@ -520,6 +529,15 @@ async function refreshPrices() {
     const mappedMfs = latestMf.filter(f => MF_SCHEME_CODES[f.scheme] != null || dynamicMfSchemeCodes[f.scheme]).length;
     const skippedStocks = 0; // nothing skipped anymore — bonds show as stable
     const missingMfs = totalMfs - mappedMfs;
+
+    // Attach each instrument's retained last-refresh time to its detail row.
+    // For a FAILED instrument this is its previous successful time (failures
+    // never overwrite lastRefreshDate), so the Update Log shows that the price
+    // is held over from an earlier cycle rather than lost.
+    const equityByName = Object.fromEntries(latestEquity.map(s => [s.instrument, s]));
+    stockDetails.forEach(d => { d.lastRefresh = equityByName[d.instrument]?.lastRefreshDate || null; });
+    const mfByName = Object.fromEntries(latestMf.map(f => [f.scheme, f]));
+    mfDetails.forEach(d => { d.lastRefresh = mfByName[d.scheme]?.lastRefreshDate || null; });
 
     // 4. Build refresh report BEFORE re-rendering tabs (initUpdateLogTab reads it)
     // Use window.lastRefreshReport explicitly so it's accessible from app.js regardless
