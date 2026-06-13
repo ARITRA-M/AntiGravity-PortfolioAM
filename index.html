@@ -356,6 +356,17 @@
 
     <!-- ==================== STOCKS TAB ==================== -->
     <div id="stocks-tab" class="tab-content">
+      <!-- Short-term performance vs Nifty 50 (last ~30 days, daily) -->
+      <div class="chart-card full-width-card">
+        <div class="chart-header">
+          <h3>Stock Portfolio vs Nifty 50 — Last 30 Days</h3>
+        </div>
+        <p id="stock-perf-status" style="font-size: 0.8rem; color: var(--text-secondary); margin: -0.25rem 0 0.75rem;">Loading last 30 days…</p>
+        <div class="chart-container" style="height: 320px;">
+          <canvas id="stock-perf-chart"></canvas>
+        </div>
+      </div>
+
       <!-- Top Performers Highlights -->
       <div class="top-performers-grid">
         <!-- Stock Winners -->
@@ -464,6 +475,17 @@
 
     <!-- ==================== MUTUAL FUND TAB ==================== -->
     <div id="mfs-tab" class="tab-content">
+      <!-- Short-term performance vs Nifty 50 (last ~30 days, daily) -->
+      <div class="chart-card full-width-card">
+        <div class="chart-header">
+          <h3>MF Portfolio vs Nifty 50 — Last 30 Days</h3>
+        </div>
+        <p id="mf-perf-status" style="font-size: 0.8rem; color: var(--text-secondary); margin: -0.25rem 0 0.75rem;">Loading last 30 days…</p>
+        <div class="chart-container" style="height: 320px;">
+          <canvas id="mf-perf-chart"></canvas>
+        </div>
+      </div>
+
       <div class="dashboard-grid">
         <!-- MF Category Allocation Stacked Bar -->
         <div class="chart-card full-width-card">

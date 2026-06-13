@@ -31,6 +31,8 @@ let stockHistoricalChart = null;
 let mfHistoricalChart = null;
 let benchmarkComparisonChart = null;
 let rollingReturnsChart = null;
+let stockPerfChart = null;
+let mfPerfChart = null;
 // Table sorting state
 let stockSortColumn = -1;
 let stockSortAsc = true;
@@ -99,122 +101,275 @@ function getSimulatedSensexDailyChangePct(forDate) {
   return drift + noise;
 }
 
-// ── Real Sensex daily + monthly change (fetched from Yahoo Finance via server proxy) ──
-let _sensexDailyPctReal = null;
-// Pre-seed from localStorage snapshot so the first render has a value immediately
-let _sensexMonthlyPctReal = (() => {
+// ── Real Nifty 50 benchmark (fetched from Yahoo Finance ^NSEI via CORS proxy) ──
+// A single 1-month daily series powers the overview KPI cards (daily + MTD
+// change) AND the benchmark line on the Stock/MF performance charts.
+let _niftyDailyPctReal = null;
+let _niftySeries = null; // { dates: [ms], closes: [number] } — last ~1 month, daily
+// Pre-seed monthly change from a saved snapshot so the first render isn't blank.
+let _niftyMonthlyPctReal = (() => {
   try {
-    const raw = localStorage.getItem('ag_portfolio_sensex_monthly_snapshot');
+    const raw = localStorage.getItem('ag_portfolio_nifty_snapshot');
     const snap = raw ? JSON.parse(raw) : null;
     return snap?.monthlyChangePct ?? null;
   } catch { return null; }
 })();
 
-const SENSEX_SNAPSHOT_KEY = 'ag_portfolio_sensex_snapshot';
-const SENSEX_MONTHLY_SNAPSHOT_KEY = 'ag_portfolio_sensex_monthly_snapshot';
+const NIFTY_SNAPSHOT_KEY = 'ag_portfolio_nifty_snapshot';
 
-function loadSensexSnapshot() {
+function loadNiftySnapshot() {
   try {
-    const raw = localStorage.getItem(SENSEX_SNAPSHOT_KEY);
+    const raw = localStorage.getItem(NIFTY_SNAPSHOT_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
 
-function saveSensexSnapshot(data) {
+function saveNiftySnapshot(data) {
   try {
-    localStorage.setItem(SENSEX_SNAPSHOT_KEY, JSON.stringify(data));
+    localStorage.setItem(NIFTY_SNAPSHOT_KEY, JSON.stringify(data));
   } catch { /* localStorage may be full */ }
 }
 
-function loadSensexMonthlySnapshot() {
+// Fetch the Nifty 50 (^NSEI) ~1-month daily series in a single request and
+// derive both the daily change and the month-to-date change from it. The raw
+// series is cached on _niftySeries for the performance charts. Falls back to
+// the last saved snapshot (KPI values only) when offline.
+async function fetchNiftySeries() {
   try {
-    const raw = localStorage.getItem(SENSEX_MONTHLY_SNAPSHOT_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=1mo&interval=1d';
+    const res = await fetchViaCorsProxy(url, {}, 12000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const raw = await res.json();
+    const r = raw?.chart?.result?.[0];
+    const ts = r?.timestamp;
+    const closes = r?.indicators?.quote?.[0]?.close;
+    if (!ts || !closes) throw new Error('Incomplete data');
 
-function saveSensexMonthlySnapshot(data) {
-  try {
-    localStorage.setItem(SENSEX_MONTHLY_SNAPSHOT_KEY, JSON.stringify(data));
-  } catch { /* localStorage may be full */ }
-}
+    // Keep only valid (timestamp, close) pairs, ascending by time.
+    const pts = ts.map((t, i) => ({ t: t * 1000, c: closes[i] })).filter(p => p.c != null);
+    if (pts.length < 2) throw new Error('Not enough Nifty data');
+    _niftySeries = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
 
-async function fetchSensexDailyChange() {
-  try {
-    let data;
-    if (window.__staticMode) {
-      const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN';
-      const res = await fetchViaCorsProxy(yahooUrl, {}, 12000);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = await res.json();
-      const r = raw?.chart?.result?.[0];
-      if (!r?.meta?.regularMarketPrice || !r?.meta?.chartPreviousClose) throw new Error('Incomplete data');
-      const price = r.meta.regularMarketPrice;
-      const prevClose = r.meta.chartPreviousClose;
-      data = { dailyChangePct: ((price - prevClose) / prevClose) * 100, price, prevClose };
-    } else {
-      const res = await fetch('/api/sensex-daily-change');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      data = await res.json();
-    }
-    if (data && data.dailyChangePct != null) {
-      _sensexDailyPctReal = data.dailyChangePct;
-      saveSensexSnapshot({ dailyChangePct: data.dailyChangePct, price: data.price, prevClose: data.prevClose, timestamp: Date.now() });
-      return data.dailyChangePct;
-    }
-    throw new Error('Invalid response');
+    const live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
+    const prevClose = r?.meta?.chartPreviousClose ?? pts[pts.length - 2].c;
+    _niftyDailyPctReal = ((live - prevClose) / prevClose) * 100;
+
+    // Month-to-date: last close strictly before the 1st of the current month.
+    const now = new Date();
+    const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    let monthStartClose = null;
+    for (const p of pts) if (p.t < monthStartMs) monthStartClose = p.c;
+    if (monthStartClose) _niftyMonthlyPctReal = ((live - monthStartClose) / monthStartClose) * 100;
+
+    saveNiftySnapshot({
+      dailyChangePct: _niftyDailyPctReal,
+      monthlyChangePct: _niftyMonthlyPctReal,
+      series: _niftySeries,
+      timestamp: Date.now()
+    });
+    return _niftySeries;
   } catch {
-    const snap = loadSensexSnapshot();
-    if (snap && snap.dailyChangePct != null) {
-      _sensexDailyPctReal = snap.dailyChangePct;
-      return snap.dailyChangePct;
+    const snap = loadNiftySnapshot();
+    if (snap) {
+      if (snap.dailyChangePct != null) _niftyDailyPctReal = snap.dailyChangePct;
+      if (snap.monthlyChangePct != null) _niftyMonthlyPctReal = snap.monthlyChangePct;
+      if (snap.series) _niftySeries = snap.series;
     }
-    return null;
+    return _niftySeries;
   }
 }
 
-async function fetchSensexMonthlyChange() {
-  try {
-    let data;
-    if (window.__staticMode) {
-      const now = new Date();
-      const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-      const period1 = Math.floor((monthStartMs - 15 * 24 * 60 * 60 * 1000) / 1000);
-      const period2 = Math.floor(now.getTime() / 1000);
-      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN?period1=${period1}&period2=${period2}&interval=1d`;
-      const res = await fetchViaCorsProxy(yahooUrl, {}, 12000);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+// ── Short-term (≈30 day) daily performance charts: holdings vs Nifty 50 ──────
+// Both portfolio lines are computed on a CONSTANT-HOLDINGS basis: the current
+// quantities valued at each day's historical price. This isolates price
+// performance (what the portfolio you hold today would have done) rather than
+// reconstructing past trades. Series are rebased to 100 for a clean,
+// scale-free comparison against the Nifty 50.
+
+const PERF_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+// Fetch daily closes for many Yahoo symbols using the multi-symbol spark
+// endpoint (≈15 per request). Returns Map<symbol, {dates:[ms], closes:[]}>.
+async function fetchSparkCloses(symbols) {
+  const out = new Map();
+  const BATCH = 15;
+  for (let i = 0; i < symbols.length; i += BATCH) {
+    const batch = symbols.slice(i, i + BATCH);
+    const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batch.map(encodeURIComponent).join(',')}&range=1mo&interval=1d`;
+    try {
+      const res = await fetchViaCorsProxy(url, {}, 12000);
+      if (!res.ok) continue;
       const raw = await res.json();
-      const r = raw?.chart?.result?.[0];
-      const closes = r?.indicators?.quote?.[0]?.close;
-      const timestamps = r?.timestamp;
-      const currentPrice = r?.meta?.regularMarketPrice;
-      if (!closes || !timestamps || !currentPrice) throw new Error('Incomplete data');
-      let monthStartClose = null;
-      for (let i = 0; i < timestamps.length; i++) {
-        if (timestamps[i] * 1000 < monthStartMs && closes[i] != null) monthStartClose = closes[i];
+      for (const r of (raw?.spark?.result || [])) {
+        const resp = r?.response?.[0];
+        const ts = resp?.timestamp;
+        const cl = resp?.indicators?.quote?.[0]?.close;
+        if (!ts || !cl) continue;
+        const pts = ts.map((t, k) => ({ t: t * 1000, c: cl[k] })).filter(p => p.c != null);
+        out.set(r.symbol, { dates: pts.map(p => p.t), closes: pts.map(p => p.c) });
       }
-      if (!monthStartClose) throw new Error('No previous-month close found');
-      data = { monthlyChangePct: ((currentPrice - monthStartClose) / monthStartClose) * 100 };
-    } else {
-      const res = await fetch('/api/sensex-monthly-change');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      data = await res.json();
-    }
-    if (data && data.monthlyChangePct != null) {
-      _sensexMonthlyPctReal = data.monthlyChangePct;
-      saveSensexMonthlySnapshot({ monthlyChangePct: data.monthlyChangePct, timestamp: Date.now() });
-      return data.monthlyChangePct;
-    }
-    throw new Error('Invalid response');
-  } catch {
-    const snap = loadSensexMonthlySnapshot();
-    if (snap && snap.monthlyChangePct != null) {
-      _sensexMonthlyPctReal = snap.monthlyChangePct;
-      return snap.monthlyChangePct;
-    }
-    return null;
+    } catch (_) { /* skip a failed batch; others still contribute */ }
   }
+  return out;
+}
+
+// Value of `lookup` (sorted ascending {dates,closes}) on or before time `t`.
+function closeAtOrBefore(series, t) {
+  if (!series || !series.dates.length) return null;
+  let val = null;
+  for (let i = 0; i < series.dates.length; i++) {
+    if (series.dates[i] <= t) val = series.closes[i]; else break;
+  }
+  return val;
+}
+
+// Build the stock performance series (current equity holdings vs Nifty 50).
+async function buildStockPerfSeries() {
+  if (!_niftySeries) await fetchNiftySeries();
+  if (!_niftySeries || _niftySeries.dates.length < 2) return null;
+  const axis = _niftySeries.dates; // trading-day timeline
+
+  // Current equity holdings that have a live Yahoo price (exclude SGBs, bonds).
+  const holdings = latestEquity.filter(s =>
+    typeof hasLivePriceSource === 'function' && hasLivePriceSource(s.instrument) &&
+    !s.instrument.startsWith('SGB') && s.qty > 0);
+  if (!holdings.length) return null;
+
+  const tickerOf = (instr) => instr.replace(/-RR$/, '') + '.NS';
+  const symbols = holdings.map(h => tickerOf(h.instrument));
+  const closesBySym = await fetchSparkCloses(symbols);
+
+  // Portfolio value on each Nifty trading day = Σ qty × close(on/just-before day).
+  const values = axis.map(t => {
+    let v = 0;
+    for (const h of holdings) {
+      const series = closesBySym.get(tickerOf(h.instrument));
+      const c = closeAtOrBefore(series, t);
+      if (c != null) v += h.qty * c;
+    }
+    return v;
+  });
+  if (!values.some(v => v > 0)) return null;
+  return { axis, portfolio: values, benchmark: _niftySeries.closes, covered: closesBySym.size, total: holdings.length };
+}
+
+// Build the MF performance series (current MF holdings vs Nifty 50).
+async function buildMfPerfSeries() {
+  if (!_niftySeries) await fetchNiftySeries();
+  if (!_niftySeries || _niftySeries.dates.length < 2) return null;
+  const axis = _niftySeries.dates;
+
+  const holdings = latestMf.filter(f => f.qty > 0);
+  if (!holdings.length) return null;
+
+  // mfapi.in dates are "dd-mm-yyyy"; convert to ms.
+  const parseMfDate = (s) => { const [d, m, y] = s.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+
+  // Fetch each scheme's full NAV history (one direct mfapi call each).
+  const navBySchemeP = holdings.map(async (f) => {
+    let code = (typeof MF_SCHEME_CODES !== 'undefined' && MF_SCHEME_CODES[f.scheme]) ||
+               (typeof dynamicMfSchemeCodes !== 'undefined' && dynamicMfSchemeCodes[f.scheme]);
+    if (!code) return [f.scheme, null];
+    try {
+      const res = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: AbortSignal.timeout(12000) });
+      if (!res.ok) return [f.scheme, null];
+      const j = await res.json();
+      const pts = (j?.data || [])
+        .map(e => ({ t: parseMfDate(e.date), c: parseFloat(e.nav) }))
+        .filter(p => !isNaN(p.t) && p.c > 0)
+        .sort((a, b) => a.t - b.t);
+      return [f.scheme, { dates: pts.map(p => p.t), closes: pts.map(p => p.c) }];
+    } catch (_) { return [f.scheme, null]; }
+  });
+  const navByScheme = new Map(await Promise.all(navBySchemeP));
+
+  let covered = 0;
+  navByScheme.forEach(v => { if (v) covered++; });
+  const values = axis.map(t => {
+    let v = 0;
+    for (const f of holdings) {
+      const series = navByScheme.get(f.scheme);
+      const nav = closeAtOrBefore(series, t);
+      if (nav != null) v += f.qty * nav;
+    }
+    return v;
+  });
+  if (!values.some(v => v > 0)) return null;
+  return { axis, portfolio: values, benchmark: _niftySeries.closes, covered, total: holdings.length };
+}
+
+// Rebase a numeric series to start at 100 (first non-zero value = 100).
+function rebase100(arr) {
+  const base = arr.find(v => v > 0) || 1;
+  return arr.map(v => (v / base) * 100);
+}
+
+// Render a "holdings vs Nifty 50" performance line chart into `canvasId`.
+function renderPerfChart(canvasId, chartRef, series, label) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return chartRef;
+  if (chartRef) { chartRef.destroy(); chartRef = null; }
+  const ctx = canvas.getContext('2d');
+  const labels = series.axis.map(t => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
+  const pf = rebase100(series.portfolio);
+  const bm = rebase100(series.benchmark);
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label, data: pf, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.10)', borderWidth: 2.5, fill: true, pointRadius: 0, pointHoverRadius: 5, tension: 0.25 },
+        { label: 'Nifty 50', data: bm, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 2, borderDash: [5, 5], fill: false, pointRadius: 0, pointHoverRadius: 5, tension: 0.25 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#f3f4f6' } },
+        tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${(c.raw - 100).toFixed(2)}%` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 8 } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af', callback: (v) => (v - 100 >= 0 ? '+' : '') + (v - 100).toFixed(1) + '%' } }
+      }
+    }
+  });
+}
+
+// Lazy-load + cache the perf series, then render. `kind` is 'stock' | 'mf'.
+async function loadPerfChart(kind) {
+  const canvasId = kind === 'stock' ? 'stock-perf-chart' : 'mf-perf-chart';
+  const statusId = kind === 'stock' ? 'stock-perf-status' : 'mf-perf-status';
+  const cacheKey = `ag_portfolio_perf_${kind}`;
+  const statusEl = document.getElementById(statusId);
+  const label = kind === 'stock' ? 'Stock Portfolio' : 'MF Portfolio';
+
+  // Serve from a short-lived cache to avoid refetching on every tab visit.
+  let series = null;
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+    if (cached && Date.now() - cached.timestamp < PERF_CACHE_TTL_MS) series = cached.series;
+  } catch (_) { /* ignore */ }
+
+  if (!series) {
+    if (statusEl) statusEl.textContent = 'Loading last 30 days…';
+    try {
+      series = kind === 'stock' ? await buildStockPerfSeries() : await buildMfPerfSeries();
+      if (series) localStorage.setItem(cacheKey, JSON.stringify({ series, timestamp: Date.now() }));
+    } catch (e) { console.warn(`Perf chart (${kind}) failed:`, e); }
+  }
+
+  if (!series) {
+    if (statusEl) statusEl.textContent = 'Could not load 30-day data (price source unavailable). Try Refresh Prices.';
+    return;
+  }
+  if (statusEl) {
+    const cov = series.covered < series.total ? ` · ${series.covered}/${series.total} holdings with history` : '';
+    statusEl.textContent = `Current holdings vs Nifty 50, rebased to 0% · last ${series.axis.length} trading days${cov}`;
+  }
+  if (kind === 'stock') stockPerfChart = renderPerfChart(canvasId, stockPerfChart, series, label);
+  else mfPerfChart = renderPerfChart(canvasId, mfPerfChart, series, label);
 }
 
 const SECTOR_MAP = {
@@ -252,14 +407,12 @@ const SECTOR_MAP = {
 
 window.addEventListener('DOMContentLoaded', () => {
   initPortfolioUpload();
-  // Kick off Sensex fetch; once resolved the overview tabs will re-render
-  fetchSensexDailyChange().then(() => {
+  // Kick off the Nifty 50 fetch; once resolved, re-render the overview cards/tables.
+  fetchNiftySeries().then(() => {
     const dailySummaryEl = document.getElementById('daily-summary-kpis');
     if (dailySummaryEl && dailySummaryEl.offsetParent !== null) {
       renderDailyOverviewTable();
     }
-  });
-  fetchSensexMonthlyChange().then(() => {
     if (latestEquity) renderMonthlyOverviewTable();
   });
 });
@@ -716,6 +869,12 @@ function resetDerivedState() {
   window.lastRefreshReport = null;
   window._stockNameMap = null;
   heatmapSelectedIndices.clear();
+  // Holdings changed → drop the cached 30-day performance series so the charts
+  // rebuild against the new positions on next tab visit.
+  try {
+    localStorage.removeItem('ag_portfolio_perf_stock');
+    localStorage.removeItem('ag_portfolio_perf_mf');
+  } catch (_) { /* ignore */ }
   initializeLiveBaseline();
   generateBenchmarkData();
 }
@@ -759,17 +918,15 @@ function setLatestSectionValue(section, key, value) {
 
 function refreshAllTabs() {
   updateKpis();
-  // Refresh real Sensex data (non-blocking)
-  fetchSensexDailyChange().then(() => {
+  // Refresh the Nifty 50 benchmark (non-blocking), then re-render overview.
+  fetchNiftySeries().then(() => {
     const dailySummaryEl = document.getElementById('daily-summary-kpis');
     if (dailySummaryEl && dailySummaryEl.offsetParent !== null) {
       renderDailyOverviewTable();
     }
-  });
-  fetchSensexMonthlyChange().then(() => {
     if (latestEquity) renderMonthlyOverviewTable();
   });
-  
+
   // Only initialize the currently visible tab (others load lazily on first visit)
   const activeTab = document.querySelector('.tab-content.active');
   if (activeTab) {
@@ -1445,7 +1602,8 @@ function renderDailyOverviewTable() {
   const dailyTotalPct = dailyTotalPrev > 0 ? (totalGain / dailyTotalPrev) * 100 : 0;
 
   // ── Sensex daily change (real data if available, simulated fallback) ──
-  const sensexDailyPct = _sensexDailyPctReal != null ? _sensexDailyPctReal : getSimulatedSensexDailyChangePct();
+  const niftyDailyPct = _niftyDailyPctReal != null ? _niftyDailyPctReal : 0;
+  const niftyDailyLabel = _niftyDailyPctReal != null ? 'Daily change (Nifty 50)' : 'Daily change (loading…)';
 
   // Apply daily type filter (All / Stocks / MFs)
   const filteredCombined = dailyTypeFilter === 'all'
@@ -1488,12 +1646,12 @@ function renderDailyOverviewTable() {
       </div>
       <div class="kpi-card" style="--card-accent: #ef4444;">
         <div>
-          <div class="kpi-title">Sensex (Ref)</div>
-          <div class="kpi-value ${sensexDailyPct >= 0 ? 'trend-up' : 'trend-down'}">
-            ${sensexDailyPct >= 0 ? '+' : ''}${sensexDailyPct.toFixed(2)}%
+          <div class="kpi-title">Nifty 50 (Ref)</div>
+          <div class="kpi-value ${niftyDailyPct >= 0 ? 'trend-up' : 'trend-down'}">
+            ${niftyDailyPct >= 0 ? '+' : ''}${niftyDailyPct.toFixed(2)}%
           </div>
         </div>
-        <div class="kpi-sub">Daily change (BSE Sensex)</div>
+        <div class="kpi-sub">${niftyDailyLabel}</div>
       </div>
     `;
   }
@@ -1605,8 +1763,8 @@ function renderMonthlyOverviewTable() {
   const monthlyTotalPct = totalUploadedVal > 0 ? (totalMonthlyGain / totalUploadedVal) * 100 : 0;
 
   // ── Real Sensex monthly change (falls back to 0 if not yet fetched) ──
-  const sensexMonthlyPct = _sensexMonthlyPctReal ?? 0;
-  const sensexMonthlyLabel = _sensexMonthlyPctReal != null ? 'Month-to-date change (BSE Sensex)' : 'Monthly change (loading…)';
+  const niftyMonthlyPct = _niftyMonthlyPctReal ?? 0;
+  const niftyMonthlyLabel = _niftyMonthlyPctReal != null ? 'Month-to-date change (Nifty 50)' : 'Monthly change (loading…)';
 
   // Apply monthly type filter (All / Stocks / MFs)
   const filteredCombined = monthlyTypeFilter === 'all'
@@ -1649,12 +1807,12 @@ function renderMonthlyOverviewTable() {
       </div>
       <div class="kpi-card" style="--card-accent: #ef4444;">
         <div>
-          <div class="kpi-title">Sensex (Ref)</div>
-          <div class="kpi-value ${sensexMonthlyPct >= 0 ? 'trend-up' : 'trend-down'}">
-            ${sensexMonthlyPct >= 0 ? '+' : ''}${sensexMonthlyPct.toFixed(2)}%
+          <div class="kpi-title">Nifty 50 (Ref)</div>
+          <div class="kpi-value ${niftyMonthlyPct >= 0 ? 'trend-up' : 'trend-down'}">
+            ${niftyMonthlyPct >= 0 ? '+' : ''}${niftyMonthlyPct.toFixed(2)}%
           </div>
         </div>
-        <div class="kpi-sub">${sensexMonthlyLabel}</div>
+        <div class="kpi-sub">${niftyMonthlyLabel}</div>
       </div>
     `;
   }
@@ -2623,6 +2781,9 @@ function initNpsTab() {
 
 // ==================== STOCKS TAB ====================
 function initStocksTab() {
+  // Short-term performance vs Nifty 50 (lazy + cached; doesn't block the tab)
+  loadPerfChart('stock');
+
   // Destroy existing chart before re-creating
   if (sectorChart) sectorChart.destroy();
   if (stockHistoricalChart) stockHistoricalChart.destroy();
@@ -3103,6 +3264,9 @@ function sortStocks(colIdx) {
 
 // ==================== MUTUAL FUNDS TAB ====================
 function initMfsTab() {
+  // Short-term performance vs Nifty 50 (lazy + cached; doesn't block the tab)
+  loadPerfChart('mf');
+
   // Destroy existing charts before re-creating
   if (mfCategoryChart) mfCategoryChart.destroy();
   if (mfHistoricalChart) mfHistoricalChart.destroy();
