@@ -2316,6 +2316,7 @@ function initGrowthTab() {
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
   updateBenchmarkStats('nifty50');
+  renderXirrComparisonTable();
 }
 
 function filterGrowthChart() {
@@ -3866,10 +3867,15 @@ function simulateBenchmarkXIRR(benchmarkKey, newMoneyLakhs) {
 
   for (let i = 0; i < newMoneyLakhs.length; i++) {
     const amount = (newMoneyLakhs[i] || 0) * 100000; // back to ₹
-    if (amount <= 0) continue;
+    if (amount === 0) continue;
     const price = bench.history[i] && bench.history[i].value;
     if (!price || price <= 0) continue;
-    units += amount / price;
+    // Mirror both directions: positive = buy units (cash out), negative =
+    // redeem units (cash in). Keeps the benchmark a true mirror of the
+    // portfolio's net contributions so "Invested" is comparable.
+    const newUnits = amount / price;
+    if (units + newUnits < 0) continue; // guard: can't redeem more than held
+    units += newUnits;
     cashflows.push(-amount);
     dates.push(new Date(bench.history[i].date));
   }
@@ -3933,7 +3939,8 @@ function renderXirrComparisonTable() {
   const lastVal  = vals => vals ? vals[vals.length - 1] : null;
 
   // Try several spellings — Excel can be inconsistent across sections.
-  const totalXirrKey   = findKey(xirrSec, '^total$', 'overall', 'portfolio');
+  // NOTE: the workbook labels the portfolio-wide XIRR row "Average", not "Total".
+  const totalXirrKey   = findKey(xirrSec, '^total$', '^average$', 'overall', 'portfolio');
   const stocksXirrKey  = findKey(xirrSec, 'stock');
   const mfXirrKey      = findKey(xirrSec, '^mf', 'mutual.fund');
 
@@ -3966,8 +3973,11 @@ function renderXirrComparisonTable() {
   // Benchmarks — simulate same cashflows.
   for (const [key, { label }] of Object.entries(BENCHMARK_SOURCES)) {
     const sim = simulateBenchmarkXIRR(key, newMoneyTotal);
+    // Reflect actual data source: benchmarkData[key].name carries "(simulated)"
+    // only when the real Yahoo fetch failed and we fell back to sine-wave data.
+    const isSimulated = !!(benchmarkData[key] && (benchmarkData[key].name || '').includes('(simulated)'));
     rows.push({
-      label, type: 'benchmark',
+      label, type: 'benchmark', simulated: isSimulated,
       xirr: sim ? sim.xirr : null,
       invested: sim ? sim.invested : null,
       value:    sim ? sim.currentValue : null,
@@ -3981,7 +3991,7 @@ function renderXirrComparisonTable() {
   tbody.innerHTML = rows.map(r => {
     const gain = (r.invested != null && r.value != null) ? (r.value - r.invested) : null;
     const style = r.emphasis ? 'font-weight:700;background:rgba(99,102,241,0.06)' : '';
-    const typeBadge = r.type === 'benchmark'
+    const typeBadge = (r.type === 'benchmark' && r.simulated)
       ? '<span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;margin-left:0.4rem">(simulated)</span>'
       : '';
     return `<tr style="${style}">
