@@ -1,5 +1,5 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v24';
+const CACHE_NAME = 'portfolio-analytics-v25';
 
 // Determine the base path - works on both local server (/) and GitHub Pages subpath
 const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '') || '';
@@ -48,16 +48,22 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate event — delete old caches, claim all clients immediately
+// Activate event — delete old caches, claim all clients, force-reload on update
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((cacheNames) => Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      ))
-      .then(() => self.clients.claim())
+      .then((cacheNames) => {
+        const oldCaches = cacheNames.filter((name) => name !== CACHE_NAME);
+        const isUpdate = oldCaches.length > 0;
+        return Promise.all(oldCaches.map((name) => caches.delete(name)))
+          .then(() => self.clients.claim())
+          .then(() => {
+            if (!isUpdate) return; // first install — page already has fresh code
+            return self.clients.matchAll({ type: 'window' }).then((clients) => {
+              clients.forEach((client) => client.postMessage({ type: 'RELOAD_APP' }));
+            });
+          });
+      })
   );
 });
 
