@@ -6,3 +6,6 @@ __pycache__/
 # Scratch/temp scripts
 refactor.py
 split_api.py
+
+# Local launcher bundle (regenerate with scripts/build-launcher.sh)
+Portfolio Dashboard.app/
