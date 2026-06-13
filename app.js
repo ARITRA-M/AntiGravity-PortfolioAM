@@ -3052,43 +3052,49 @@ function initStocksTab() {
     }
   });
 
-  // 3. Market Cap Distribution Over Time (stacked % bar)
+  // 3. Market Cap Distribution Over Time (stacked % bar — value or count)
   const CAP_ORDER = ['Large Cap', 'Mid Cap', 'Small Cap', 'Other/ETF'];
   const CAP_COLORS = { 'Large Cap': '#3b82f6', 'Mid Cap': '#10b981', 'Small Cap': '#f59e0b', 'Other/ETF': '#64748b' };
 
-  // Build date → cap → value map (reuse sortedStockDates already computed above)
+  // Build date → cap → { value (₹), count (# stocks) }
   const dateCapMap = {};
   sortedStockDates.forEach(date => {
     dateCapMap[date] = {};
+    CAP_ORDER.forEach(c => { dateCapMap[date][c] = { value: 0, count: 0 }; });
     Object.entries(stockHistory).forEach(([ticker, stock]) => {
       const entry = stock.history.find(h => h.date === date);
       if (!entry) return;
       const cap = MARKET_CAP_MAP[ticker] || 'Other/ETF';
-      dateCapMap[date][cap] = (dateCapMap[date][cap] || 0) + entry.cur_val;
+      dateCapMap[date][cap].value += entry.cur_val;
+      dateCapMap[date][cap].count += 1;
     });
   });
+
+  const capChartLabels = sortedStockDates.map(d => {
+    const parts = d.split('-');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+  });
+
+  function _buildCapDatasets(mode) {
+    return CAP_ORDER.map(cap => ({
+      label: cap,
+      data: sortedStockDates.map(d => {
+        const total = CAP_ORDER.reduce((s, c) => s + dateCapMap[d][c][mode], 0);
+        return total > 0 ? (dateCapMap[d][cap][mode] / total) * 100 : 0;
+      }),
+      rawValue: sortedStockDates.map(d => dateCapMap[d][cap].value / 100000),
+      rawCount: sortedStockDates.map(d => dateCapMap[d][cap].count),
+      backgroundColor: CAP_COLORS[cap],
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.06)'
+    }));
+  }
 
   const ctxCap = document.getElementById('stock-cap-chart').getContext('2d');
   capChart = new Chart(ctxCap, {
     type: 'bar',
-    data: {
-      labels: sortedStockDates.map(d => {
-        const parts = d.split('-');
-        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
-      }),
-      datasets: CAP_ORDER.map(cap => ({
-        label: cap,
-        data: sortedStockDates.map(d => {
-          const total = CAP_ORDER.reduce((s, c) => s + (dateCapMap[d][c] || 0), 0);
-          return total > 0 ? ((dateCapMap[d][cap] || 0) / total) * 100 : 0;
-        }),
-        rawData: sortedStockDates.map(d => (dateCapMap[d][cap] || 0) / 100000),
-        backgroundColor: CAP_COLORS[cap],
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.06)'
-      }))
-    },
+    data: { labels: capChartLabels, datasets: _buildCapDatasets('value') },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -3096,40 +3102,29 @@ function initStocksTab() {
         x: {
           stacked: true,
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: {
-            color: '#9ca3af',
-            font: { family: 'Outfit', size: 9 },
-            maxRotation: 45,
-            minRotation: 30,
-            autoSkip: true,
-            maxTicksLimit: 20
-          }
+          ticks: { color: '#9ca3af', font: { family: 'Outfit', size: 9 }, maxRotation: 45, minRotation: 30, autoSkip: true, maxTicksLimit: 20 }
         },
         y: {
           stacked: true,
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: {
-            color: '#9ca3af',
-            font: { family: 'Outfit', size: 10 },
-            callback: val => val.toFixed(0) + '%'
-          },
-          min: 0,
-          max: 100
+          ticks: { color: '#9ca3af', font: { family: 'Outfit', size: 10 }, callback: val => val.toFixed(0) + '%' },
+          min: 0, max: 100
         }
       },
       plugins: {
-        legend: {
-          position: 'bottom',
-          labels: getResponsiveLegendLabels(10)
-        },
+        legend: { position: 'bottom', labels: getResponsiveLegendLabels(10) },
         tooltip: {
           mode: 'index',
           intersect: false,
           callbacks: {
             label: (ctx) => {
               const pct = ctx.parsed.y.toFixed(1);
-              const abs = ctx.dataset.rawData[ctx.dataIndex].toFixed(2);
-              return ` ${ctx.dataset.label}: ${pct}% (₹${abs} L)`;
+              const ds = ctx.dataset;
+              const i = ctx.dataIndex;
+              const detail = capChart._capMode === 'count'
+                ? `${ds.rawCount[i]} stock${ds.rawCount[i] !== 1 ? 's' : ''}`
+                : `₹${ds.rawValue[i].toFixed(2)} L`;
+              return ` ${ds.label}: ${pct}% (${detail})`;
             }
           }
         }
@@ -3137,6 +3132,8 @@ function initStocksTab() {
       interaction: { mode: 'index', intersect: false }
     }
   });
+  capChart._capMode = 'value';
+  capChart._buildCapDatasets = _buildCapDatasets;
 
   // 4. Stock Selector List for Historical Explorer
   const sortedByVal = [...latestEquity].sort((a, b) => b.cur_val - a.cur_val);
@@ -3924,6 +3921,20 @@ function initBenchmarkTab() {
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
   updateBenchmarkStats('nifty50');
+}
+
+function switchCapMode(mode, btn) {
+  if (!capChart) return;
+  capChart._capMode = mode;
+  const newDatasets = capChart._buildCapDatasets(mode);
+  capChart.data.datasets.forEach((ds, i) => {
+    ds.data = newDatasets[i].data;
+    ds.rawValue = newDatasets[i].rawValue;
+    ds.rawCount = newDatasets[i].rawCount;
+  });
+  capChart.update();
+  document.querySelectorAll('#cap-mode-value, #cap-mode-count').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
 }
 
 function updateBenchmarkChart() {

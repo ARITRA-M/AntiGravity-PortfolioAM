@@ -394,6 +394,10 @@
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Equity Portfolio Market Cap Distribution Over Time</h3>
+            <div class="time-filters">
+              <button id="cap-mode-value" class="subtab-btn active" onclick="switchCapMode('value', this)">By Value</button>
+              <button id="cap-mode-count" class="subtab-btn" onclick="switchCapMode('count', this)">By Count</button>
+            </div>
           </div>
           <div class="chart-container" style="height: 420px;">
             <canvas id="stock-cap-chart"></canvas>
