@@ -170,13 +170,21 @@ function showLogin(message = '') {
     submitButton.textContent = 'Unlocking...';
 
     try {
+      // Re-detect the mode now — the server may have been started or stopped
+      // since the page loaded, which would otherwise cause "Failed to fetch".
+      if (typeof window.__detectStaticMode === 'function') {
+        await window.__detectStaticMode();
+      }
       if (isStaticMode()) {
         await unlockAppClient(overlay, passwordInput.value);
       } else {
         await unlockApp(overlay, passwordInput.value);
       }
     } catch (err) {
-      error.textContent = err.message || 'Unlock failed.';
+      const msg = /failed to fetch|networkerror|load failed/i.test(err.message || '')
+        ? 'Could not reach the server. Make sure it is still running, then try again.'
+        : (err.message || 'Unlock failed.');
+      error.textContent = msg;
       passwordInput.select();
     } finally {
       submitButton.disabled = false;
