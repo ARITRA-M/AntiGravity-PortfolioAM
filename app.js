@@ -4502,18 +4502,14 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
 
     if (!startEntry || !endEntry || startEntry === endEntry) return;
 
-    const startLtp = startEntry.ltp || 0;
-    const endLtp   = endEntry.ltp   || 0;
-    if (startLtp <= 0 || endLtp <= 0) return;
+    // Use cur_val (total position value = qty × ltp) so stock splits don't
+    // distort results — a 10:1 split leaves cur_val unchanged while ltp drops 90%.
+    const startVal = startEntry.cur_val || 0;
+    const endVal   = endEntry.cur_val   || 0;
+    if (startVal <= 0) return;
 
-    // Split/bonus detection: qty grew ≥2× and endLtp×qtyRatio ≈ startLtp (within 8%)
-    // → scale startLtp to post-split denomination before comparing.
-    const qtyRatio        = startEntry.qty > 0 ? endEntry.qty / startEntry.qty : 1;
-    const isSplit         = qtyRatio >= 1.9 && Math.abs(endLtp * qtyRatio / startLtp - 1) < 0.08;
-    const adjustedStartLtp = isSplit ? startLtp / qtyRatio : startLtp;
-
-    const pctGain = ((endLtp - adjustedStartLtp) / adjustedStartLtp) * 100;
-    const absGain = startEntry.qty * (endLtp - adjustedStartLtp);
+    const pctGain = ((endVal - startVal) / startVal) * 100;
+    const absGain = endVal - startVal;
 
     _lastMoversData.push({
       name: stock.instrument,
