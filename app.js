@@ -3310,6 +3310,7 @@ function renderStocksTable(data) {
     const uploadedPrice = s.lastUploadedPrice !== undefined ? `₹${s.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—';
     const gain = s.thisMonthGain || 0;
     const noLive = typeof hasLivePriceSource === 'function' && !hasLivePriceSource(s.instrument);
+    const xirr = holdingXIRR(s, 'stock');
     return `
     <tr${noLive ? ' style="opacity:0.65;"' : ''}>
       <td class="instrument-cell">
@@ -3328,6 +3329,9 @@ function renderStocksTable(data) {
       </td>
       <td style="text-align: right;" class="${s.gain_pct >= 0 ? 'trend-up' : 'trend-down'}">
         ${s.gain_pct >= 0 ? '+' : ''}${s.gain_pct.toFixed(2)}%
+      </td>
+      <td style="text-align: right;" class="${xirr == null ? '' : (xirr >= 0 ? 'trend-up' : 'trend-down')}">
+        ${xirr == null ? '—' : (xirr >= 0 ? '+' : '') + (xirr * 100).toFixed(2) + '%'}
       </td>
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
@@ -3389,10 +3393,11 @@ function sortStocks(colIdx) {
       case 7: valA = a.cur_val; valB = b.cur_val; break;
       case 8: valA = a.pnl; valB = b.pnl; break;
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
-      case 10: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
-      case 11: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
+      case 10: valA = holdingXIRR(a, 'stock') ?? -Infinity; valB = holdingXIRR(b, 'stock') ?? -Infinity; break;
+      case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 12: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
     }
-    
+
     if (typeof valA === 'string') {
       return stockSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
     } else {
@@ -3721,6 +3726,7 @@ function renderMfsTable(data) {
     const uploadedPrice = f.lastUploadedPrice !== undefined ? `₹${f.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:4})}` : '—';
     const gain = f.thisMonthGain || 0;
     const lastRefreshed = f.lastRefreshDate || '—';
+    const xirr = holdingXIRR(f, 'mf');
     return `
     <tr>
       <td class="instrument-cell" title="${escapeAttr(f.scheme)}">${escapeHtml(f.scheme)}</td>
@@ -3736,6 +3742,9 @@ function renderMfsTable(data) {
       </td>
       <td style="text-align: right;" class="${f.gain_pct >= 0 ? 'trend-up' : 'trend-down'}">
         ${f.gain_pct >= 0 ? '+' : ''}${f.gain_pct.toFixed(2)}%
+      </td>
+      <td style="text-align: right;" class="${xirr == null ? '' : (xirr >= 0 ? 'trend-up' : 'trend-down')}">
+        ${xirr == null ? '—' : (xirr >= 0 ? '+' : '') + (xirr * 100).toFixed(2) + '%'}
       </td>
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
@@ -3853,6 +3862,50 @@ function computeXIRR(cashflows, dates, guess = 0.1) {
     r = next < -0.99 ? -0.99 : next; // keep above -100%
   }
   return Number.isFinite(r) ? r : null;
+}
+
+// Per-holding money-weighted XIRR from its month-by-month history.
+// Cashflows: each increase in `invested` is a buy (cash out), each decrease is
+// a sell (cash in, valued at cost basis); the final `cur_val` is the terminal
+// liquidation value. Consistent with the portfolio/benchmark XIRR table.
+// Returns a decimal fraction (e.g. 0.18 = 18%) or null if not computable.
+function computeHoldingXIRR(history) {
+  if (!history || history.length < 1) return null;
+  const cf = [], dt = [];
+  let prevInv = 0;
+  for (let i = 0; i < history.length; i++) {
+    const inv = history[i].invested || 0;
+    const delta = inv - prevInv;
+    if (Math.abs(delta) > 1) {           // ignore sub-₹1 rounding noise
+      cf.push(-delta);
+      dt.push(new Date(history[i].date));
+    }
+    prevInv = inv;
+  }
+  const last = history[history.length - 1];
+  const terminal = last.cur_val || 0;
+  if (terminal !== 0) {
+    cf.push(terminal);
+    dt.push(new Date(last.date));
+  }
+  return computeXIRR(cf, dt);
+}
+
+// Resolve a holding's history and cache its XIRR on the object so render and
+// sort share one computation. `type` is 'stock' or 'mf'.
+function holdingXIRR(obj, type) {
+  if (obj._xirr !== undefined) return obj._xirr;
+  let history = null;
+  if (type === 'stock') {
+    const h = (typeof getStockHistoryKey === 'function' && getStockHistoryKey(obj.instrument))
+      || historicalHoldings.stocks[obj.instrument];
+    history = h && h.history;
+  } else {
+    const h = historicalHoldings.mfs[obj.scheme];
+    history = h && h.history;
+  }
+  obj._xirr = computeHoldingXIRR(history);
+  return obj._xirr;
 }
 
 // Simulate investing the same monthly contributions into the benchmark and
@@ -5067,10 +5120,11 @@ function sortMfs(colIdx) {
       case 7: valA = a.cur_val; valB = b.cur_val; break;
       case 8: valA = a.pnl; valB = b.pnl; break;
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
-      case 10: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
-      case 11: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
+      case 10: valA = holdingXIRR(a, 'mf') ?? -Infinity; valB = holdingXIRR(b, 'mf') ?? -Infinity; break;
+      case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 12: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
     }
-    
+
     if (typeof valA === 'string') {
       return mfSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
     } else {
