@@ -27,6 +27,7 @@ let allocationShiftChart = null;
 let netWorthGrowthChart = null;
 let capitalVsValuationChart = null;
 let sectorChart = null;
+let capChart = null;
 let mfCategoryChart = null;
 let mfValuationChart = null;
 let stockHistoricalChart = null;
@@ -417,6 +418,33 @@ const SECTOR_MAP = {
   'SGBJUL28IV-GB': 'Sovereign Gold Bonds', 'SGBSEP28VI-GB': 'Sovereign Gold Bonds',
   '716GS2050-GS': 'Government Bonds', '738REC27TF': 'Corporate Bonds', TVSMNCRPS: 'Debt Instrument',
   ENRIN: 'Industrial Engineering'
+};
+
+// SEBI classification: top 100 = Large Cap, 101–250 = Mid Cap, 251+ = Small Cap.
+// ETFs, REITs, bonds, SGBs are excluded (shown as 'Other/ETF' in the cap chart).
+const MARKET_CAP_MAP = {
+  // Large Cap
+  CIPLA: 'Large Cap', DRREDDY: 'Large Cap', MANKIND: 'Large Cap', SUNPHARMA: 'Large Cap',
+  ZYDUSLIFE: 'Large Cap', 'BAJAJ-AUTO': 'Large Cap', EICHERMOT: 'Large Cap',
+  HEROMOTOCO: 'Large Cap', 'M&M': 'Large Cap', MOTHERSON: 'Large Cap', TVSMOTOR: 'Large Cap',
+  AXISBANK: 'Large Cap', BAJFINANCE: 'Large Cap', BANKBARODA: 'Large Cap',
+  HDFCBANK: 'Large Cap', HDFCLIFE: 'Large Cap', ICICIBANK: 'Large Cap',
+  ICICIGI: 'Large Cap', ICICIPRULI: 'Large Cap', KOTAKBANK: 'Large Cap',
+  SBILIFE: 'Large Cap', SBIN: 'Large Cap', DLF: 'Large Cap', GODREJPROP: 'Large Cap',
+  BRITANNIA: 'Large Cap', COLPAL: 'Large Cap', ITC: 'Large Cap', MARICO: 'Large Cap',
+  NESTLEIND: 'Large Cap', TATACONSUM: 'Large Cap', VBL: 'Large Cap',
+  HCLTECH: 'Large Cap', INFY: 'Large Cap', OFSS: 'Large Cap', TCS: 'Large Cap',
+  BHARTIARTL: 'Large Cap', COALINDIA: 'Large Cap', LT: 'Large Cap',
+  ONGC: 'Large Cap', PIDILITIND: 'Large Cap', SIEMENS: 'Large Cap', TATASTEEL: 'Large Cap',
+  // Mid Cap
+  AJANTPHARM: 'Mid Cap', ERIS: 'Mid Cap', JBCHEPHARM: 'Mid Cap', LALPATHLAB: 'Mid Cap',
+  SYNGENE: 'Mid Cap', APOLLOTYRE: 'Mid Cap', BALKRISIND: 'Mid Cap', ENDURANCE: 'Mid Cap',
+  EXIDEIND: 'Mid Cap', UNOMINDA: 'Mid Cap', FEDERALBNK: 'Mid Cap', KARURVYSYA: 'Mid Cap',
+  MFSL: 'Mid Cap', BRIGADE: 'Mid Cap', OBEROIRLTY: 'Mid Cap', PHOENIXLTD: 'Mid Cap',
+  PRESTIGE: 'Mid Cap', COFORGE: 'Mid Cap', KPITTECH: 'Mid Cap', MPHASIS: 'Mid Cap',
+  PERSISTENT: 'Mid Cap', CIEINDIA: 'Mid Cap',
+  // Small Cap
+  ENRIN: 'Small Cap',
 };
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -2865,6 +2893,7 @@ function initStocksTab() {
 
   // Destroy existing chart before re-creating
   if (sectorChart) sectorChart.destroy();
+  if (capChart) capChart.destroy();
   if (stockHistoricalChart) stockHistoricalChart.destroy();
 
   // Normalize gain_pct: compute from pnl/invested if missing or zero
@@ -3023,7 +3052,93 @@ function initStocksTab() {
     }
   });
 
-  // 3. Stock Selector List for Historical Explorer
+  // 3. Market Cap Distribution Over Time (stacked % bar)
+  const CAP_ORDER = ['Large Cap', 'Mid Cap', 'Small Cap', 'Other/ETF'];
+  const CAP_COLORS = { 'Large Cap': '#3b82f6', 'Mid Cap': '#10b981', 'Small Cap': '#f59e0b', 'Other/ETF': '#64748b' };
+
+  // Build date → cap → value map (reuse sortedStockDates already computed above)
+  const dateCapMap = {};
+  sortedStockDates.forEach(date => {
+    dateCapMap[date] = {};
+    Object.entries(stockHistory).forEach(([ticker, stock]) => {
+      const entry = stock.history.find(h => h.date === date);
+      if (!entry) return;
+      const cap = MARKET_CAP_MAP[ticker] || 'Other/ETF';
+      dateCapMap[date][cap] = (dateCapMap[date][cap] || 0) + entry.cur_val;
+    });
+  });
+
+  const ctxCap = document.getElementById('stock-cap-chart').getContext('2d');
+  capChart = new Chart(ctxCap, {
+    type: 'bar',
+    data: {
+      labels: sortedStockDates.map(d => {
+        const parts = d.split('-');
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+      }),
+      datasets: CAP_ORDER.map(cap => ({
+        label: cap,
+        data: sortedStockDates.map(d => {
+          const total = CAP_ORDER.reduce((s, c) => s + (dateCapMap[d][c] || 0), 0);
+          return total > 0 ? ((dateCapMap[d][cap] || 0) / total) * 100 : 0;
+        }),
+        rawData: sortedStockDates.map(d => (dateCapMap[d][cap] || 0) / 100000),
+        backgroundColor: CAP_COLORS[cap],
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.06)'
+      }))
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: {
+            color: '#9ca3af',
+            font: { family: 'Outfit', size: 9 },
+            maxRotation: 45,
+            minRotation: 30,
+            autoSkip: true,
+            maxTicksLimit: 20
+          }
+        },
+        y: {
+          stacked: true,
+          grid: { color: 'rgba(255, 255, 255, 0.04)' },
+          ticks: {
+            color: '#9ca3af',
+            font: { family: 'Outfit', size: 10 },
+            callback: val => val.toFixed(0) + '%'
+          },
+          min: 0,
+          max: 100
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: getResponsiveLegendLabels(10)
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label: (ctx) => {
+              const pct = ctx.parsed.y.toFixed(1);
+              const abs = ctx.dataset.rawData[ctx.dataIndex].toFixed(2);
+              return ` ${ctx.dataset.label}: ${pct}% (₹${abs} L)`;
+            }
+          }
+        }
+      },
+      interaction: { mode: 'index', intersect: false }
+    }
+  });
+
+  // 4. Stock Selector List for Historical Explorer
   const sortedByVal = [...latestEquity].sort((a, b) => b.cur_val - a.cur_val);
   const explorerList = document.getElementById('explorer-stock-list');
   
