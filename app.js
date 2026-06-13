@@ -3835,20 +3835,29 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
   const dates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
   const contribTotal = breakupSummary.contribution["Total"].values;
-  
+
+  // Update heading to reflect real vs simulated data source.
+  const isSimulated = benchmark.name.includes('(simulated)');
+  const headingEl = document.getElementById('benchmark-chart-heading');
+  if (headingEl) {
+    headingEl.textContent = isSimulated
+      ? 'Portfolio vs Benchmark Comparison (Simulated — network unavailable)'
+      : 'Portfolio vs Benchmark Comparison';
+  }
+
   const ctx = document.getElementById('benchmark-comparison-chart').getContext('2d');
-  
+
   if (benchmarkComparisonChart) {
     benchmarkComparisonChart.destroy();
   }
-  
+
   // ── Time-Weighted Return (TWR) Index for Portfolio ──
   // Uses computeTWRIndex() so fresh cash inflows don't distort the line.
   // Normalised to 100 for direct side-by-side comparison with benchmark.
   const twrIdx = computeTWRIndex(nwTotal, contribTotal);
   const portfolioNormalized = twrIdx.map(v => (v / twrIdx[0]) * 100);
 
-  // Normalise benchmark to start at 100
+  // Normalise benchmark to start at 100 at the same date as the portfolio.
   const benchmarkNormalized = benchmark.history.map(h => (h.value / benchmark.history[0].value) * 100);
   
   benchmarkComparisonChart = new Chart(ctx, {
