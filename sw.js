@@ -1,5 +1,5 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v28';
+const CACHE_NAME = 'portfolio-analytics-v29';
 
 // Determine the base path - works on both local server (/) and GitHub Pages subpath
 const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '') || '';
@@ -19,21 +19,23 @@ const ASSETS_TO_CACHE = [
   BASE_PATH + '/icons/icon-512.png'
 ];
 
-// app.js and api.js use network-first so users always run the latest code
+// Core app files use network-first so users always run the latest code/markup
 // after a deploy — never one visit behind due to stale-while-revalidate.
+// index.html and '/' are included so DOM changes (e.g. new table columns)
+// never lag a reload behind the JS that renders into them.
 const NETWORK_FIRST_FILES = new Set([
   '/app.js',
   '/auth.js',
   '/js/api.js',
   '/js/crypto.js',
+  '/index.html',
+  '/',
 ]);
 
-// Other JS/CSS use stale-while-revalidate — serve cached immediately,
-// fetch latest in background (fine for vendor bundles and stylesheets).
+// Other assets use stale-while-revalidate — serve cached immediately,
+// fetch latest in background (fine for stylesheets and vendor bundles).
 const STALE_WHILE_REVALIDATE_FILES = new Set([
   '/style.css',
-  '/index.html',
-  '/'
 ]);
 
 // Install event — cache all assets fresh from network
@@ -113,7 +115,14 @@ self.addEventListener('fetch', (event) => {
             }
             return networkResponse;
           })
-          .catch(() => caches.match(event.request))
+          .catch(() =>
+            caches.match(event.request).then((cached) => {
+              if (cached) return cached;
+              // Offline navigation with no exact cache hit → serve app shell.
+              if (event.request.mode === 'navigate') return caches.match(BASE_PATH + '/index.html');
+              return new Response('Offline', { status: 503 });
+            })
+          )
       );
       break;
 
