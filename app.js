@@ -153,11 +153,19 @@ async function fetchNiftySeries() {
     _niftySeries = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
 
     const live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
-    // Previous close = the prior trading day's close, i.e. the second-to-last
-    // daily candle. Do NOT use meta.chartPreviousClose here: on a `range`
-    // query Yahoo returns the pre-range value (≈1 month ago), which yields a
-    // wrong daily % (e.g. showed 1.04% when the real Friday move was 1.99%).
-    const prevClose = pts[pts.length - 2].c;
+
+    // Determine prevClose correctly depending on whether Yahoo has published
+    // today's end-of-day bar yet:
+    //   • Market closed / bar published  → pts[last] = today's close
+    //                                       prevClose = pts[last-1] (yesterday)
+    //   • Market open / pre-publish      → pts[last] = yesterday's close
+    //                                       prevClose = pts[last] itself
+    // Do NOT use meta.chartPreviousClose — on a range query Yahoo returns the
+    // value from ≈1 month before the range start, not the prior trading day.
+    const lastBarDate = new Date(pts[pts.length - 1].t).toDateString();
+    const todayDate   = new Date().toDateString();
+    const lastBarIsToday = lastBarDate === todayDate;
+    const prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
     _niftyDailyPctReal = ((live - prevClose) / prevClose) * 100;
 
     // Month-to-date: last close strictly before the 1st of the current month.
