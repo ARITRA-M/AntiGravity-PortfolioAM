@@ -2903,27 +2903,6 @@ function initStocksTab() {
     }
   });
 
-  // 1. Winners & Losers lists
-  const sortedEq = [...latestEquity];
-  const winners = sortedEq.sort((a, b) => b.pnl - a.pnl).slice(0, 5);
-  const losers = sortedEq.sort((a, b) => a.pnl - b.pnl).slice(0, 5); // sorted ascending, first ones are biggest losses
-
-  const winContainer = document.getElementById('stock-winners-list');
-  winContainer.innerHTML = winners.map(w => `
-    <div class="performer-item">
-      <span class="performer-name">${escapeHtml(w.instrument)} <span style="font-weight:normal; font-size:0.75rem; color:var(--text-muted)">(${escapeHtml(w.sector)})</span></span>
-      <span class="performer-pnl trend-up">+${formatINR(w.pnl)} (+${w.gain_pct.toFixed(1)}%)</span>
-    </div>
-  `).join('');
-
-  const loseContainer = document.getElementById('stock-losers-list');
-  loseContainer.innerHTML = losers.map(l => `
-    <div class="performer-item">
-      <span class="performer-name">${escapeHtml(l.instrument)} <span style="font-weight:normal; font-size:0.75rem; color:var(--text-muted)">(${escapeHtml(l.sector)})</span></span>
-      <span class="performer-pnl trend-down">${formatINR(l.pnl)} (${l.gain_pct.toFixed(1)}%)</span>
-    </div>
-  `).join('');
-
   // 2. Stacked Bar Chart — Equity Portfolio Sector Distribution over Time
   const stockHistory = historicalHoldings.stocks;
 
@@ -4156,6 +4135,7 @@ function initMonthlyTab() {
   renderMonthlySummary();
   renderMonthlyChangeChart();
   renderMonthlyMovers();
+  renderMonthlyAbsoluteMovers();
   renderMonthlyActivityChart();
   renderTradingActivityLog();
 }
@@ -4322,6 +4302,7 @@ function updateAllSections() {
   renderMonthlySummary(count, startIndex, endIndex);
   renderMonthlyChangeChart(count, startIndex, endIndex);
   renderMonthlyMovers(count, startIndex, endIndex);
+  renderMonthlyAbsoluteMovers(count, startIndex, endIndex);
   renderMonthlyActivityChart(count, startIndex, endIndex);
   renderTradingActivityLog(count, startIndex, endIndex);
 }
@@ -4586,6 +4567,86 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
       </div>
     </div>
   `).join('');
+}
+
+function renderMonthlyAbsoluteMovers(count = 1, startIndex = 0, endIndex = null) {
+  const dates = breakupSummary.dates;
+  const nwTotal = breakupSummary.net_worth["Total"].values;
+  if (endIndex === null) endIndex = nwTotal.length - 1;
+
+  const selectedStartDate = dates[startIndex];
+  const selectedEndDate   = dates[endIndex];
+
+  // Build stock-key lookup map if not already done (same logic as renderMonthlyMovers)
+  if (!window._stockNameMap) {
+    window._stockNameMap = {};
+    Object.keys(historicalHoldings.stocks).forEach(key => {
+      const upper = key.toUpperCase();
+      const clean = upper.replace(/[^A-Z0-9]/g, '');
+      window._stockNameMap[clean] = key;
+      const withoutLtd = clean.replace(/LTD$/, '').replace(/LIMITED$/, '').trim();
+      if (withoutLtd && withoutLtd !== clean) window._stockNameMap[withoutLtd] = key;
+      const words = upper.split(/[^A-Z0-9]+/).filter(w => w.length > 2);
+      if (words.length > 1 && !window._stockNameMap[words[0]]) window._stockNameMap[words[0]] = key;
+      if (upper.includes('&')) {
+        upper.split('&').forEach(p => {
+          const t = p.replace(/[^A-Z0-9]/g, '').trim();
+          if (t.length >= 3 && !window._stockNameMap[t]) window._stockNameMap[t] = key;
+        });
+      }
+    });
+  }
+
+  const results = [];
+  latestEquity.forEach(stock => {
+    const cleanSymbol = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const stockKey  = window._stockNameMap[cleanSymbol] || stock.instrument;
+    const histStock = historicalHoldings.stocks[stockKey];
+    if (!histStock) return;
+
+    const history = histStock.history;
+    let startEntry = history.find(h => h.date >= selectedStartDate) || history[0];
+    let endEntry   = null;
+    for (let h = history.length - 1; h >= 0; h--) {
+      if (history[h].date <= selectedEndDate) { endEntry = history[h]; break; }
+    }
+    if (!startEntry || !endEntry || startEntry === endEntry) return;
+
+    const absGain = endEntry.cur_val - startEntry.cur_val;
+    const pctGain = startEntry.cur_val > 0 ? (absGain / startEntry.cur_val) * 100 : 0;
+    results.push({ name: stock.instrument, sector: stock.sector, absGain, pctGain });
+  });
+
+  const winners = [...results].sort((a, b) => b.absGain - a.absGain);
+  const losers  = [...results].sort((a, b) => a.absGain - b.absGain);
+
+  const fmt = v => (v >= 0 ? '+' : '') + formatINR(Math.abs(v));
+
+  document.getElementById('monthly-abs-winners-list').innerHTML = winners.slice(0, 5).map(w => `
+    <div class="mover-item">
+      <div class="mover-info">
+        <div class="mover-name">${escapeHtml(w.name)}</div>
+        <div class="mover-sector">${escapeHtml(w.sector)}</div>
+      </div>
+      <div class="mover-detail">
+        <span class="mover-change trend-up">${fmt(w.absGain)}</span>
+        <span class="mover-qty">(+${w.pctGain.toFixed(1)}%)</span>
+      </div>
+    </div>
+  `).join('') || '<div class="mover-item" style="color:var(--text-muted)">No data for selected period</div>';
+
+  document.getElementById('monthly-abs-losers-list').innerHTML = losers.slice(0, 5).map(l => `
+    <div class="mover-item">
+      <div class="mover-info">
+        <div class="mover-name">${escapeHtml(l.name)}</div>
+        <div class="mover-sector">${escapeHtml(l.sector)}</div>
+      </div>
+      <div class="mover-detail">
+        <span class="mover-change trend-down">${fmt(l.absGain)}</span>
+        <span class="mover-qty">(${l.pctGain.toFixed(1)}%)</span>
+      </div>
+    </div>
+  `).join('') || '<div class="mover-item" style="color:var(--text-muted)">No data for selected period</div>';
 }
 
 function renderMonthlyHeatmap() {
