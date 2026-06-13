@@ -4468,13 +4468,19 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
   _lastMoversData = [];
   const isFiltered = heatmapSelectedIndices.size > 0;
 
-  // Always use LTP-based comparison from historicalHoldings so results are
-  // consistent with the Stock Analytics price graphs.
-  // • No filter  → full history range (first entry → last entry) per stock.
-  // • With filter → heatmap-selected date range.
-  // gain_pct / pnl from the upload are intentionally NOT used: they reflect
-  // Zerodha's avg-cost basis which can diverge wildly from price-chart returns
-  // (e.g. ENRIN showing 1438% because the avg-cost is from a very early buy).
+  // Movers measure price-only return on the position you held at the start of
+  // the period — equivalent to what the Stock Analytics LTP chart would show
+  // for that span, with corporate actions (splits / bonus issues) neutralised.
+  //
+  // pctGain = (endLtp × splitFactor − startLtp) / startLtp  × 100
+  // absGain = startQty × (endLtp × splitFactor − startLtp)
+  //
+  // where splitFactor is the cumulative product of qty-jump ratios across
+  // any split/bonus events between start and end. A "split/bonus" is detected
+  // when qty grows ≥ 1.5× between consecutive history entries AND invested
+  // is virtually unchanged (within 5%). New purchases inflate `invested` and
+  // therefore never trigger this rule, so accumulated holdings like GOLDBEES
+  // are unaffected; only true corporate actions are scaled.
   latestEquity.forEach(stock => {
     const clean    = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const stockKey = window._stockNameMap[clean] || stock.instrument;
@@ -4482,34 +4488,42 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
     if (!hist) return;
 
     const history = hist.history;
-    let startEntry, endEntry;
-
+    let startIdx, endIdx;
     if (!isFiltered) {
-      // Full history: first and last recorded entries for this stock.
-      startEntry = history[0];
-      endEntry   = history[history.length - 1];
+      startIdx = 0;
+      endIdx   = history.length - 1;
     } else {
-      startEntry = null;
-      for (let h = 0; h < history.length; h++) {
-        if (history[h].date >= selectedStartDate) { startEntry = history[h]; break; }
-      }
-      if (!startEntry && history.length > 0) startEntry = history[0];
-      endEntry = null;
+      startIdx = history.findIndex(h => h.date >= selectedStartDate);
+      if (startIdx === -1) startIdx = 0;
+      endIdx = -1;
       for (let h = history.length - 1; h >= 0; h--) {
-        if (history[h].date <= selectedEndDate) { endEntry = history[h]; break; }
+        if (history[h].date <= selectedEndDate) { endIdx = h; break; }
+      }
+    }
+    if (startIdx < 0 || endIdx <= startIdx) return;
+
+    const startEntry = history[startIdx];
+    const endEntry   = history[endIdx];
+    const startLtp   = startEntry.ltp || 0;
+    const endLtp     = endEntry.ltp   || 0;
+    if (startLtp <= 0 || endLtp <= 0) return;
+
+    // Detect splits/bonuses within (startIdx, endIdx].
+    let splitFactor = 1;
+    for (let i = startIdx + 1; i <= endIdx; i++) {
+      const prev = history[i - 1];
+      const cur  = history[i];
+      if (prev.qty <= 0) continue;
+      const qtyRatio = cur.qty / prev.qty;
+      const invRatio = prev.invested > 0 ? cur.invested / prev.invested : 1;
+      if (qtyRatio >= 1.5 && Math.abs(invRatio - 1) < 0.05) {
+        splitFactor *= qtyRatio;
       }
     }
 
-    if (!startEntry || !endEntry || startEntry === endEntry) return;
-
-    // Use cur_val (total position value = qty × ltp) so stock splits don't
-    // distort results — a 10:1 split leaves cur_val unchanged while ltp drops 90%.
-    const startVal = startEntry.cur_val || 0;
-    const endVal   = endEntry.cur_val   || 0;
-    if (startVal <= 0) return;
-
-    const pctGain = ((endVal - startVal) / startVal) * 100;
-    const absGain = endVal - startVal;
+    const adjEndLtp = endLtp * splitFactor;
+    const pctGain   = ((adjEndLtp - startLtp) / startLtp) * 100;
+    const absGain   = startEntry.qty * (adjEndLtp - startLtp);
 
     _lastMoversData.push({
       name: stock.instrument,
