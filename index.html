@@ -20,6 +20,32 @@
                              window.location.hostname.includes('pages.dev') ||
                              (!window.location.hostname.includes('localhost') &&
                               !window.location.hostname.includes('127.0.0.1'));
+
+    // "Static mode": the app is served by a plain file server with no portfolio
+    // backend — GitHub Pages, OR a local static server (`npm run static`). In
+    // this mode the app unlocks by decrypting the data files in the browser and
+    // fetches live prices through public CORS proxies, identical to the hosted
+    // version. Known static hosts are assumed static immediately; on localhost
+    // we probe for the backend so the very same files work either way.
+    window.__staticMode = window.__isGitHubPages;
+    window.__staticModeReady = (async () => {
+      if (window.__isGitHubPages) return (window.__staticMode = true);
+      try {
+        const r = await fetch('api/session', { headers: { Accept: 'application/json' } });
+        if (r.status === 401) {
+          window.__staticMode = false;            // real backend, just locked
+        } else if (r.ok) {
+          const ct = r.headers.get('content-type') || '';
+          const body = ct.includes('json') ? await r.json().catch(() => null) : null;
+          window.__staticMode = !(body && typeof body.authenticated !== 'undefined');
+        } else {
+          window.__staticMode = true;             // 404/500 → no such endpoint
+        }
+      } catch (_) {
+        window.__staticMode = true;               // nothing answered → no backend
+      }
+      return window.__staticMode;
+    })();
   </script>
 </head>
 <body>

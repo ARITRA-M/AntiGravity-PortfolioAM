@@ -142,7 +142,7 @@ function saveSensexMonthlySnapshot(data) {
 async function fetchSensexDailyChange() {
   try {
     let data;
-    if (window.__isGitHubPages) {
+    if (window.__staticMode) {
       const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EBSESN';
       const res = await fetchViaCorsProxy(yahooUrl, {}, 12000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -176,7 +176,7 @@ async function fetchSensexDailyChange() {
 async function fetchSensexMonthlyChange() {
   try {
     let data;
-    if (window.__isGitHubPages) {
+    if (window.__staticMode) {
       const now = new Date();
       const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
       const period1 = Math.floor((monthStartMs - 15 * 24 * 60 * 60 * 1000) / 1000);
@@ -342,6 +342,11 @@ async function commitData() {
   // Only works on localhost where server.js is running
   if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
     if (status) status.textContent = '⚠️ Commit only works on the local machine (localhost).';
+    return;
+  }
+  // Commit (git push) needs the backend; static mode has no /api endpoint.
+  if (window.__staticMode) {
+    if (status) status.textContent = '⚠️ Commit needs the backend — run "npm run dev" instead of "npm run static".';
     return;
   }
   try {

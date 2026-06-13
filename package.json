@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "PORT=8080 node server.js",
     "start": "node server.js",
+    "static": "PORT=8080 node scripts/static-server.js",
     "test": "node tests/server-auth.test.js"
   },
   "keywords": [
