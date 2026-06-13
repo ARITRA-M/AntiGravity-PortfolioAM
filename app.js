@@ -3895,51 +3895,72 @@ function renderXirrComparisonTable() {
   const tbody = document.getElementById('xirr-comparison-body');
   if (!tbody || !breakupSummary) return;
 
-  const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
-  const nwTotal       = breakupSummary.net_worth["Total"].values;
-  const lastIdx       = nwTotal.length - 1;
-
-  // Pull portfolio XIRR rows from the Excel (already a decimal fraction).
+  const newSec  = breakupSummary.new_investment || {};
+  const nwSec   = breakupSummary.net_worth || {};
   const xirrSec = breakupSummary.xirr || {};
-  const pick    = label => {
-    const k = Object.keys(xirrSec).find(k => xirrSec[k].label === label);
-    if (!k) return null;
-    const vals = xirrSec[k].values;
+
+  // One-time debug — lists actual keys so it's easy to spot label mismatches.
+  if (!window._xirrKeysLogged) {
+    console.log('[xirr-table] xirr keys:', Object.keys(xirrSec));
+    console.log('[xirr-table] new_investment keys:', Object.keys(newSec));
+    console.log('[xirr-table] net_worth keys:', Object.keys(nwSec));
+    window._xirrKeysLogged = true;
+  }
+
+  // Robust key finder — case-insensitive substring match against both the
+  // section key AND the row's label, since Excel sheets word their "Totals"
+  // row differently across sections ("Total" vs "Total Investment" vs ...).
+  const findKey = (section, ...needles) => {
+    const haystack = Object.keys(section);
+    for (const n of needles) {
+      const re = new RegExp(n, 'i');
+      const k  = haystack.find(k =>
+        re.test(k) || (section[k] && re.test(section[k].label || ''))
+      );
+      if (k) return k;
+    }
+    return null;
+  };
+
+  const lastNonZero = vals => {
+    if (!vals) return null;
     for (let i = vals.length - 1; i >= 0; i--) {
       if (vals[i] !== 0 && Number.isFinite(vals[i])) return vals[i];
     }
     return null;
   };
+  const sumVals  = vals => vals ? vals.reduce((s, v) => s + (v || 0), 0) : null;
+  const lastVal  = vals => vals ? vals[vals.length - 1] : null;
 
-  // Component invested + current values (lakhs) from Excel sections.
-  const nwSec  = breakupSummary.net_worth || {};
-  const newSec = breakupSummary.new_investment || {};
-  const pickSum = (section, label) => {
-    const k = Object.keys(section).find(k => section[k].label === label);
-    if (!k) return null;
-    return section[k].values.reduce((s, v) => s + (v || 0), 0);
-  };
-  const pickLast = (section, label) => {
-    const k = Object.keys(section).find(k => section[k].label === label);
-    if (!k) return null;
-    return section[k].values[section[k].values.length - 1];
-  };
+  // Try several spellings — Excel can be inconsistent across sections.
+  const totalXirrKey   = findKey(xirrSec, '^total$', 'overall', 'portfolio');
+  const stocksXirrKey  = findKey(xirrSec, 'stock');
+  const mfXirrKey      = findKey(xirrSec, '^mf', 'mutual.fund');
 
-  const portfolioInvested = pickSum(newSec, 'Total Investment');
-  const portfolioValue    = pickLast(nwSec, 'Total');
-  const stocksInvested    = pickSum(newSec, 'Stocks');
-  const stocksValue       = pickLast(nwSec, 'Stocks');
-  const mfInvested        = pickSum(newSec, 'MF');
-  const mfValue           = pickLast(nwSec, 'MF');
+  const totalInvKey    = findKey(newSec,  'total.investment', '^total$');
+  const stocksInvKey   = findKey(newSec,  'stock');
+  const mfInvKey       = findKey(newSec,  '^mf', 'mutual.fund');
+
+  const totalNwKey     = findKey(nwSec,   '^total$', 'overall');
+  const stocksNwKey    = findKey(nwSec,   'stock');
+  const mfNwKey        = findKey(nwSec,   '^mf', 'mutual.fund');
+
+  // Fallback for newMoneyTotal — same series the benchmark TWR uses.
+  const newMoneyTotal = totalInvKey ? newSec[totalInvKey].values : [];
 
   const rows = [
-    { label: 'Portfolio (Overall)', type: 'portfolio',
-      xirr: pick('Total'),  invested: portfolioInvested, value: portfolioValue,
-      emphasis: true },
-    { label: 'Stocks (Equity)',     type: 'portfolio',
-      xirr: pick('Stocks'), invested: stocksInvested,    value: stocksValue },
+    { label: 'Portfolio (Overall)', type: 'portfolio', emphasis: true,
+      xirr:     totalXirrKey ? lastNonZero(xirrSec[totalXirrKey].values) : null,
+      invested: totalInvKey  ? sumVals(newSec[totalInvKey].values)       : null,
+      value:    totalNwKey   ? lastVal(nwSec[totalNwKey].values)         : null },
+    { label: 'Stocks (Equity)', type: 'portfolio',
+      xirr:     stocksXirrKey ? lastNonZero(xirrSec[stocksXirrKey].values) : null,
+      invested: stocksInvKey  ? sumVals(newSec[stocksInvKey].values)       : null,
+      value:    stocksNwKey   ? lastVal(nwSec[stocksNwKey].values)         : null },
     { label: 'Mutual Funds (Equity)', type: 'portfolio',
-      xirr: pick('MF'),     invested: mfInvested,        value: mfValue },
+      xirr:     mfXirrKey ? lastNonZero(xirrSec[mfXirrKey].values) : null,
+      invested: mfInvKey  ? sumVals(newSec[mfInvKey].values)       : null,
+      value:    mfNwKey   ? lastVal(nwSec[mfNwKey].values)         : null },
   ];
 
   // Benchmarks — simulate same cashflows.
