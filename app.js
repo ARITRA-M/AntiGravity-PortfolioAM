@@ -1,8 +1,10 @@
 // Tab IDs
 const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log'];
 
-// App version for cache busting - bump this date when new portfolio data is uploaded
-const APP_VERSION = '2026-06-07';
+// App version for cache busting — auto-derived from today's date so JSON files
+// are never served stale after a deploy. The server.js commit script no longer
+// needs to touch this constant.
+const APP_VERSION = new Date().toISOString().slice(0, 10);
 
 // Global state
 let portfolioSummary = null;
@@ -151,7 +153,11 @@ async function fetchNiftySeries() {
     _niftySeries = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
 
     const live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
-    const prevClose = r?.meta?.chartPreviousClose ?? pts[pts.length - 2].c;
+    // Previous close = the prior trading day's close, i.e. the second-to-last
+    // daily candle. Do NOT use meta.chartPreviousClose here: on a `range`
+    // query Yahoo returns the pre-range value (≈1 month ago), which yields a
+    // wrong daily % (e.g. showed 1.04% when the real Friday move was 1.99%).
+    const prevClose = pts[pts.length - 2].c;
     _niftyDailyPctReal = ((live - prevClose) / prevClose) * 100;
 
     // Month-to-date: last close strictly before the 1st of the current month.
@@ -500,6 +506,7 @@ function clearLocalStorageData() {
     localStorage.removeItem(LS_PREFIX + 'breakup_summary');
     localStorage.removeItem(LS_PREFIX + 'refresh_report');
     localStorage.removeItem(LS_PREFIX + 'version');
+    localStorage.removeItem(BENCHMARK_MONTHLY_CACHE_KEY);
     console.log('Portfolio data cleared from localStorage');
   } catch (e) {
     console.warn('Failed to clear localStorage:', e);
@@ -641,6 +648,7 @@ async function loadData() {
       }
 
       generateBenchmarkData();
+      fetchBenchmarkData(); // async; re-renders Growth tab benchmarks when resolved
 
       const dates = breakupSummary.dates;
       const latestDate = dates[dates.length - 1];
@@ -712,8 +720,9 @@ async function loadData() {
 
     initializeLiveBaseline();
 
-    // Generate benchmark data
+    // Generate benchmark data (simulated immediately; real data fetched async below)
     generateBenchmarkData();
+    fetchBenchmarkData(); // async; re-renders Growth tab benchmarks when resolved
 
     // Populate live badge
     const dates = breakupSummary.dates;
@@ -864,19 +873,26 @@ function resetDerivedState() {
   benchmarkData.nifty50.history = [];
   benchmarkData.spx.history = [];
   benchmarkData.gold.history = [];
+  benchmarkData.sensex.history = [];
+  // Reset names to "(simulated)" so stale real-data labels don't persist.
+  for (const [key, { label }] of Object.entries(BENCHMARK_SOURCES)) {
+    benchmarkData[key].name = `${label} (simulated)`;
+  }
   uploadedSnapshot = null;
   lastRefreshReport = null;
   window.lastRefreshReport = null;
-  window._stockNameMap = null;
+  _stockNameLookup = null; // invalidate shared stock name lookup on new upload
   heatmapSelectedIndices.clear();
-  // Holdings changed → drop the cached 30-day performance series so the charts
-  // rebuild against the new positions on next tab visit.
+  // Holdings changed → drop the cached 30-day performance series AND the
+  // benchmark monthly cache (date alignment may differ after a new upload).
   try {
     localStorage.removeItem('ag_portfolio_perf_stock');
     localStorage.removeItem('ag_portfolio_perf_mf');
+    localStorage.removeItem(BENCHMARK_MONTHLY_CACHE_KEY);
   } catch (_) { /* ignore */ }
   initializeLiveBaseline();
   generateBenchmarkData();
+  fetchBenchmarkData(); // re-fetch real data aligned to new portfolio dates
 }
 
 function initializeLiveBaseline() {
@@ -1307,7 +1323,6 @@ function buildLatestMf(historical, latestDateStr) {
 }
 
 function buildPortfolioSummary(breakup) {
-  const latest = -1;
   const nw = breakup.net_worth;
   const get = key => {
     const values = nw[key]?.values || [];
@@ -1403,11 +1418,11 @@ function switchTab(tabId) {
   // Re-render charts on visible tab to ensure proper sizing
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));
-    
-    // Re-render monthly charts (they need update on every visit)
+
+    // Monthly tab re-initialises fully on every visit so heatmap, movers,
+    // and charts all stay consistent after a price refresh mid-session.
     if (tabId === 'monthly') {
-      renderMonthlyChangeChart();
-      renderMonthlyActivityChart();
+      initMonthlyTab();
     }
   }, 100);
 }
@@ -1552,6 +1567,7 @@ function renderDailyOverviewTable() {
     let prevClose = s.yesterdayClose || null;
     if (isWeekend) prevClose = s.ltp; // Zero out daily change on weekends
 
+    const noLivePrice = typeof hasLivePriceSource === 'function' && !hasLivePriceSource(s.instrument);
     const dailyGain = prevClose ? (s.ltp - prevClose) * s.qty : null;
     const dailyGainPct = prevClose ? ((s.ltp - prevClose) / prevClose) * 100 : null;
     combined.push({
@@ -1561,7 +1577,8 @@ function renderDailyOverviewTable() {
       yesterdayClose: prevClose,
       currentLtp: s.ltp,
       change: dailyGain,
-      changePct: dailyGainPct
+      changePct: dailyGainPct,
+      stale: noLivePrice
     });
     if (dailyGain !== null) totalStockGain += dailyGain;
   });
@@ -1676,16 +1693,19 @@ function renderDailyOverviewTable() {
 
   const tbody = document.getElementById('daily-overview-body');
   tbody.innerHTML = filteredCombined.map(item => `
-    <tr>
-      <td class="instrument-cell">${escapeHtml(item.name)}</td>
+    <tr${item.stale ? ' style="opacity:0.6;"' : ''}>
+      <td class="instrument-cell">
+        ${escapeHtml(item.name)}
+        ${item.stale ? '<span title="No live price — showing upload-time value" style="font-size:0.7rem;color:var(--text-muted);margin-left:4px;">(stale)</span>' : ''}
+      </td>
       <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatNullableNumber(item.yesterdayClose, 2)}</td>
       <td style="text-align: right;">${item.currentLtp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;" class="${item.change === null ? '' : item.change >= 0 ? 'trend-up' : 'trend-down'}">
-        ${item.change === null ? 'N/A' : `${item.change >= 0 ? '+' : ''}${formatINR(item.change)}`}
+        ${item.stale ? '—' : item.change === null ? 'N/A' : `${item.change >= 0 ? '+' : ''}${formatINR(item.change)}`}
       </td>
       <td style="text-align: right;" class="${item.changePct === null ? '' : item.changePct >= 0 ? 'trend-up' : 'trend-down'}">
-        ${item.changePct === null ? 'N/A' : `${item.changePct >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%`}
+        ${item.stale ? '—' : item.changePct === null ? 'N/A' : `${item.changePct >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%`}
       </td>
     </tr>
   `).join('');
@@ -2265,30 +2285,81 @@ function initGrowthTab() {
 function filterGrowthChart() {
   const filter = document.getElementById('growth-time-filter').value;
   const dates = breakupSummary.dates;
-  let len = dates.length;
-  
+  const len = dates.length;
+
   let sliceIdx = 0;
-  if (filter === '3Y') {
-    sliceIdx = Math.max(0, len - 36);
-  } else if (filter === '1Y') {
-    sliceIdx = Math.max(0, len - 12);
-  }
-  
+  if (filter === '3Y') sliceIdx = Math.max(0, len - 36);
+  else if (filter === '1Y') sliceIdx = Math.max(0, len - 12);
+
   const filteredLabels = dates.slice(sliceIdx).map(d => formatDateString(d));
-  
-  // Update Net Worth chart
+
+  // Net Worth stacked area
   netWorthGrowthChart.data.labels = filteredLabels;
   netWorthGrowthChart.data.datasets.forEach((dataset, idx) => {
     const key = Object.keys(breakupSummary.net_worth).filter(k => k !== 'Total')[idx];
     dataset.data = breakupSummary.net_worth[key].values.slice(sliceIdx);
   });
   netWorthGrowthChart.update();
-  
-  // Update Capital vs Valuation chart
+
+  // Capital vs Valuation
   capitalVsValuationChart.data.labels = filteredLabels;
-  capitalVsValuationChart.data.datasets[0].data = breakupSummary.net_worth["Total"].values.slice(sliceIdx);
+  capitalVsValuationChart.data.datasets[0].data = breakupSummary.net_worth['Total'].values.slice(sliceIdx);
   capitalVsValuationChart.data.datasets[1].data = portfolioSummary.cumulative_investment_history.slice(sliceIdx);
   capitalVsValuationChart.update();
+
+  // Asset Allocation % stacked bar
+  if (allocationChart) {
+    const nwSec = breakupSummary.net_worth;
+    const categoryMap = {
+      'Equity':    ['Stocks (Equity)', 'Mutual Funds (Equity)', 'NPS E (Equity)'],
+      'Debt':      ['NPS C (Debt)', 'NPS G (Debt)', 'PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)'],
+      'Gold':      ['Gold (Gold)'],
+      'Liquid':    ['Cash (Liquid)'],
+      'Alternate': ['Crypto (Alternate)']
+    };
+    const slicedDates = dates.slice(sliceIdx);
+    const totalPerDate = slicedDates.map((_, i) => {
+      const absI = sliceIdx + i;
+      return Object.values(categoryMap).flat().reduce((s, k) => s + (nwSec[k]?.values[absI] || 0), 0);
+    });
+    allocationChart.data.labels = slicedDates.map(d => formatDateString(d));
+    allocationChart.data.datasets.forEach((ds, di) => {
+      const cat = Object.keys(categoryMap)[di];
+      ds.data = slicedDates.map((_, i) => {
+        const absI = sliceIdx + i;
+        const catVal = categoryMap[cat].reduce((s, k) => s + (nwSec[k]?.values[absI] || 0), 0);
+        return totalPerDate[i] > 0 ? (catVal / totalPerDate[i]) * 100 : 0;
+      });
+    });
+    allocationChart.update();
+  }
+
+  // XIRR line — respect the Jan-2023 floor so early outliers stay hidden
+  if (componentXirrChart) {
+    const xirrFloor = dates.findIndex(d => d >= '2023-01-01');
+    const effectiveIdx = Math.max(sliceIdx, xirrFloor < 0 ? 0 : xirrFloor);
+    const xirrLabels = dates.slice(effectiveIdx).map(d => formatDateString(d));
+    componentXirrChart.data.labels = xirrLabels;
+    componentXirrChart.data.datasets.forEach(ds => {
+      const allVals = breakupSummary.xirr[
+        Object.keys(breakupSummary.xirr).find(k => breakupSummary.xirr[k].label === ds.label)
+      ]?.values || [];
+      ds.data = allVals.slice(effectiveIdx).map(v => v * 100);
+    });
+    componentXirrChart.update();
+  }
+
+  // Allocation Shift area
+  if (allocationShiftChart) {
+    allocationShiftChart.data.labels = filteredLabels;
+    allocationShiftChart.data.datasets.forEach(ds => {
+      const key = Object.keys(breakupSummary.contribution).find(
+        k => breakupSummary.contribution[k].label === ds.label
+      );
+      if (key) ds.data = breakupSummary.contribution[key].values.slice(sliceIdx).map(v => v * 100);
+    });
+    allocationShiftChart.update();
+  }
 }
 
 // ==================== FIXED INCOME TAB (PF / PPF / Bonds) ====================
@@ -2989,48 +3060,14 @@ function selectStockExplorer(symbol, element) {
 }
 
 function renderStockHistoricalChart(symbol) {
-  // Build a lookup map from ticker symbols to historical holdings names
-  // historical_holdings uses full names (e.g. "Ajanta Pharma Ltd.") while
-  // latest_equity uses ticker symbols (e.g. "AJANTPHARM")
-  // Build the mapping once and cache it
-  if (!window._stockNameMap) {
-    window._stockNameMap = {};
-    const stockKeys = Object.keys(historicalHoldings.stocks);
-    stockKeys.forEach(key => {
-      const upper = key.toUpperCase();
-      const clean = upper.replace(/[^A-Z0-9]/g, '');
-      // Exact clean match (e.g., "SUNPHARMA" -> "SUNPHARMA")
-      window._stockNameMap[clean] = key;
-      // Without "LTD" or "LIMITED" suffix (e.g., "HDFCBANK" -> "HDFC Bank Ltd.")
-      const withoutLtd = clean.replace(/LTD$/, '').replace(/LIMITED$/, '').trim();
-      if (withoutLtd && withoutLtd !== clean) window._stockNameMap[withoutLtd] = key;
-      // First significant word of multi-word names (e.g., "APOLLO" -> "Apollo Tyres Ltd.")
-      const words = upper.split(/[^A-Z0-9]+/).filter(w => w.length > 2);
-      if (words.length > 1) {
-        if (!window._stockNameMap[words[0]]) {
-          window._stockNameMap[words[0]] = key;
-        }
-      }
-      // For names with "&", map each part (e.g., "M&M" -> "Mahindra & Mahindra Ltd.")
-      if (upper.includes('&')) {
-        upper.split('&').forEach(p => {
-          const trimmed = p.replace(/[^A-Z0-9]/g, '').trim();
-          if (trimmed.length >= 3 && !window._stockNameMap[trimmed]) {
-            window._stockNameMap[trimmed] = key;
-          }
-        });
-      }
-    });
-  }
-  
   if (stockHistoricalChart) {
     stockHistoricalChart.destroy();
     stockHistoricalChart = null;
   }
-  
-  const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const stockKey = window._stockNameMap[cleanSymbol] || symbol;
-  const stock = historicalHoldings.stocks[stockKey];
+
+  // Reuse the shared lookup built by getStockHistoryKey() to avoid duplicating
+  // the normalisation logic (LTD stripping, &-splitting, first-word heuristic).
+  const stock = getStockHistoryKey(symbol) || historicalHoldings.stocks[symbol];
   if (!stock) return;
   
   const history = stock.history;
@@ -3172,9 +3209,13 @@ function renderStocksTable(data) {
   body.innerHTML = data.map(s => {
     const uploadedPrice = s.lastUploadedPrice !== undefined ? `₹${s.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—';
     const gain = s.thisMonthGain || 0;
+    const noLive = typeof hasLivePriceSource === 'function' && !hasLivePriceSource(s.instrument);
     return `
-    <tr>
-      <td class="instrument-cell">${escapeHtml(s.instrument)}</td>
+    <tr${noLive ? ' style="opacity:0.65;"' : ''}>
+      <td class="instrument-cell">
+        ${escapeHtml(s.instrument)}
+        ${noLive ? '<span title="No live price source — price shown is from upload" style="font-size:0.7rem;color:var(--text-muted);margin-left:4px;">(stale)</span>' : ''}
+      </td>
       <td><span class="sector-tag">${escapeHtml(s.sector)}</span></td>
       <td style="text-align: right;">${s.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${s.ltp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
@@ -3393,7 +3434,7 @@ function initMfsTab() {
   
   explorerList.innerHTML = sortedMFsByVal.map((f, idx) => `
     <div class="explorer-item ${idx === 0 ? 'active' : ''}" data-scheme="${escapeAttr(f.scheme)}">
-      <span class="name">${escapeHtml(f.scheme.substring(0, 25) + '...')}</span>
+      <span class="name">${escapeHtml(f.scheme.length > 28 ? f.scheme.substring(0, 25) + '…' : f.scheme)}</span>
       <span class="val">${formatINR(f.cur_val)}</span>
     </div>
   `).join('');
@@ -3623,41 +3664,131 @@ function generateBenchmarkData() {
   const dates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
   const firstValue = nwTotal[0];
-  
-  // Generate simulated benchmark data based on portfolio performance
-  // In a real app, this would fetch actual benchmark data from an API
-  
-  // Nifty 50 - simulated with ~12% annual growth
+
+  // Simulated fallback — replaced by fetchBenchmarkData() when network is available.
   benchmarkData.nifty50.history = dates.map((d, i) => {
-    const months = i;
-    const growth = Math.pow(1.01, months); // ~12% annual
-    const noise = 1 + (Math.sin(i * 0.3) * 0.05); // Some volatility
+    const growth = Math.pow(1.01, i);
+    const noise = 1 + (Math.sin(i * 0.3) * 0.05);
     return { date: d, value: firstValue * growth * noise };
   });
-  
-  // S&P 500 - simulated with ~10% annual growth
   benchmarkData.spx.history = dates.map((d, i) => {
-    const months = i;
-    const growth = Math.pow(1.0083, months); // ~10% annual
+    const growth = Math.pow(1.0083, i);
     const noise = 1 + (Math.sin(i * 0.25 + 1) * 0.04);
     return { date: d, value: firstValue * growth * noise };
   });
-  
-  // Sensex - simulated with ~12% annual growth (similar to Nifty 50)
   benchmarkData.sensex.history = dates.map((d, i) => {
-    const months = i;
-    const growth = Math.pow(1.01, months); // ~12% annual
-    const noise = 1 + (Math.sin(i * 0.28 + 0.5) * 0.045); // Slightly different phase/volatility
+    const growth = Math.pow(1.01, i);
+    const noise = 1 + (Math.sin(i * 0.28 + 0.5) * 0.045);
     return { date: d, value: firstValue * growth * noise };
   });
-
-  // Gold - simulated with ~6% annual growth
   benchmarkData.gold.history = dates.map((d, i) => {
-    const months = i;
-    const growth = Math.pow(1.005, months); // ~6% annual
+    const growth = Math.pow(1.005, i);
     const noise = 1 + (Math.sin(i * 0.15 + 2) * 0.03);
     return { date: d, value: firstValue * growth * noise };
   });
+}
+
+// ── Real benchmark data (Yahoo Finance monthly series) ────────────────────────
+// Fetches actual monthly closes for Nifty 50, Sensex, S&P 500 and Gold, aligns
+// them to the portfolio's date spine, and caches for 24 h. Falls back silently
+// to the simulated curves if the network call fails.
+
+const BENCHMARK_MONTHLY_CACHE_KEY = 'ag_portfolio_benchmark_monthly';
+const BENCHMARK_MONTHLY_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+const BENCHMARK_SOURCES = {
+  nifty50: { symbol: '^NSEI',  label: 'Nifty 50' },
+  sensex:  { symbol: '^BSESN', label: 'Sensex' },
+  spx:     { symbol: '^GSPC',  label: 'S&P 500' },
+  gold:    { symbol: 'GC=F',   label: 'Gold Futures' }
+};
+
+// Apply a cache payload (array of {date, value} per key) to benchmarkData.
+function _applyBenchmarkPayload(payload) {
+  for (const [key, { label }] of Object.entries(BENCHMARK_SOURCES)) {
+    if (Array.isArray(payload[key]) && payload[key].length) {
+      benchmarkData[key].history = payload[key];
+      benchmarkData[key].name   = label;
+    }
+  }
+}
+
+// Re-render the benchmark chart and stats if the Growth tab has been opened.
+function _rerenderBenchmarkCharts() {
+  if (!benchmarkComparisonChart) return;
+  const sel = document.getElementById('benchmark-select');
+  const key = sel ? sel.value : 'nifty50';
+  try { renderBenchmarkComparisonChart(key); } catch (_) {}
+  try { updateBenchmarkStats(key); } catch (_) {}
+}
+
+async function fetchBenchmarkData() {
+  const dates = breakupSummary?.dates;
+  if (!dates || !dates.length) return;
+
+  // Serve from 24-hour cache so the user isn't waiting on every page load.
+  try {
+    const raw = localStorage.getItem(BENCHMARK_MONTHLY_CACHE_KEY);
+    const cached = raw ? JSON.parse(raw) : null;
+    if (cached && Date.now() - (cached.timestamp || 0) < BENCHMARK_MONTHLY_CACHE_TTL) {
+      _applyBenchmarkPayload(cached);
+      _rerenderBenchmarkCharts();
+      return;
+    }
+  } catch (_) {}
+
+  const payload = { timestamp: Date.now() };
+  let anyOk = false;
+
+  for (const [key, { symbol, label }] of Object.entries(BENCHMARK_SOURCES)) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=6y&interval=1mo`;
+      const res = await fetchViaCorsProxy(url, {}, 15000);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const r = json?.chart?.result?.[0];
+      const ts = r?.timestamp;
+      // Prefer adjusted closes; fall back to raw closes.
+      const closes = r?.indicators?.adjclose?.[0]?.adjclose || r?.indicators?.quote?.[0]?.close;
+      if (!ts || !closes) continue;
+
+      // Build year-month → close map (timestamp is first trading day of month).
+      const ymMap = new Map();
+      ts.forEach((t, i) => {
+        if (closes[i] == null) return;
+        const d = new Date(t * 1000);
+        const ym = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        ymMap.set(ym, closes[i]);
+      });
+      if (!ymMap.size) continue;
+
+      // Align to portfolio date spine with forward-fill for any missing months.
+      let lastVal = null;
+      const aligned = dates.map(dateStr => {
+        const ym = dateStr.slice(0, 7); // 'YYYY-MM'
+        const v = ymMap.get(ym);
+        if (v != null) lastVal = v;
+        return { date: dateStr, value: lastVal };
+      });
+
+      // Back-fill any leading nulls from the first valid value.
+      const firstValid = aligned.find(h => h.value != null)?.value ?? null;
+      if (firstValid == null) continue;
+      aligned.forEach(h => { if (h.value == null) h.value = firstValid; });
+
+      benchmarkData[key].history = aligned;
+      benchmarkData[key].name   = label;
+      payload[key] = aligned;
+      anyOk = true;
+    } catch (e) {
+      console.warn(`fetchBenchmarkData: ${key} (${symbol}) failed —`, e.message);
+    }
+  }
+
+  if (anyOk) {
+    try { localStorage.setItem(BENCHMARK_MONTHLY_CACHE_KEY, JSON.stringify(payload)); } catch (_) {}
+    _rerenderBenchmarkCharts();
+  }
 }
 
 // ==================== BENCHMARK TAB ====================
@@ -3678,6 +3809,19 @@ function updateBenchmarkChart() {
   updateBenchmarkStats(benchmark);
 }
 
+// Compute a Time-Weighted Return index array (starts at 1.0).
+// Each sub-period return = nw[i] / (nw[i-1] + newContribution[i])
+// so that fresh cash inflows don't distort the performance line.
+function computeTWRIndex(nwArr, contribArr) {
+  const idx = [1];
+  for (let i = 1; i < nwArr.length; i++) {
+    const delta = contribArr[i] - contribArr[i - 1];
+    const base = nwArr[i - 1] + (delta > 0 ? delta : 0);
+    idx.push(idx[idx.length - 1] * (base > 0 ? nwArr[i] / base : 1));
+  }
+  return idx;
+}
+
 function renderBenchmarkComparisonChart(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
   const dates = breakupSummary.dates;
@@ -3690,16 +3834,11 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
     benchmarkComparisonChart.destroy();
   }
   
-  // ── Total Return Index for Portfolio ──
-  // Adjust for new investments: index[i] = nwTotal[i] / contribution[i]
-  // This shows what ₹1 invested at inception would be worth today,
-  // isolating organic portfolio returns from cash-flow effects.
-  // Normalised to start at 100 for direct side-by-side comparison.
-  const portfolioIndex = nwTotal.map((v, i) => {
-    const c = contribTotal[i];
-    return c > 0 ? (v / c) * 100 : 100;
-  });
-  const portfolioNormalized = portfolioIndex.map(v => (v / portfolioIndex[0]) * 100);
+  // ── Time-Weighted Return (TWR) Index for Portfolio ──
+  // Uses computeTWRIndex() so fresh cash inflows don't distort the line.
+  // Normalised to 100 for direct side-by-side comparison with benchmark.
+  const twrIdx = computeTWRIndex(nwTotal, contribTotal);
+  const portfolioNormalized = twrIdx.map(v => (v / twrIdx[0]) * 100);
 
   // Normalise benchmark to start at 100
   const benchmarkNormalized = benchmark.history.map(h => (h.value / benchmark.history[0].value) * 100);
@@ -3761,49 +3900,45 @@ function updateBenchmarkStats(benchmarkKey) {
   const contribTotal = breakupSummary.contribution["Total"].values;
   const lastIdx = nwTotal.length - 1;
   
-  const lastVal = nwTotal[lastIdx];
-  const lastContrib = contribTotal[lastIdx];
-  const firstContrib = contribTotal[0];
   const benchFirst = benchmark.history[0].value;
   const benchLast = benchmark.history[benchmark.history.length - 1].value;
-  
-  // Portfolio total return = (current_value / total_contribution - 1) * 100
-  const portfolioReturn = lastContrib > 0 ? ((lastVal / lastContrib) - 1) * 100 : 0;
+
+  const twrIdx = computeTWRIndex(nwTotal, contribTotal);
+  const twrStart = twrIdx[0];
+  const twrEnd = twrIdx[twrIdx.length - 1];
+
+  const portfolioReturn = ((twrEnd / twrStart) - 1) * 100;
   const benchmarkReturn = ((benchLast / benchFirst) - 1) * 100;
   const outperformance = portfolioReturn - benchmarkReturn;
-  
-  // Annualized returns using total-return-index values
+
   const years = nwTotal.length / 12;
-  const portfolioIdxStart = firstContrib > 0 ? nwTotal[0] / firstContrib : 1;
-  const portfolioIdxEnd = lastContrib > 0 ? lastVal / lastContrib : 1;
-  const portfolioAnn = years > 0 && portfolioIdxStart > 0
-    ? (Math.pow(portfolioIdxEnd / portfolioIdxStart, 1 / years) - 1) * 100
+  const portfolioAnn = years > 0 && twrStart > 0
+    ? (Math.pow(twrEnd / twrStart, 1 / years) - 1) * 100
     : 0;
   const benchmarkAnn = (Math.pow(benchLast / benchFirst, 1 / years) - 1) * 100;
   
   const statsContainer = document.getElementById('benchmark-stats');
+  const fmtPct = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
   statsContainer.innerHTML = `
     <div class="benchmark-stat-item">
       <span class="benchmark-stat-label">Portfolio Total Return</span>
-      <span class="benchmark-stat-value trend-up">+${portfolioReturn.toFixed(1)}%</span>
+      <span class="benchmark-stat-value ${portfolioReturn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(portfolioReturn)}</span>
     </div>
     <div class="benchmark-stat-item">
       <span class="benchmark-stat-label">${escapeHtml(benchmark.name)} Total Return</span>
-      <span class="benchmark-stat-value">+${benchmarkReturn.toFixed(1)}%</span>
+      <span class="benchmark-stat-value ${benchmarkReturn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(benchmarkReturn)}</span>
     </div>
     <div class="benchmark-stat-item">
       <span class="benchmark-stat-label">Outperformance</span>
-      <span class="benchmark-stat-value ${outperformance >= 0 ? 'trend-up' : 'trend-down'}">
-        ${outperformance >= 0 ? '+' : ''}${outperformance.toFixed(1)}%
-      </span>
+      <span class="benchmark-stat-value ${outperformance >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(outperformance)}</span>
     </div>
     <div class="benchmark-stat-item">
       <span class="benchmark-stat-label">Portfolio Annualized</span>
-      <span class="benchmark-stat-value trend-up">${portfolioAnn.toFixed(1)}%</span>
+      <span class="benchmark-stat-value ${portfolioAnn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(portfolioAnn)}</span>
     </div>
     <div class="benchmark-stat-item">
       <span class="benchmark-stat-label">${escapeHtml(benchmark.name)} Annualized</span>
-      <span class="benchmark-stat-value">${benchmarkAnn.toFixed(1)}%</span>
+      <span class="benchmark-stat-value ${benchmarkAnn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(benchmarkAnn)}</span>
     </div>
   `;
 }
@@ -3818,10 +3953,9 @@ function renderRollingReturnsChart() {
   const rollingReturns = [];
   const labels = [];
   
+  const twrIdx = computeTWRIndex(nwTotal, contribTotal);
   for (let i = 12; i < nwTotal.length; i++) {
-    const idxNow = contribTotal[i] > 0 ? nwTotal[i] / contribTotal[i] : 1;
-    const idxPrev = contribTotal[i - 12] > 0 ? nwTotal[i - 12] / contribTotal[i - 12] : 1;
-    const ret = idxPrev > 0 ? ((idxNow / idxPrev) - 1) * 100 : 0;
+    const ret = twrIdx[i - 12] > 0 ? ((twrIdx[i] / twrIdx[i - 12]) - 1) * 100 : 0;
     rollingReturns.push(ret);
     labels.push(formatDateString(dates[i]));
   }
