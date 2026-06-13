@@ -4466,39 +4466,70 @@ function renderMonthlyMovers(count = 1, startIndex = 0, endIndex = null) {
   }
 
   _lastMoversData = [];
-  latestEquity.forEach(stock => {
-    const clean    = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const stockKey = window._stockNameMap[clean] || stock.instrument;
-    const hist     = historicalHoldings.stocks[stockKey];
-    if (!hist) return;
+  const isFiltered = heatmapSelectedIndices.size > 0;
 
-    const history = hist.history;
-    let startEntry = null;
-    for (let h = 0; h < history.length; h++) {
-      if (history[h].date >= selectedStartDate) { startEntry = history[h]; break; }
-    }
-    if (!startEntry && history.length > 0) startEntry = history[0];
-    let endEntry = null;
-    for (let h = history.length - 1; h >= 0; h--) {
-      if (history[h].date <= selectedEndDate) { endEntry = history[h]; break; }
-    }
-    if (!startEntry || !endEntry || startEntry === endEntry) return;
-
-    // Use ltp (price per unit) so new purchases during the period don't inflate the gain.
-    // absGain = gain on the start-of-period position size (startQty × price change).
-    const startLtp = startEntry.ltp || 0;
-    const endLtp   = endEntry.ltp   || 0;
-    const pctGain  = startLtp > 0 ? ((endLtp - startLtp) / startLtp) * 100 : 0;
-    const absGain  = startEntry.qty * (endLtp - startLtp);
-
-    _lastMoversData.push({
-      name: stock.instrument,
-      sector: stock.sector,
-      qty: startEntry.qty,
-      pctGain,
-      absGain,
+  if (!isFiltered) {
+    // No heatmap filter → show cumulative P&L from the latest upload data.
+    // This matches what the old Stock Analytics section showed and avoids
+    // period-boundary edge cases (splits, first-entry LTP artefacts).
+    latestEquity.forEach(stock => {
+      _lastMoversData.push({
+        name: stock.instrument,
+        sector: stock.sector,
+        qty: stock.qty,
+        pctGain: stock.gain_pct || 0,
+        absGain: stock.pnl     || 0,
+        source: 'cumulative',
+      });
     });
-  });
+  } else {
+    // Heatmap filter active → compute period return from historical LTP.
+    //
+    // Uses ltp (price per unit) so new purchases during the period don't
+    // inflate the gain. Splits/bonus-issues are detected and corrected:
+    // after a 10:1 split endQty/startQty ≈ 10 and endLtp×10 ≈ startLtp,
+    // so we scale startLtp down to the post-split denomination before comparing.
+    latestEquity.forEach(stock => {
+      const clean    = stock.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const stockKey = window._stockNameMap[clean] || stock.instrument;
+      const hist     = historicalHoldings.stocks[stockKey];
+      if (!hist) return;
+
+      const history = hist.history;
+      let startEntry = null;
+      for (let h = 0; h < history.length; h++) {
+        if (history[h].date >= selectedStartDate) { startEntry = history[h]; break; }
+      }
+      if (!startEntry && history.length > 0) startEntry = history[0];
+      let endEntry = null;
+      for (let h = history.length - 1; h >= 0; h--) {
+        if (history[h].date <= selectedEndDate) { endEntry = history[h]; break; }
+      }
+      if (!startEntry || !endEntry || startEntry === endEntry) return;
+
+      const startLtp = startEntry.ltp || 0;
+      const endLtp   = endEntry.ltp   || 0;
+      if (startLtp <= 0 || endLtp <= 0) return;
+
+      // Split/bonus detection: if qty grew by ≥2× and endLtp × qtyRatio ≈ startLtp
+      // (within 8%), this is a corporate action — scale startLtp to post-split terms.
+      const qtyRatio = startEntry.qty > 0 ? endEntry.qty / startEntry.qty : 1;
+      const isSplit  = qtyRatio >= 1.9 && Math.abs(endLtp * qtyRatio / startLtp - 1) < 0.08;
+      const adjustedStartLtp = isSplit ? startLtp / qtyRatio : startLtp;
+
+      const pctGain = ((endLtp - adjustedStartLtp) / adjustedStartLtp) * 100;
+      const absGain = startEntry.qty * (endLtp - adjustedStartLtp);
+
+      _lastMoversData.push({
+        name: stock.instrument,
+        sector: stock.sector,
+        qty: startEntry.qty,
+        pctGain,
+        absGain,
+        source: 'period',
+      });
+    });
+  }
 
   _applyMoversMode(_moversMode);
 }
@@ -4511,6 +4542,13 @@ function _applyMoversMode(mode) {
   const losers  = [..._lastMoversData].sort((a, b) =>
     mode === 'abs' ? a.absGain - b.absGain : a.pctGain - b.pctGain
   ).filter(d => (mode === 'abs' ? d.absGain : d.pctGain) < 0);
+
+  // Update period label to clarify the metric source
+  const isCumulative = _lastMoversData.length > 0 && _lastMoversData[0].source === 'cumulative';
+  const modeLabel    = mode === 'abs' ? 'by absolute ₹' : 'by % return';
+  const sourceLabel  = isCumulative ? 'cumulative since purchase' : 'for selected period';
+  const periodEl = document.getElementById('movers-period-label');
+  if (periodEl) periodEl.textContent = `— ${modeLabel}, ${sourceLabel}`;
 
   const fmtAbs = v => (v >= 0 ? '+' : '−') + formatINR(Math.abs(v));
   const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
