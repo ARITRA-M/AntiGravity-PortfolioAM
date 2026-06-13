@@ -334,6 +334,24 @@
           </div>
         </div>
 
+        <!-- XIRR Comparison: Portfolio components vs Benchmarks -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>XIRR — Portfolio vs Benchmarks</h3>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0;">
+              Benchmark XIRR is computed by replaying your monthly contributions into the benchmark at its month-end price.
+            </p>
+          </div>
+          <div class="table-wrapper">
+            <table id="xirr-comparison-table" class="modern-table">
+              <thead>
+                <tr><th>Strategy</th><th style="text-align:right">XIRR</th><th style="text-align:right">Total Invested</th><th style="text-align:right">Current Value</th><th style="text-align:right">Absolute Gain</th></tr>
+              </thead>
+              <tbody id="xirr-comparison-body"><!-- populated dynamically --></tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- Rolling Returns Comparison -->
         <div class="chart-card full-width-card">
           <div class="chart-header">

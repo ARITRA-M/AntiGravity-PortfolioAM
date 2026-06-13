@@ -3819,6 +3819,158 @@ function _rerenderBenchmarkCharts() {
   const key = sel ? sel.value : 'nifty50';
   try { renderBenchmarkComparisonChart(key); } catch (_) {}
   try { updateBenchmarkStats(key); } catch (_) {}
+  try { renderXirrComparisonTable(); } catch (_) {}
+}
+
+// ── XIRR via Newton-Raphson ─────────────────────────────────────────────────
+// cashflows: array of ₹ amounts (negative = money out / investment,
+//            positive = money in / liquidation value at end)
+// dates: array of Date objects matching cashflows
+function computeXIRR(cashflows, dates, guess = 0.1) {
+  if (cashflows.length < 2) return null;
+  const hasNeg = cashflows.some(c => c < 0);
+  const hasPos = cashflows.some(c => c > 0);
+  if (!hasNeg || !hasPos) return null;
+
+  const t0 = dates[0].getTime();
+  const yearFrac = i => (dates[i].getTime() - t0) / (365.25 * 86400 * 1000);
+
+  const npv = r => cashflows.reduce((s, cf, i) => s + cf / Math.pow(1 + r, yearFrac(i)), 0);
+  const dnpv = r => cashflows.reduce((s, cf, i) => {
+    const t = yearFrac(i);
+    return s - (t * cf) / Math.pow(1 + r, t + 1);
+  }, 0);
+
+  let r = guess;
+  for (let iter = 0; iter < 100; iter++) {
+    const f = npv(r);
+    if (!Number.isFinite(f) || Math.abs(f) < 1e-6) return r;
+    const df = dnpv(r);
+    if (!Number.isFinite(df) || df === 0) break;
+    const next = r - f / df;
+    if (Math.abs(next - r) < 1e-9) return next;
+    r = next < -0.99 ? -0.99 : next; // keep above -100%
+  }
+  return Number.isFinite(r) ? r : null;
+}
+
+// Simulate investing the same monthly contributions into the benchmark and
+// compute XIRR. Returns { xirr, invested, currentValue, gain } in lakhs.
+function simulateBenchmarkXIRR(benchmarkKey, newMoneyLakhs) {
+  const bench = benchmarkData[benchmarkKey];
+  if (!bench || !bench.history || !bench.history.length) return null;
+
+  const cashflows = [];
+  const dates     = [];
+  let units = 0;
+
+  for (let i = 0; i < newMoneyLakhs.length; i++) {
+    const amount = (newMoneyLakhs[i] || 0) * 100000; // back to ₹
+    if (amount <= 0) continue;
+    const price = bench.history[i] && bench.history[i].value;
+    if (!price || price <= 0) continue;
+    units += amount / price;
+    cashflows.push(-amount);
+    dates.push(new Date(bench.history[i].date));
+  }
+
+  const lastIdx = bench.history.length - 1;
+  const finalPrice = bench.history[lastIdx].value;
+  const currentValue = units * finalPrice;
+  if (currentValue <= 0 || !cashflows.length) return null;
+
+  cashflows.push(currentValue);
+  dates.push(new Date(bench.history[lastIdx].date));
+
+  const invested = -cashflows.slice(0, -1).reduce((s, v) => s + v, 0);
+  return {
+    xirr: computeXIRR(cashflows, dates),
+    invested: invested / 100000,
+    currentValue: currentValue / 100000,
+    gain: (currentValue - invested) / 100000,
+  };
+}
+
+function renderXirrComparisonTable() {
+  const tbody = document.getElementById('xirr-comparison-body');
+  if (!tbody || !breakupSummary) return;
+
+  const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
+  const nwTotal       = breakupSummary.net_worth["Total"].values;
+  const lastIdx       = nwTotal.length - 1;
+
+  // Pull portfolio XIRR rows from the Excel (already a decimal fraction).
+  const xirrSec = breakupSummary.xirr || {};
+  const pick    = label => {
+    const k = Object.keys(xirrSec).find(k => xirrSec[k].label === label);
+    if (!k) return null;
+    const vals = xirrSec[k].values;
+    for (let i = vals.length - 1; i >= 0; i--) {
+      if (vals[i] !== 0 && Number.isFinite(vals[i])) return vals[i];
+    }
+    return null;
+  };
+
+  // Component invested + current values (lakhs) from Excel sections.
+  const nwSec  = breakupSummary.net_worth || {};
+  const newSec = breakupSummary.new_investment || {};
+  const pickSum = (section, label) => {
+    const k = Object.keys(section).find(k => section[k].label === label);
+    if (!k) return null;
+    return section[k].values.reduce((s, v) => s + (v || 0), 0);
+  };
+  const pickLast = (section, label) => {
+    const k = Object.keys(section).find(k => section[k].label === label);
+    if (!k) return null;
+    return section[k].values[section[k].values.length - 1];
+  };
+
+  const portfolioInvested = pickSum(newSec, 'Total Investment');
+  const portfolioValue    = pickLast(nwSec, 'Total');
+  const stocksInvested    = pickSum(newSec, 'Stocks');
+  const stocksValue       = pickLast(nwSec, 'Stocks');
+  const mfInvested        = pickSum(newSec, 'MF');
+  const mfValue           = pickLast(nwSec, 'MF');
+
+  const rows = [
+    { label: 'Portfolio (Overall)', type: 'portfolio',
+      xirr: pick('Total'),  invested: portfolioInvested, value: portfolioValue,
+      emphasis: true },
+    { label: 'Stocks (Equity)',     type: 'portfolio',
+      xirr: pick('Stocks'), invested: stocksInvested,    value: stocksValue },
+    { label: 'Mutual Funds (Equity)', type: 'portfolio',
+      xirr: pick('MF'),     invested: mfInvested,        value: mfValue },
+  ];
+
+  // Benchmarks — simulate same cashflows.
+  for (const [key, { label }] of Object.entries(BENCHMARK_SOURCES)) {
+    const sim = simulateBenchmarkXIRR(key, newMoneyTotal);
+    rows.push({
+      label, type: 'benchmark',
+      xirr: sim ? sim.xirr : null,
+      invested: sim ? sim.invested : null,
+      value:    sim ? sim.currentValue : null,
+    });
+  }
+
+  const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%';
+  const fmtL   = v => v == null ? '—' : '₹' + v.toFixed(2) + ' L';
+  const cls    = v => v == null ? '' : (v >= 0 ? 'trend-up' : 'trend-down');
+
+  tbody.innerHTML = rows.map(r => {
+    const gain = (r.invested != null && r.value != null) ? (r.value - r.invested) : null;
+    const style = r.emphasis ? 'font-weight:700;background:rgba(99,102,241,0.06)' : '';
+    const typeBadge = r.type === 'benchmark'
+      ? '<span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;margin-left:0.4rem">(simulated)</span>'
+      : '';
+    return `<tr style="${style}">
+      <td>${escapeHtml(r.label)}${typeBadge}</td>
+      <td style="text-align:right" class="${cls(r.xirr)}">${fmtPct(r.xirr)}</td>
+      <td style="text-align:right">${fmtL(r.invested)}</td>
+      <td style="text-align:right">${fmtL(r.value)}</td>
+      <td style="text-align:right" class="${cls(gain)}">${fmtL(gain)}</td>
+    </tr>`;
+  }).join('');
 }
 
 async function fetchBenchmarkData() {
@@ -3900,6 +4052,7 @@ function initBenchmarkTab() {
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
   updateBenchmarkStats('nifty50');
+  renderXirrComparisonTable();
 }
 
 function switchCapMode(mode, btn) {
