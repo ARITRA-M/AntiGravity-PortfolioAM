@@ -416,6 +416,7 @@ const SECTOR_MAP = {
   ONGC: 'Energy & Mining', PIDILITIND: 'Chemicals & Adhesives', SIEMENS: 'Industrial Engineering',
   TATASTEEL: 'Metals & Mining', TITAN: 'Consumer Goods & FMCG', CASTROLIND: 'Energy & Mining',
   GOLDBEES: 'Gold Commodity (ETF)', SGBAUG28V: 'Sovereign Gold Bonds',
+  SGBJUL28IV: 'Sovereign Gold Bonds', SGBSEP28VI: 'Sovereign Gold Bonds',
   'SGBJUL28IV-GB': 'Sovereign Gold Bonds', 'SGBSEP28VI-GB': 'Sovereign Gold Bonds',
   '716GS2050-GS': 'Government Bonds', '738REC27TF': 'Corporate Bonds', TVSMNCRPS: 'Debt Instrument',
   ENRIN: 'Industrial Engineering',
@@ -574,6 +575,12 @@ const HISTORY_STITCH_ALIASES = {
     'UPL Ltd.': 'UPL',
     'YES Bank Ltd.': 'YESBANK',
     'Zydus Wellness Ltd.': 'ZYDUSWELL',
+    // Sovereign Gold Bonds — Zerodha re-spelled each tranche's symbol over time
+    // (…-GB → bare → …V). Verified sequential (never two symbols on the same
+    // month), so these are pure renames. Canonical = current symbol.
+    'SGBAUG28V-GB': 'SGBAUG28V', 'SGBAUG28': 'SGBAUG28V',
+    'SGBSEP28VI-GB': 'SGBSEP28VI', 'SGBSEP28': 'SGBSEP28VI',
+    'SGBJUL28IV-GB': 'SGBJUL28IV', 'SGBJULY28': 'SGBJUL28IV',
   },
   mfs: {
     'Kotak Emerging Equity Fund Direct-Growth': 'Kotak Midcap Fund Direct-Growth',
