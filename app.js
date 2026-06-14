@@ -4562,10 +4562,7 @@ function _buildComparisons(buckets, gran) {
     }
   }
 
-  // YTD comparison (CY vs LYTD — same month last year)
-  if (gran === 'Y' && n >= 2) {
-    pairs.push({ label: 'CY vs LY', a: cur, aLbl: 'CYTD', b: buckets[n - 2], bLbl: 'LYTD' });
-  }
+  // For Y, the CY vs LY comparison is already covered by the first pair above
 
   return pairs;
 }
