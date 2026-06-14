@@ -1937,30 +1937,31 @@ function renderDailyOverviewTable() {
   // Render Daily Summaries — click cards to filter the table below
   const dailySummaryEl = document.getElementById('daily-summary-kpis');
   if (dailySummaryEl) {
+    const G = '#10b981', R = '#ef4444';
     dailySummaryEl.className = 'tab-kpi-bar';
     dailySummaryEl.innerHTML = `
-      <div class="tab-kpi-card${dailyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setDailyTypeFilter('stock')">
+      <div class="tab-kpi-card${dailyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent:${totalStockGain >= 0 ? G : R}; cursor:pointer;" onclick="setDailyTypeFilter('stock')">
         <div class="tab-kpi-label">Daily Change — Stocks</div>
         <div class="tab-kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)}
         </div>
         <div class="tab-kpi-sub">${dailyStockPct >= 0 ? '+' : ''}${dailyStockPct.toFixed(2)}% since yesterday</div>
       </div>
-      <div class="tab-kpi-card${dailyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setDailyTypeFilter('mf')">
+      <div class="tab-kpi-card${dailyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent:${totalMfGain >= 0 ? G : R}; cursor:pointer;" onclick="setDailyTypeFilter('mf')">
         <div class="tab-kpi-label">Daily Change — MFs</div>
         <div class="tab-kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalMfGain >= 0 ? '+' : ''}${formatINR(totalMfGain)}
         </div>
         <div class="tab-kpi-sub">${dailyMfPct >= 0 ? '+' : ''}${dailyMfPct.toFixed(2)}% since previous NAV</div>
       </div>
-      <div class="tab-kpi-card${dailyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent: #34d399; cursor: pointer;" onclick="setDailyTypeFilter('all')">
+      <div class="tab-kpi-card${dailyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent:${totalGain >= 0 ? G : R}; cursor:pointer;" onclick="setDailyTypeFilter('all')">
         <div class="tab-kpi-label">Combined Change</div>
         <div class="tab-kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)}
         </div>
         <div class="tab-kpi-sub">${dailyTotalPct >= 0 ? '+' : ''}${dailyTotalPct.toFixed(2)}% Stocks + MFs</div>
       </div>
-      <div class="tab-kpi-card" style="--card-accent: #ef4444;">
+      <div class="tab-kpi-card" style="--card-accent:${niftyDailyPct >= 0 ? G : R};">
         <div class="tab-kpi-label">Nifty 50 (Ref)</div>
         <div class="tab-kpi-value ${niftyDailyPct >= 0 ? 'trend-up' : 'trend-down'}">
           ${niftyDailyPct >= 0 ? '+' : ''}${niftyDailyPct.toFixed(2)}%
@@ -2089,32 +2090,33 @@ function renderMonthlyOverviewTable() {
     : combined.filter(item => item.type.toLowerCase() === monthlyTypeFilter);
 
   // Render Monthly Summaries — click cards to filter the table below
+  const G = '#10b981', R = '#ef4444';
   const monthlySummaryEl = document.getElementById('monthly-summary-kpis');
   if (monthlySummaryEl) {
     monthlySummaryEl.className = 'tab-kpi-bar';
     monthlySummaryEl.innerHTML = `
-      <div class="tab-kpi-card${monthlyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setMonthlyTypeFilter('stock')">
+      <div class="tab-kpi-card${monthlyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent:${totalStockMonthlyGain >= 0 ? G : R}; cursor:pointer;" onclick="setMonthlyTypeFilter('stock')">
         <div class="tab-kpi-label">Period Gain — Stocks</div>
         <div class="tab-kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)}
         </div>
         <div class="tab-kpi-sub">${monthlyStockPct >= 0 ? '+' : ''}${monthlyStockPct.toFixed(2)}% since last upload</div>
       </div>
-      <div class="tab-kpi-card${monthlyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setMonthlyTypeFilter('mf')">
+      <div class="tab-kpi-card${monthlyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent:${totalMfMonthlyGain >= 0 ? G : R}; cursor:pointer;" onclick="setMonthlyTypeFilter('mf')">
         <div class="tab-kpi-label">Period Gain — MFs</div>
         <div class="tab-kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)}
         </div>
         <div class="tab-kpi-sub">${monthlyMfPct >= 0 ? '+' : ''}${monthlyMfPct.toFixed(2)}% since last upload</div>
       </div>
-      <div class="tab-kpi-card${monthlyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent: #34d399; cursor: pointer;" onclick="setMonthlyTypeFilter('all')">
+      <div class="tab-kpi-card${monthlyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent:${totalMonthlyGain >= 0 ? G : R}; cursor:pointer;" onclick="setMonthlyTypeFilter('all')">
         <div class="tab-kpi-label">Combined Gain</div>
         <div class="tab-kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)}
         </div>
         <div class="tab-kpi-sub">${monthlyTotalPct >= 0 ? '+' : ''}${monthlyTotalPct.toFixed(2)}% Stocks + MFs</div>
       </div>
-      <div class="tab-kpi-card" style="--card-accent: #ef4444;">
+      <div class="tab-kpi-card" style="--card-accent:${niftyMonthlyPct >= 0 ? G : R};">
         <div class="tab-kpi-label">Nifty 50 (Ref)</div>
         <div class="tab-kpi-value ${niftyMonthlyPct >= 0 ? 'trend-up' : 'trend-down'}">
           ${niftyMonthlyPct >= 0 ? '+' : ''}${niftyMonthlyPct.toFixed(2)}%
