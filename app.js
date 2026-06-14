@@ -3487,15 +3487,20 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
   for (let i = 0; i < history.length; i++) {
     const h = history[i];
     if (i === 0) {
-      if (h.qty > 0) deltaRows.push({ date: h.date, dQty: h.qty, qty: h.qty, price: h.ltp, dInv: h.invested, dVal: h.cur_val, curVal: h.cur_val, action: 'Buy' });
+      if (h.qty > 0) {
+        // invested from first snapshot; fall back to qty × avg_cost if 0
+        const dInv = h.invested || (h.avg_cost ? h.qty * h.avg_cost : 0);
+        deltaRows.push({ date: h.date, dQty: h.qty, qty: h.qty, price: h.ltp, dInv, action: 'Buy' });
+      }
     } else {
       const p = history[i - 1];
       const dQty = h.qty - p.qty;
-      if (Math.abs(dQty) > 0.001) deltaRows.push({
-        date: h.date, dQty, qty: h.qty, price: h.ltp,
-        dInv: h.invested - p.invested, dVal: h.cur_val - p.cur_val,
-        curVal: h.cur_val, action: dQty > 0 ? 'Buy' : 'Sell'
-      });
+      if (Math.abs(dQty) > 0.001) {
+        let dInv = h.invested - p.invested;
+        // Fallback when workbook invested field didn't update: estimate from avg_cost
+        if (dInv === 0 && h.avg_cost) dInv = dQty * h.avg_cost;
+        deltaRows.push({ date: h.date, dQty, qty: h.qty, price: h.ltp, dInv, action: dQty > 0 ? 'Buy' : 'Sell' });
+      }
     }
   }
   tbody.innerHTML = deltaRows.map(r => {
