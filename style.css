@@ -434,6 +434,11 @@ header {
   text-overflow: ellipsis;
 }
 
+.kpi-slim-pct {
+  color: var(--card-accent, var(--accent-indigo));
+  font-weight: 700;
+}
+
 /* ── Per-tab context cards ── */
 .tab-kpi-bar {
   display: grid;
@@ -1926,42 +1931,50 @@ tr:hover td {
 
 .update-log-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 0.75rem;
   margin-bottom: 1.5rem;
 }
 
 .update-log-card {
   background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 0.875rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.update-log-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--log-accent, var(--accent-indigo));
 }
 
 .update-log-card .log-label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
 }
 
 .update-log-card .log-value {
-  font-size: 1.25rem;
+  font-size: 1.3rem;
   font-weight: 700;
+  color: var(--log-accent, var(--text-primary));
+  line-height: 1.2;
 }
 
-.update-log-card.total { border-left: 3px solid var(--accent-blue); }
-.update-log-card.success { border-left: 3px solid var(--accent-green); }
-.update-log-card.error { border-left: 3px solid #ef4444; }
-.update-log-card.warn { border-left: 3px solid var(--accent-amber); }
-
-.update-log-card.total .log-value { color: var(--accent-blue); }
-.update-log-card.success .log-value { color: var(--accent-green); }
-.update-log-card.error .log-value { color: #ef4444; }
-.update-log-card.warn .log-value { color: var(--accent-amber); }
+.update-log-card.total  { --log-accent: var(--accent-blue); }
+.update-log-card.success { --log-accent: var(--accent-green); }
+.update-log-card.error  { --log-accent: #ef4444; }
+.update-log-card.warn   { --log-accent: var(--accent-amber); }
 
 .update-log-table {
   width: 100%;
@@ -2015,6 +2028,9 @@ tr:hover td {
 .update-log-table tr:hover td {
   background: rgba(255, 255, 255, 0.03);
 }
+
+.update-log-table .change-up { color: var(--accent-green); font-weight: 600; }
+.update-log-table .change-down { color: #ef4444; font-weight: 600; }
 
 .update-log-note {
   margin-top: 1rem;
