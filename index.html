@@ -373,43 +373,7 @@
           </div>
         </div>
 
-        <!-- Interactive Stock Explorer (graphs) -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Historical Stock Price & Position Explorer</h3>
-            <p style="font-size: 0.85rem; color: var(--text-secondary);">Select a stock on the left to see its history</p>
-          </div>
-          <div class="stock-explorer-section">
-            <div class="explorer-list-card" id="explorer-stock-list">
-              <!-- Dynamically populated -->
-            </div>
-            <div class="explorer-chart-card">
-              <div class="chart-container" style="height: 380px;">
-                <canvas id="stock-historical-chart"></canvas>
-              </div>
-            </div>
-          </div>
-          <!-- Historical Data Table for Stock Explorer (shows incremental transactions) -->
-          <div class="table-wrapper" id="stock-historical-data-table" style="margin-top: 1rem; display: none;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th style="text-align: right;">Δ Qty</th>
-                  <th style="text-align: right;">Price (₹)</th>
-                  <th style="text-align: right;">Δ Invested (₹)</th>
-                  <th style="text-align: right;">Δ Valuation (₹)</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="stock-historical-data-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Stock Holdings Table -->
+        <!-- Stock Holdings Table (click any row to expand history inline) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Current Stock Holdings</h3>
@@ -492,44 +456,7 @@
           </div>
         </div>
 
-        <!-- Mutual Fund Scheme Explorer -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Historical Mutual Fund Scheme Explorer</h3>
-            <p style="font-size: 0.85rem; color: var(--text-secondary);">Select a scheme on the left to see its history</p>
-          </div>
-          <div class="stock-explorer-section">
-            <div class="explorer-list-card" id="explorer-mf-list">
-              <!-- Dynamically populated -->
-            </div>
-            <div class="explorer-chart-card">
-              <div class="chart-container" style="height: 380px;">
-                <canvas id="mf-historical-chart"></canvas>
-              </div>
-            </div>
-          </div>
-          <!-- Historical Data Table for MF Explorer -->
-          <!-- Historical Data Table for MF Explorer (shows incremental transactions) -->
-          <div class="table-wrapper" id="mf-historical-data-table" style="margin-top: 1rem; display: none;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th style="text-align: right;">Δ Units</th>
-                  <th style="text-align: right;">NAV (₹)</th>
-                  <th style="text-align: right;">Δ Invested (₹)</th>
-                  <th style="text-align: right;">Δ Valuation (₹)</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="mf-historical-data-body">
-                <!-- Dynamically populated -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Mutual Fund Table -->
+        <!-- Mutual Fund Table (click any row to expand history inline) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Current Mutual Fund Holdings</h3>

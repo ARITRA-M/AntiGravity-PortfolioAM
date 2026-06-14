@@ -786,60 +786,87 @@ tr:hover td {
 }
 
 /* Historical Stock Detail Modal or Section */
-.stock-explorer-section {
-  display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 1.5rem;
-  margin-top: 1.5rem;
+/* ── Inline row history expansion ── */
+.holdings-row:hover td {
+  background: rgba(99, 102, 241, 0.05);
 }
 
-.explorer-list-card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 16px;
-  padding: 1.25rem;
-  max-height: 500px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.explorer-item {
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.01);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  cursor: pointer;
-  transition: var(--transition-fast);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.explorer-item:hover, .explorer-item.active {
+.holdings-row.history-row-active td {
   background: rgba(99, 102, 241, 0.08);
-  border-color: rgba(99, 102, 241, 0.3);
+  border-bottom: none;
 }
 
-.explorer-item .name {
-  font-weight: 700;
-  font-size: 0.9rem;
+.row-expand-icon {
+  display: inline-block;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  margin-right: 5px;
+  transition: transform 0.2s ease;
+  vertical-align: middle;
 }
 
-.explorer-item .val {
-  font-size: 0.8rem;
+.history-row-active .row-expand-icon {
+  transform: rotate(90deg);
+  color: var(--accent-indigo);
+}
+
+.history-expansion-row td {
+  padding: 0 !important;
+  border-top: none;
+  background: rgba(15, 17, 26, 0.6);
+}
+
+.history-panel {
+  display: grid;
+  grid-template-columns: 58% 42%;
+  gap: 0;
+  border-top: 1px solid rgba(99, 102, 241, 0.25);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.history-chart-side {
+  padding: 1rem 1rem 1rem 1.25rem;
+  border-right: 1px solid var(--card-border);
+  height: 280px;
+  position: relative;
+}
+
+.history-chart-side canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.history-table-side {
+  padding: 0.75rem 1rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.history-inline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.history-inline-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--card-border);
+  z-index: 1;
+}
+
+.history-inline-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
   color: var(--text-secondary);
-}
-
-.explorer-chart-card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 16px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  white-space: nowrap;
 }
 
 /* Benchmark Stats */
@@ -1031,7 +1058,7 @@ tr:hover td {
    (a global * rule here is known to break scrolling on mobile WebKit) ── */
 .table-wrapper,
 .tabs-navigation,
-.explorer-list-card {
+.history-table-side {
   -webkit-overflow-scrolling: touch;
 }
 .table-wrapper {
@@ -1060,10 +1087,14 @@ tr:hover td {
   .brand-section h1 {
     font-size: 1.5rem;
   }
-  .stock-explorer-section {
+  .history-panel {
     grid-template-columns: 1fr;
   }
-  
+  .history-chart-side {
+    border-right: none;
+    border-bottom: 1px solid var(--card-border);
+  }
+
   /* Mobile-friendly tabs - horizontal scroll */
   .tabs-navigation {
     overflow-x: auto;
@@ -1150,10 +1181,6 @@ tr:hover td {
     font-size: 1rem;
   }
   
-  /* Explorer list */
-  .explorer-list-card {
-    max-height: 300px;
-  }
 }
 
 @media (max-width: 480px) {
@@ -1289,7 +1316,7 @@ tr:hover td {
   .tab-btn {
     min-height: 44px;
   }
-  .explorer-item {
+  .holdings-row td {
     min-height: 44px;
   }
 }
