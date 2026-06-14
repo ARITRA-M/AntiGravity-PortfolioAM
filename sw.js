@@ -1,5 +1,5 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v35';
+const CACHE_NAME = 'portfolio-analytics-v36';
 
 // Determine the base path - works on both local server (/) and GitHub Pages subpath
 const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '') || '';
