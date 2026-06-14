@@ -791,6 +791,12 @@ tr:hover td {
   background: rgba(99, 102, 241, 0.05);
 }
 
+/* Sticky first cell must stay solid so scrolled columns don't bleed through */
+.holdings-row:hover td:first-child,
+.holdings-row.history-row-active td:first-child {
+  background: color-mix(in srgb, var(--bg-primary) 88%, #6366f1 12%);
+}
+
 .holdings-row.history-row-active td {
   background: rgba(99, 102, 241, 0.08);
   border-bottom: none;
@@ -827,7 +833,7 @@ tr:hover td {
 .history-chart-side {
   padding: 1rem 1rem 1rem 1.25rem;
   border-right: 1px solid var(--card-border);
-  height: 280px;
+  height: 300px;
   position: relative;
 }
 
@@ -837,36 +843,45 @@ tr:hover td {
 }
 
 .history-table-side {
-  padding: 0.75rem 1rem;
-  max-height: 280px;
+  padding: 0;
+  max-height: 300px;
   overflow-y: auto;
 }
 
 .history-inline-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  text-align: left;
+  font-size: 0.9rem;
 }
 
 .history-inline-table th {
   position: sticky;
   top: 0;
-  background: var(--bg-secondary);
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid var(--card-border);
   z-index: 1;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
 }
 
 .history-inline-table td {
-  padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
-  color: var(--text-secondary);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
   white-space: nowrap;
+}
+
+.history-inline-table tr:last-child td {
+  border-bottom: none;
+}
+
+.history-inline-table tr:hover td {
+  background: rgba(255, 255, 255, 0.01);
 }
 
 /* Benchmark Stats */
