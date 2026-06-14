@@ -648,3 +648,69 @@ async function refreshPrices() {
     setTimeout(() => { status.className = 'refresh-status'; }, 8000);
   }
 }
+
+// ── Auto-refresh during NSE market hours (9:15 AM – 3:30 PM IST, Mon–Fri) ───
+const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+let _autoRefreshTimer = null;
+let _autoRefreshCountdownTimer = null;
+let _autoRefreshNextAt = null; // timestamp of next scheduled fire
+
+function isMarketOpen() {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const dow = now.getDay(); // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) return false;
+  const h = now.getHours(), m = now.getMinutes();
+  const mins = h * 60 + m;
+  return mins >= 9 * 60 + 15 && mins < 15 * 60 + 30;
+}
+
+function updateAutoRefreshBadge() {
+  const badge = document.getElementById('auto-refresh-badge');
+  if (!badge) return;
+  if (!isMarketOpen()) {
+    badge.classList.remove('active');
+    badge.textContent = '';
+    return;
+  }
+  badge.classList.add('active');
+  if (_autoRefreshNextAt) {
+    const secsLeft = Math.max(0, Math.round((_autoRefreshNextAt - Date.now()) / 1000));
+    const m = Math.floor(secsLeft / 60);
+    const s = secsLeft % 60;
+    badge.textContent = `Auto ⟳ ${m}:${String(s).padStart(2, '0')}`;
+  } else {
+    badge.textContent = 'Auto ⟳';
+  }
+}
+
+function scheduleNextAutoRefresh() {
+  clearTimeout(_autoRefreshTimer);
+  clearInterval(_autoRefreshCountdownTimer);
+
+  if (!isMarketOpen()) {
+    // Check again in 1 minute in case market opens soon
+    _autoRefreshNextAt = null;
+    updateAutoRefreshBadge();
+    _autoRefreshTimer = setTimeout(scheduleNextAutoRefresh, 60 * 1000);
+    return;
+  }
+
+  _autoRefreshNextAt = Date.now() + AUTO_REFRESH_INTERVAL_MS;
+  updateAutoRefreshBadge();
+
+  // Tick the countdown every second
+  _autoRefreshCountdownTimer = setInterval(updateAutoRefreshBadge, 1000);
+
+  _autoRefreshTimer = setTimeout(async () => {
+    clearInterval(_autoRefreshCountdownTimer);
+    if (isMarketOpen() && !isRefreshing) {
+      await refreshPrices();
+    }
+    scheduleNextAutoRefresh();
+  }, AUTO_REFRESH_INTERVAL_MS);
+}
+
+// Start auto-refresh once the page data is loaded (called from app.js after init)
+function startAutoRefresh() {
+  scheduleNextAutoRefresh();
+}
