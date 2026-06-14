@@ -499,12 +499,10 @@ header {
   margin-top: 0.2rem;
 }
 
-.tab-kpi-pct {
-  font-size: 1.05rem;
+.tab-kpi-inline-pct {
+  font-size: 0.9rem;
   font-weight: 700;
-  color: var(--card-accent, var(--accent-green));
-  line-height: 1.2;
-  margin-top: 0.1rem;
+  color: var(--text-secondary, var(--text-muted));
 }
 
 @media (max-width: 768px) {
