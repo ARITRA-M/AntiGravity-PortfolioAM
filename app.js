@@ -447,6 +447,126 @@ const MARKET_CAP_MAP = {
   ENRIN: 'Small Cap',
 };
 
+// ── History fragment stitching ───────────────────────────────────────────────
+// The source workbook changed naming conventions over time, splitting a single
+// continuously-held instrument's history across multiple keys:
+//   • Stocks: pre-Aug-2022 rows use FULL COMPANY NAMES ("Siemens Ltd."),
+//     post-Aug-2022 rows use TICKERS ("SIEMENS").
+//   • MFs: fund renames ("Kotak Emerging Equity" → "Kotak Midcap").
+// Each map entry merges the OLD/orphaned key's history into the CANONICAL
+// (current) key, so charts, the per-holding explorer and XIRR show the true
+// inception date instead of starting mid-stream.
+//
+//   FORMAT:  'Old / orphaned key' : 'Canonical current key'
+//   REVIEW:  Verify each pairing. Anything NOT listed here is never merged.
+//            Intentionally OMITTED (genuinely different securities — do NOT add):
+//              • 'GHCLTEXTIL'  — demerged textile entity, separate from GHCL
+//              • corporate-action variant tickers (BAJAJ-AUTO*, BRITANNIA-N3,
+//                ICICIBANKN, MOTHERSON#) — temporary event rows, left untouched
+const HISTORY_STITCH_ALIASES = {
+  stocks: {
+    // Aug-2022 full-name → ticker cutover (true inception 2020-12-27 unless noted)
+    'Alkem Laboratories Ltd.': 'ALKEM',
+    'Apollo Tyres Ltd.': 'APOLLOTYRE',
+    'Asian Paints Ltd.': 'ASIANPAINT',
+    'Axis Bank Ltd.': 'AXISBANK',
+    'Bajaj Auto Ltd.': 'BAJAJ-AUTO',
+    'Brigade Enterprises Ltd.': 'BRIGADE',
+    'Britannia Industries Ltd.': 'BRITANNIA',
+    'Castrol India Ltd.': 'CASTROLIND',
+    'Cipla Ltd.': 'CIPLA',
+    'Coal India Ltd.': 'COALINDIA',
+    'Coforge Ltd.': 'COFORGE',
+    'DLF Ltd.': 'DLF',
+    'Dabur India Ltd.': 'DABUR',
+    "Divi's Laboratories Ltd.": 'DIVISLAB',
+    'Dr. Lal Pathlabs Ltd.': 'LALPATHLAB',
+    'Eicher Motors Ltd.': 'EICHERMOT',
+    'Embassy Office Parks REIT': 'EMBASSY',
+    'Endurance Technologies Ltd.': 'ENDURANCE',
+    'Eris Lifesciences Ltd.': 'ERIS',
+    'Exide Industries Ltd.': 'EXIDEIND',
+    'GHCL Ltd.': 'GHCL',
+    'Gland Pharma Ltd.': 'GLAND',
+    'Godrej Properties Ltd.': 'GODREJPROP',
+    'HCL Technologies Ltd.': 'HCLTECH',
+    'HDFC Bank Ltd.': 'HDFCBANK',
+    'HDFC Life Insurance Company Ltd.': 'HDFCLIFE',
+    'HG Infra Engineering Ltd.': 'HGINFRA',
+    'Hero MotoCorp Ltd.': 'HEROMOTOCO',
+    'Hindalco Industries Ltd.': 'HINDALCO',
+    'ICICI Bank Ltd.': 'ICICIBANK',
+    'ITC Ltd.': 'ITC',
+    'KPIT Technologies Ltd.': 'KPITTECH',
+    'Marico Ltd.': 'MARICO',
+    'MindTree Ltd.': 'MINDTREE',
+    'Minda Industries Ltd.': 'UNOMINDA',         // Minda Industries → UNO Minda (renamed)
+    'MINDAIND': 'UNOMINDA',                        // ...also the old ticker era
+    'Mindspace Business Parks REIT': 'MINDSPACE',
+    'Motherson Sumi Systems Ltd.': 'MOTHERSON',
+    'Samvardhana Motherson International Ltd.': 'MOTHERSON',
+    'MphasiS Ltd.': 'MPHASIS',
+    'Oil India Ltd.': 'OIL',
+    'Persistent Systems Ltd.': 'PERSISTENT',
+    'Redington (India) Ltd.': 'REDINGTON',
+    'Relaxo Footwears Ltd.': 'RELAXO',
+    'SBI Life Insurance Company Ltd.': 'SBILIFE',
+    'Siemens Ltd.': 'SIEMENS',
+    'Sobha Ltd.': 'SOBHA',
+    'Sun Pharmaceutical Industries Ltd.': 'SUNPHARMA',
+    'Sunteck Realty Ltd.': 'SUNTECK',
+    'Suprajit Engineering Ltd.': 'SUPRAJIT',
+    'Syngene International Ltd.': 'SYNGENE',
+    'Tata Consumer Products Ltd.': 'TATACONSUM',
+    'Tata Motors Ltd. (DVR)': 'TATAMOTORS',
+    'Tata Steel Ltd.': 'TATASTEEL',
+    'Tech Mahindra Ltd.': 'TECHM',
+    'Titan Company Ltd.': 'TITAN',
+    'UPL Ltd.': 'UPL',
+    'YES Bank Ltd.': 'YESBANK',
+    'Zydus Wellness Ltd.': 'ZYDUSWELL',
+  },
+  mfs: {
+    'Kotak Emerging Equity Fund Direct-Growth': 'Kotak Midcap Fund Direct-Growth',
+    'Parag Parikh Long Term Equity Fund Direct-Growth': 'Parag Parikh Flexi Cap Fund Direct-Growth',
+    'PGIM India Global Equity Opportunities Fund Direct-Growth': 'PGIM India Global Equity Opportunities FoF Direct-Growth',
+    'Canara Robeco Small Cap Fund Direct-Growth': 'Canara Robeco Small Cap Fund Direct - Growth',
+    // Navi NASDAQ-100 renamed twice — both predecessors fold into the latest name
+    'Navi NASDAQ 100 FoF Direct - Growth': 'Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth',
+    'Navi US NASDAQ 100 FoF Direct - Growth': 'Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth',
+    // HDFC Sensex index renamed 3 times — all fold into the latest name
+    'HDFC Index Sensex Direct Plan-Growth': 'HDFC BSE Sensex Index Fund Direct-Growth',
+    'HDFC Index S&P BSE Sensex Direct Plan-Growth': 'HDFC BSE Sensex Index Fund Direct-Growth',
+    'HDFC Index Fund - BSE Sensex Plan Direct-Growth': 'HDFC BSE Sensex Index Fund Direct-Growth',
+    'Tata Index Sensex Direct': 'Tata S&P BSE Sensex Index Direct',
+  },
+};
+
+// Merge orphaned history fragments into their canonical keys (idempotent —
+// safe to re-run on localStorage-cached, already-stitched data).
+function stitchHistoryFragments(hh) {
+  if (!hh) return hh;
+  let mergedCount = 0;
+  for (const section of ['stocks', 'mfs']) {
+    const bucket = hh[section];
+    const aliases = HISTORY_STITCH_ALIASES[section];
+    if (!bucket || !aliases) continue;
+    for (const [oldKey, canonKey] of Object.entries(aliases)) {
+      const oldEntry = bucket[oldKey];
+      const canonEntry = bucket[canonKey];
+      if (!oldEntry || !canonEntry) continue; // nothing to merge / canonical absent → safe skip
+      // Canonical (current) values win on any same-date collision; fragments don't overlap in practice.
+      const byDate = {};
+      [...(oldEntry.history || []), ...(canonEntry.history || [])].forEach(h => { byDate[h.date] = h; });
+      canonEntry.history = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+      delete bucket[oldKey]; // drop orphan so per-holding charts don't list/double-count it
+      mergedCount++;
+    }
+  }
+  if (mergedCount) console.log(`[stitch] merged ${mergedCount} orphaned history fragment(s) into canonical holdings`);
+  return hh;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   initPortfolioUpload();
   // Kick off the Nifty 50 fetch; once resolved, re-render the overview cards/tables.
@@ -647,7 +767,7 @@ async function loadData() {
       portfolioSummary = cached.portfolioSummary;
       latestEquity = cached.latestEquity;
       latestMf = cached.latestMf;
-      historicalHoldings = cached.historicalHoldings;
+      historicalHoldings = stitchHistoryFragments(cached.historicalHoldings);
 
       // Always fetch breakup_summary fresh from server — never cache it — to prevent
       // baseline drift from in-memory live-price mutations being persisted across reloads.
@@ -752,7 +872,7 @@ async function loadData() {
     breakupSummary = await parsePortfolioJson(resBreakup);
     latestEquity = await parsePortfolioJson(resEquity);
     latestMf = await parsePortfolioJson(resMf);
-    historicalHoldings = await parsePortfolioJson(resHist);
+    historicalHoldings = stitchHistoryFragments(await parsePortfolioJson(resHist));
 
     initializeLiveBaseline();
 
@@ -868,7 +988,7 @@ async function loadWorkbookFile(file) {
     breakupSummary = parsed.breakupSummary;
     latestEquity = parsed.latestEquity;
     latestMf = parsed.latestMf;
-    historicalHoldings = parsed.historicalHoldings;
+    historicalHoldings = stitchHistoryFragments(parsed.historicalHoldings);
 
     // ── Persist to localStorage (survives page refresh) ──
     saveToLocalStorage(portfolioSummary, breakupSummary, latestEquity, latestMf, historicalHoldings);
