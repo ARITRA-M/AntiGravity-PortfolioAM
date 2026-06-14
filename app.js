@@ -414,7 +414,8 @@ const SECTOR_MAP = {
   PERSISTENT: 'IT & Software Services', TCS: 'IT & Software Services', BHARTIARTL: 'Telecommunication Services',
   CIEINDIA: 'Industrial Engineering', COALINDIA: 'Energy & Mining', LT: 'Engineering & Construction',
   ONGC: 'Energy & Mining', PIDILITIND: 'Chemicals & Adhesives', SIEMENS: 'Industrial Engineering',
-  TATASTEEL: 'Metals & Mining', GOLDBEES: 'Gold Commodity (ETF)', SGBAUG28V: 'Sovereign Gold Bonds',
+  TATASTEEL: 'Metals & Mining', TITAN: 'Consumer Goods & FMCG', CASTROLIND: 'Energy & Mining',
+  GOLDBEES: 'Gold Commodity (ETF)', SGBAUG28V: 'Sovereign Gold Bonds',
   'SGBJUL28IV-GB': 'Sovereign Gold Bonds', 'SGBSEP28VI-GB': 'Sovereign Gold Bonds',
   '716GS2050-GS': 'Government Bonds', '738REC27TF': 'Corporate Bonds', TVSMNCRPS: 'Debt Instrument',
   ENRIN: 'Industrial Engineering'
@@ -436,7 +437,9 @@ const MARKET_CAP_MAP = {
   HCLTECH: 'Large Cap', INFY: 'Large Cap', OFSS: 'Large Cap', TCS: 'Large Cap',
   BHARTIARTL: 'Large Cap', COALINDIA: 'Large Cap', LT: 'Large Cap',
   ONGC: 'Large Cap', PIDILITIND: 'Large Cap', SIEMENS: 'Large Cap', TATASTEEL: 'Large Cap',
+  TITAN: 'Large Cap',
   // Mid Cap
+  CASTROLIND: 'Mid Cap',
   AJANTPHARM: 'Mid Cap', ERIS: 'Mid Cap', JBCHEPHARM: 'Mid Cap', LALPATHLAB: 'Mid Cap',
   SYNGENE: 'Mid Cap', APOLLOTYRE: 'Mid Cap', BALKRISIND: 'Mid Cap', ENDURANCE: 'Mid Cap',
   EXIDEIND: 'Mid Cap', UNOMINDA: 'Mid Cap', FEDERALBNK: 'Mid Cap', KARURVYSYA: 'Mid Cap',
@@ -498,6 +501,7 @@ const HISTORY_STITCH_ALIASES = {
     'ICICI Bank Ltd.': 'ICICIBANK',
     'ITC Ltd.': 'ITC',
     'KPIT Technologies Ltd.': 'KPITTECH',
+    'Larsen & Toubro Ltd.': 'LT',                  // L&T — NOT 'Larsen & Toubro Infotech'/LTI/LTIM (separate IT entity)
     'Marico Ltd.': 'MARICO',
     'MindTree Ltd.': 'MINDTREE',
     'Minda Industries Ltd.': 'UNOMINDA',         // Minda Industries → UNO Minda (renamed)
