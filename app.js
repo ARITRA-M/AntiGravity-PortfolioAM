@@ -35,6 +35,8 @@ let benchmarkComparisonChart = null;
 let rollingReturnsChart = null;
 let stockPerfChart = null;
 let mfPerfChart = null;
+let periodicPerfChart = null;
+let _periodicGran = 'Q'; // Q | H | Y | MAT
 // Table sorting state
 let stockSortColumn = -1;
 let stockSortAsc = true;
@@ -4433,10 +4435,257 @@ let heatmapMonthData = []; // Stores the full month data for the heatmap
 let rangeStartIdx = null;
 let rangeEndIdx = null;
 
+// ── Periodic Performance ────────────────────────────────────────────────────
+
+function _buildPeriodBuckets(gran) {
+  const dates   = breakupSummary.dates;                              // YYYY-MM-DD
+  const nwVals  = breakupSummary.net_worth["Total"].values;
+  const invVals = breakupSummary.new_investment["Total Investment"].values;
+  const n       = dates.length;
+  if (!n) return [];
+
+  // Return the bucket key for a given date string
+  function bucketOf(d) {
+    const yr = +d.slice(0, 4);
+    const mo = +d.slice(5, 7);   // 1-12
+    if (gran === 'Q')   return `${yr} Q${Math.ceil(mo / 3)}`;
+    if (gran === 'H')   return `${yr} H${mo <= 6 ? 1 : 2}`;
+    if (gran === 'Y')   return `${yr}`;
+    if (gran === 'MAT') return null; // handled separately
+    return `${yr}`;
+  }
+
+  if (gran === 'MAT') {
+    // Rolling 12-month windows, aligned to the last data point
+    const buckets = [];
+    // Each bucket: ending at index i, spanning 12 months back
+    for (let e = n - 1; e >= 1; e--) {
+      const endDate   = dates[e];
+      const endYr     = +endDate.slice(0, 4);
+      const endMo     = +endDate.slice(5, 7);
+      // Target start: 12 months before endDate
+      const startYr   = endMo === 12 ? endYr - 1 : endYr - 1;
+      const startMo   = endMo === 12 ? 12 : endMo;
+      const targetStart = `${(endYr - 1).toString().padStart(4,'0')}-${endMo.toString().padStart(2,'0')}`;
+      // Find the closest index at or before targetStart
+      let s = -1;
+      for (let j = e - 1; j >= 0; j--) {
+        if (dates[j] <= targetStart) { s = j; break; }
+      }
+      if (s < 0) break; // not enough history for a full year
+
+      const openNW    = nwVals[s];
+      const closeNW   = nwVals[e];
+      const deltaNW   = closeNW - openNW;
+      let   newInv    = 0;
+      for (let k = s + 1; k <= e; k++) newInv += invVals[k];
+      const mktRet    = deltaNW - newInv;
+      buckets.unshift({
+        label:    `MAT ${endDate.slice(0, 7)}`,
+        shortLbl: endDate.slice(0, 7),
+        openNW, closeNW, deltaNW,
+        newInv, mktRet,
+        deltaNWPct:  openNW ? (deltaNW / openNW) * 100 : 0,
+        mktRetPct:   openNW ? (mktRet / openNW) * 100 : 0,
+      });
+      if (buckets.length >= 8) break; // show last 8 MAT windows
+    }
+    return buckets;
+  }
+
+  // Group indices by bucket key (keep last index per bucket as "close")
+  const byBucket = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = bucketOf(dates[i]);
+    if (!byBucket.has(k)) byBucket.set(k, { indices: [] });
+    byBucket.get(k).indices.push(i);
+  }
+
+  const buckets = [];
+  const keys    = [...byBucket.keys()].sort();
+  for (let bi = 0; bi < keys.length; bi++) {
+    const key   = keys[bi];
+    const idxs  = byBucket.get(key).indices;
+    const closeIdx = idxs[idxs.length - 1];
+
+    // Opening NW = last snapshot of previous bucket (or first snapshot of this bucket)
+    let openIdx;
+    if (bi === 0) {
+      openIdx = idxs[0];
+    } else {
+      const prevIdxs = byBucket.get(keys[bi - 1]).indices;
+      openIdx = prevIdxs[prevIdxs.length - 1];
+    }
+
+    const openNW  = nwVals[openIdx];
+    const closeNW = nwVals[closeIdx];
+    const deltaNW = closeNW - openNW;
+    let   newInv  = 0;
+    const sumFrom = bi === 0 ? idxs[0] : openIdx + 1;
+    for (let k = sumFrom; k <= closeIdx; k++) newInv += invVals[k];
+    const mktRet  = deltaNW - newInv;
+
+    buckets.push({
+      label:    key,
+      shortLbl: key,
+      openNW, closeNW, deltaNW,
+      newInv, mktRet,
+      deltaNWPct: openNW ? (deltaNW / openNW) * 100 : 0,
+      mktRetPct:  openNW ? (mktRet / openNW) * 100 : 0,
+      isPartial:  idxs[idxs.length - 1] === n - 1, // last bucket may be incomplete
+    });
+  }
+  return buckets;
+}
+
+function _buildComparisons(buckets, gran) {
+  const n   = buckets.length;
+  if (n < 1) return [];
+  const cur = buckets[n - 1];
+  const pairs = [];
+
+  // Current vs Previous period (CQ vs LQ / CH vs LH / CY vs LY)
+  const prevLabels = { Q: 'LQ', H: 'LH', Y: 'LY', MAT: 'Prev MAT' };
+  const curLabels  = { Q: 'CQ', H: 'CH', Y: 'CYTD', MAT: 'MAT' };
+  if (n >= 2) {
+    pairs.push({ label: `${curLabels[gran]} vs ${prevLabels[gran]}`, a: cur, aLbl: curLabels[gran], b: buckets[n - 2], bLbl: prevLabels[gran] });
+  }
+
+  // Current period vs same period last year
+  if (gran === 'Q' || gran === 'H') {
+    const curPeriodSuffix = cur.label.split(' ')[1]; // e.g. "Q3" or "H2"
+    const lycMatch = buckets.slice(0, n - 1).filter(b => b.label.endsWith(curPeriodSuffix));
+    if (lycMatch.length) {
+      const lyc = lycMatch[lycMatch.length - 1];
+      const lyLabel = gran === 'Q' ? 'LYCQ' : 'LYCH';
+      pairs.push({ label: `${curLabels[gran]} vs ${lyLabel}`, a: cur, aLbl: curLabels[gran], b: lyc, bLbl: lyLabel });
+    }
+  }
+
+  // YTD comparison (CY vs LYTD — same month last year)
+  if (gran === 'Y' && n >= 2) {
+    pairs.push({ label: 'CY vs LY', a: cur, aLbl: 'CYTD', b: buckets[n - 2], bLbl: 'LYTD' });
+  }
+
+  return pairs;
+}
+
+function renderPeriodicPerformance(gran) {
+  _periodicGran = gran || _periodicGran;
+  if (!breakupSummary) return;
+
+  // Update toggle buttons
+  document.querySelectorAll('.periodic-gran-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.gran === _periodicGran);
+  });
+
+  const buckets = _buildPeriodBuckets(_periodicGran);
+  if (!buckets.length) return;
+
+  const comparisons = _buildComparisons(buckets, _periodicGran);
+
+  // ── Comparison Cards ──
+  const cardsFmt = (v, isPct) => isPct
+    ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+    : `${v >= 0 ? '+' : '−'}${formatINR(Math.abs(v))}`;
+
+  const deltaClass = v => v >= 0 ? 'trend-up' : 'trend-down';
+
+  const compHTML = comparisons.map(({ label, a, aLbl, b, bLbl }) => {
+    const nwDelta   = a.deltaNWPct - b.deltaNWPct;
+    const mktDelta  = a.mktRetPct  - b.mktRetPct;
+    const invDelta  = a.newInv     - b.newInv;
+    return `
+    <div class="periodic-comp-card">
+      <div class="periodic-comp-title">${label}</div>
+      <table class="periodic-comp-table">
+        <thead><tr><th>Metric</th><th>${aLbl}${a.isPartial ? '*' : ''}</th><th>${bLbl}${b.isPartial ? '*' : ''}</th><th>Δ</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>NW Change</td>
+            <td class="${deltaClass(a.deltaNW)}">${cardsFmt(a.deltaNW, false)}</td>
+            <td class="${deltaClass(b.deltaNW)}">${cardsFmt(b.deltaNW, false)}</td>
+            <td class="${deltaClass(a.deltaNW - b.deltaNW)}">${cardsFmt(a.deltaNW - b.deltaNW, false)}</td>
+          </tr>
+          <tr>
+            <td>NW Change %</td>
+            <td class="${deltaClass(a.deltaNWPct)}">${cardsFmt(a.deltaNWPct, true)}</td>
+            <td class="${deltaClass(b.deltaNWPct)}">${cardsFmt(b.deltaNWPct, true)}</td>
+            <td class="${deltaClass(nwDelta)}">${nwDelta >= 0 ? '+' : ''}${nwDelta.toFixed(2)}pp</td>
+          </tr>
+          <tr>
+            <td>Market Return</td>
+            <td class="${deltaClass(a.mktRet)}">${cardsFmt(a.mktRet, false)}</td>
+            <td class="${deltaClass(b.mktRet)}">${cardsFmt(b.mktRet, false)}</td>
+            <td class="${deltaClass(a.mktRet - b.mktRet)}">${cardsFmt(a.mktRet - b.mktRet, false)}</td>
+          </tr>
+          <tr>
+            <td>Market Return %</td>
+            <td class="${deltaClass(a.mktRetPct)}">${cardsFmt(a.mktRetPct, true)}</td>
+            <td class="${deltaClass(b.mktRetPct)}">${cardsFmt(b.mktRetPct, true)}</td>
+            <td class="${deltaClass(mktDelta)}">${mktDelta >= 0 ? '+' : ''}${mktDelta.toFixed(2)}pp</td>
+          </tr>
+          <tr>
+            <td>New Investment</td>
+            <td>${formatINR(a.newInv)}</td>
+            <td>${formatINR(b.newInv)}</td>
+            <td class="${deltaClass(invDelta)}">${cardsFmt(invDelta, false)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  document.getElementById('periodic-comparisons').innerHTML = compHTML ||
+    '<div style="color:var(--text-muted);padding:1rem">Not enough data for comparison</div>';
+
+  // ── Bar Chart ──
+  const labels   = buckets.map(b => b.shortLbl);
+  const nwChange = buckets.map(b => +(b.deltaNW / 100000).toFixed(2));
+  const mktRet   = buckets.map(b => +(b.mktRet / 100000).toFixed(2));
+  const newInvL  = buckets.map(b => +(b.newInv / 100000).toFixed(2));
+
+  const ctx = document.getElementById('periodic-perf-chart').getContext('2d');
+  if (periodicPerfChart) periodicPerfChart.destroy();
+  periodicPerfChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'NW Change (₹ L)', data: nwChange,
+          backgroundColor: nwChange.map(v => v >= 0 ? 'rgba(99,102,241,0.7)' : 'rgba(239,68,68,0.5)'),
+          borderRadius: 4 },
+        { label: 'Market Return (₹ L)', data: mktRet,
+          backgroundColor: mktRet.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'),
+          borderRadius: 4 },
+        { label: 'New Investment (₹ L)', data: newInvL,
+          backgroundColor: 'rgba(251,191,36,0.55)',
+          borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { color: '#9ca3af', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ₹${c.parsed.y.toFixed(2)} L` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxRotation: 45 } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' },
+             ticks: { color: '#9ca3af', callback: v => '₹' + v.toFixed(1) + 'L' } }
+      }
+    }
+  });
+}
+
 function initMonthlyTab() {
   // Destroy existing charts before re-creating
   if (monthlyChangeChart) monthlyChangeChart.destroy();
   if (monthlyActivityChart) monthlyActivityChart.destroy();
+  if (periodicPerfChart) { periodicPerfChart.destroy(); periodicPerfChart = null; }
+
+  renderPeriodicPerformance(_periodicGran);
 
   // Build heatmap data first (needed for selection state)
   buildHeatmapData();

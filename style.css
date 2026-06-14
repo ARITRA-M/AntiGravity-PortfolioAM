@@ -1560,6 +1560,67 @@ tr:hover td {
   margin-top: 1.5rem;
 }
 
+/* ── Periodic Performance ── */
+.periodic-comparisons-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.periodic-comp-card {
+  flex: 1 1 340px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.periodic-comp-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-indigo);
+  padding: 0.6rem 1rem;
+  background: rgba(99,102,241,0.08);
+  border-bottom: 1px solid rgba(99,102,241,0.15);
+}
+
+.periodic-comp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.periodic-comp-table th {
+  padding: 0.5rem 0.75rem;
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  white-space: nowrap;
+  text-align: right;
+}
+.periodic-comp-table th:first-child { text-align: left; }
+
+.periodic-comp-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  white-space: nowrap;
+  text-align: right;
+  vertical-align: middle;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  background: transparent;
+}
+.periodic-comp-table td:first-child { text-align: left; color: var(--text-secondary); font-size: 0.78rem; }
+.periodic-comp-table tr:last-child td { border-bottom: none; }
+.periodic-comp-table tr:hover td { background: rgba(255,255,255,0.02); }
+
 /* Monthly Changes Tab Styles */
 .monthly-summary-grid {
   display: grid;
