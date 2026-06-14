@@ -137,7 +137,7 @@
       <!-- Daily Overview Section -->
       <div id="overview-daily" class="overview-subcontent active">
         <!-- Summary KPIs injected here — click cards to filter table -->
-        <div class="kpi-grid" id="daily-summary-kpis" style="margin-bottom: 1.5rem;"></div>
+        <div class="tab-kpi-bar" id="daily-summary-kpis" style="margin-bottom: 1.5rem;"></div>
 
         <div class="dashboard-grid">
           <!-- Daily Top Gainers (across Stocks & MFs by value) -->
@@ -169,7 +169,7 @@
       <!-- Monthly Overview Section -->
       <div id="overview-monthly" class="overview-subcontent">
         <!-- Summary KPIs injected here — click cards to filter table -->
-        <div class="kpi-grid" id="monthly-summary-kpis" style="margin-bottom: 1.5rem;"></div>
+        <div class="tab-kpi-bar" id="monthly-summary-kpis" style="margin-bottom: 1.5rem;"></div>
 
         <div class="dashboard-grid">
           <!-- Monthly Top Gainers (from last upload) -->
@@ -567,33 +567,21 @@
 
     <!-- ==================== FIXED INCOME TAB ==================== -->
     <div id="fixed-income-tab" class="tab-content">
-      <div class="kpi-grid" style="margin-bottom: 2rem;">
-        <div class="kpi-card" style="--card-accent: #f59e0b;">
-          <div>
-            <div class="kpi-title">PF (Current)</div>
-            <div class="kpi-value" id="fi-pf-value">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">
-            This Month: <span id="fi-pf-gain" class="trend-up">+0.00 L</span>
-          </div>
+      <div class="tab-kpi-bar" style="margin-bottom: 2rem;">
+        <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
+          <div class="tab-kpi-label">PF (Current)</div>
+          <div class="tab-kpi-value" id="fi-pf-value">₹0.00 L</div>
+          <div class="tab-kpi-sub">This Month: <span id="fi-pf-gain" class="trend-up">+0.00 L</span></div>
         </div>
-        <div class="kpi-card" style="--card-accent: #ec4899;">
-          <div>
-            <div class="kpi-title">PPF (Current)</div>
-            <div class="kpi-value" id="fi-ppf-value">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">
-            This Month: <span id="fi-ppf-gain" class="trend-up">+0.00 L</span>
-          </div>
+        <div class="tab-kpi-card" style="--card-accent: #ec4899;">
+          <div class="tab-kpi-label">PPF (Current)</div>
+          <div class="tab-kpi-value" id="fi-ppf-value">₹0.00 L</div>
+          <div class="tab-kpi-sub">This Month: <span id="fi-ppf-gain" class="trend-up">+0.00 L</span></div>
         </div>
-        <div class="kpi-card" style="--card-accent: #8b5cf6;">
-          <div>
-            <div class="kpi-title">Bonds (Current)</div>
-            <div class="kpi-value" id="fi-bonds-value">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">
-            This Month: <span id="fi-bonds-gain" class="trend-up">+0.00 L</span>
-          </div>
+        <div class="tab-kpi-card" style="--card-accent: #8b5cf6;">
+          <div class="tab-kpi-label">Bonds (Current)</div>
+          <div class="tab-kpi-value" id="fi-bonds-value">₹0.00 L</div>
+          <div class="tab-kpi-sub">This Month: <span id="fi-bonds-gain" class="trend-up">+0.00 L</span></div>
         </div>
       </div>
 
@@ -656,42 +644,26 @@
 
     <!-- ==================== NPS TAB ==================== -->
     <div id="nps-tab" class="tab-content">
-      <div class="kpi-grid" style="margin-bottom: 2rem;">
-        <div class="kpi-card" style="--card-accent: #3b82f6;">
-          <div>
-            <div class="kpi-title">NPS E (Equity)</div>
-            <div class="kpi-value" id="nps-e-value">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">
-            This Month: <span id="nps-e-gain" class="trend-up">+0.00 L</span>
-          </div>
+      <div class="tab-kpi-bar" style="margin-bottom: 2rem;">
+        <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
+          <div class="tab-kpi-label">NPS E (Equity)</div>
+          <div class="tab-kpi-value" id="nps-e-value">₹0.00 L</div>
+          <div class="tab-kpi-sub">This Month: <span id="nps-e-gain" class="trend-up">+0.00 L</span></div>
         </div>
-        <div class="kpi-card" style="--card-accent: #10b981;">
-          <div>
-            <div class="kpi-title">NPS C (Debt)</div>
-            <div class="kpi-value" id="nps-c-value">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">
-            This Month: <span id="nps-c-gain" class="trend-up">+0.00 L</span>
-          </div>
+        <div class="tab-kpi-card" style="--card-accent: #10b981;">
+          <div class="tab-kpi-label">NPS C (Debt)</div>
+          <div class="tab-kpi-value" id="nps-c-value">₹0.00 L</div>
+          <div class="tab-kpi-sub">This Month: <span id="nps-c-gain" class="trend-up">+0.00 L</span></div>
         </div>
-        <div class="kpi-card" style="--card-accent: #f59e0b;">
-          <div>
-            <div class="kpi-title">NPS G (Debt)</div>
-            <div class="kpi-value" id="nps-g-value">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">
-            This Month: <span id="nps-g-gain" class="trend-up">+0.00 L</span>
-          </div>
+        <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
+          <div class="tab-kpi-label">NPS G (Debt)</div>
+          <div class="tab-kpi-value" id="nps-g-value">₹0.00 L</div>
+          <div class="tab-kpi-sub">This Month: <span id="nps-g-gain" class="trend-up">+0.00 L</span></div>
         </div>
-        <div class="kpi-card" style="--card-accent: #8b5cf6;">
-          <div>
-            <div class="kpi-title">Total NPS</div>
-            <div class="kpi-value" id="nps-total-value">₹0.00 L</div>
-          </div>
-          <div class="kpi-sub">
-            This Month: <span id="nps-total-gain" class="trend-up">+0.00 L</span>
-          </div>
+        <div class="tab-kpi-card" style="--card-accent: #8b5cf6;">
+          <div class="tab-kpi-label">Total NPS</div>
+          <div class="tab-kpi-value" id="nps-total-value">₹0.00 L</div>
+          <div class="tab-kpi-sub">This Month: <span id="nps-total-gain" class="trend-up">+0.00 L</span></div>
         </div>
       </div>
 

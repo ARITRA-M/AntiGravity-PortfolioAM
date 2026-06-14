@@ -1877,45 +1877,35 @@ function renderDailyOverviewTable() {
   // Render Daily Summaries — click cards to filter the table below
   const dailySummaryEl = document.getElementById('daily-summary-kpis');
   if (dailySummaryEl) {
+    dailySummaryEl.className = 'tab-kpi-bar';
     dailySummaryEl.innerHTML = `
-      <div class="kpi-card${dailyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setDailyTypeFilter('stock')">
-        <div>
-          <div class="kpi-title">Total Daily Change (Stocks)</div>
-          <div class="kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)}
-            <span class="kpi-pct">(${dailyStockPct >= 0 ? '+' : ''}${dailyStockPct.toFixed(2)}%)</span>
-          </div>
+      <div class="tab-kpi-card${dailyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setDailyTypeFilter('stock')">
+        <div class="tab-kpi-label">Daily Change — Stocks</div>
+        <div class="tab-kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
+          ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)}
         </div>
-        <div class="kpi-sub">Since yesterday's close</div>
+        <div class="tab-kpi-sub">${dailyStockPct >= 0 ? '+' : ''}${dailyStockPct.toFixed(2)}% since yesterday</div>
       </div>
-      <div class="kpi-card${dailyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setDailyTypeFilter('mf')">
-        <div>
-          <div class="kpi-title">Total Daily Change (MFs)</div>
-          <div class="kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalMfGain >= 0 ? '+' : ''}${formatINR(totalMfGain)}
-            <span class="kpi-pct">(${dailyMfPct >= 0 ? '+' : ''}${dailyMfPct.toFixed(2)}%)</span>
-          </div>
+      <div class="tab-kpi-card${dailyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setDailyTypeFilter('mf')">
+        <div class="tab-kpi-label">Daily Change — MFs</div>
+        <div class="tab-kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
+          ${totalMfGain >= 0 ? '+' : ''}${formatINR(totalMfGain)}
         </div>
-        <div class="kpi-sub">Since previous NAV</div>
+        <div class="tab-kpi-sub">${dailyMfPct >= 0 ? '+' : ''}${dailyMfPct.toFixed(2)}% since previous NAV</div>
       </div>
-      <div class="kpi-card total-card${dailyTypeFilter === 'all' ? ' filter-active' : ''}" style="cursor: pointer;" onclick="setDailyTypeFilter('all')">
-        <div>
-          <div class="kpi-title">Total Combined Change</div>
-          <div class="kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)}
-            <span class="kpi-pct">(${dailyTotalPct >= 0 ? '+' : ''}${dailyTotalPct.toFixed(2)}%)</span>
-          </div>
+      <div class="tab-kpi-card${dailyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent: #34d399; cursor: pointer;" onclick="setDailyTypeFilter('all')">
+        <div class="tab-kpi-label">Combined Change</div>
+        <div class="tab-kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
+          ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)}
         </div>
-        <div class="kpi-sub">Stocks + Mutual Funds</div>
+        <div class="tab-kpi-sub">${dailyTotalPct >= 0 ? '+' : ''}${dailyTotalPct.toFixed(2)}% Stocks + MFs</div>
       </div>
-      <div class="kpi-card" style="--card-accent: #ef4444;">
-        <div>
-          <div class="kpi-title">Nifty 50 (Ref)</div>
-          <div class="kpi-value ${niftyDailyPct >= 0 ? 'trend-up' : 'trend-down'}">
-            ${niftyDailyPct >= 0 ? '+' : ''}${niftyDailyPct.toFixed(2)}%
-          </div>
+      <div class="tab-kpi-card" style="--card-accent: #ef4444;">
+        <div class="tab-kpi-label">Nifty 50 (Ref)</div>
+        <div class="tab-kpi-value ${niftyDailyPct >= 0 ? 'trend-up' : 'trend-down'}">
+          ${niftyDailyPct >= 0 ? '+' : ''}${niftyDailyPct.toFixed(2)}%
         </div>
-        <div class="kpi-sub">${niftyDailyLabel}</div>
+        <div class="tab-kpi-sub">${niftyDailyLabel}</div>
       </div>
     `;
   }
@@ -2041,45 +2031,35 @@ function renderMonthlyOverviewTable() {
   // Render Monthly Summaries — click cards to filter the table below
   const monthlySummaryEl = document.getElementById('monthly-summary-kpis');
   if (monthlySummaryEl) {
+    monthlySummaryEl.className = 'tab-kpi-bar';
     monthlySummaryEl.innerHTML = `
-      <div class="kpi-card${monthlyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setMonthlyTypeFilter('stock')">
-        <div>
-          <div class="kpi-title">Total Gain (Stocks)</div>
-          <div class="kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)}
-            <span class="kpi-pct">(${monthlyStockPct >= 0 ? '+' : ''}${monthlyStockPct.toFixed(2)}%)</span>
-          </div>
+      <div class="tab-kpi-card${monthlyTypeFilter === 'stock' ? ' filter-active' : ''}" style="--card-accent: #6366f1; cursor: pointer;" onclick="setMonthlyTypeFilter('stock')">
+        <div class="tab-kpi-label">Period Gain — Stocks</div>
+        <div class="tab-kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
+          ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)}
         </div>
-        <div class="kpi-sub">Since last upload</div>
+        <div class="tab-kpi-sub">${monthlyStockPct >= 0 ? '+' : ''}${monthlyStockPct.toFixed(2)}% since last upload</div>
       </div>
-      <div class="kpi-card${monthlyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setMonthlyTypeFilter('mf')">
-        <div>
-          <div class="kpi-title">Total Gain (MFs)</div>
-          <div class="kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)}
-            <span class="kpi-pct">(${monthlyMfPct >= 0 ? '+' : ''}${monthlyMfPct.toFixed(2)}%)</span>
-          </div>
+      <div class="tab-kpi-card${monthlyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent: #10b981; cursor: pointer;" onclick="setMonthlyTypeFilter('mf')">
+        <div class="tab-kpi-label">Period Gain — MFs</div>
+        <div class="tab-kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
+          ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)}
         </div>
-        <div class="kpi-sub">Since last upload</div>
+        <div class="tab-kpi-sub">${monthlyMfPct >= 0 ? '+' : ''}${monthlyMfPct.toFixed(2)}% since last upload</div>
       </div>
-      <div class="kpi-card total-card${monthlyTypeFilter === 'all' ? ' filter-active' : ''}" style="cursor: pointer;" onclick="setMonthlyTypeFilter('all')">
-        <div>
-          <div class="kpi-title">Total Combined Gain</div>
-          <div class="kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
-            ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)}
-            <span class="kpi-pct">(${monthlyTotalPct >= 0 ? '+' : ''}${monthlyTotalPct.toFixed(2)}%)</span>
-          </div>
+      <div class="tab-kpi-card${monthlyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent: #34d399; cursor: pointer;" onclick="setMonthlyTypeFilter('all')">
+        <div class="tab-kpi-label">Combined Gain</div>
+        <div class="tab-kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
+          ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)}
         </div>
-        <div class="kpi-sub">Stocks + Mutual Funds</div>
+        <div class="tab-kpi-sub">${monthlyTotalPct >= 0 ? '+' : ''}${monthlyTotalPct.toFixed(2)}% Stocks + MFs</div>
       </div>
-      <div class="kpi-card" style="--card-accent: #ef4444;">
-        <div>
-          <div class="kpi-title">Nifty 50 (Ref)</div>
-          <div class="kpi-value ${niftyMonthlyPct >= 0 ? 'trend-up' : 'trend-down'}">
-            ${niftyMonthlyPct >= 0 ? '+' : ''}${niftyMonthlyPct.toFixed(2)}%
-          </div>
+      <div class="tab-kpi-card" style="--card-accent: #ef4444;">
+        <div class="tab-kpi-label">Nifty 50 (Ref)</div>
+        <div class="tab-kpi-value ${niftyMonthlyPct >= 0 ? 'trend-up' : 'trend-down'}">
+          ${niftyMonthlyPct >= 0 ? '+' : ''}${niftyMonthlyPct.toFixed(2)}%
         </div>
-        <div class="kpi-sub">${niftyMonthlyLabel}</div>
+        <div class="tab-kpi-sub">${niftyMonthlyLabel}</div>
       </div>
     `;
   }
