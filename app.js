@@ -1668,6 +1668,19 @@ function updateKpis() {
   document.getElementById('kpi-stocks-gain').innerText = (stocksGainLakhs >= 0 ? '+' : '') + stocksGainLakhs.toFixed(2) + ' L';
   document.getElementById('kpi-stocks-gain').className = stocksGainLakhs >= 0 ? 'trend-up' : 'trend-down';
 
+  // Stocks: active count + best XIRR
+  const stocksActiveCount = latestEquity.filter(s => s.qty > 0).length;
+  document.getElementById('kpi-stocks-active-count').innerText = stocksActiveCount;
+  const stockXirrPairs = latestEquity
+    .filter(s => s.qty > 0)
+    .map(s => ({ name: s.instrument, xirr: holdingXIRR(s, 'stock') }))
+    .filter(p => p.xirr != null && isFinite(p.xirr));
+  if (stockXirrPairs.length) {
+    const best = stockXirrPairs.reduce((a, b) => b.xirr > a.xirr ? b : a);
+    document.getElementById('kpi-stocks-best-xirr').innerText = (best.xirr * 100).toFixed(1) + '%';
+    document.getElementById('kpi-stocks-best-xirr-name').innerText = best.name;
+  }
+
   // MFs: current value, gain since the uploaded baseline NAV.
   const mfCurrentLakhs = latestMf.reduce((sum, f) => sum + f.cur_val, 0) / 100000;
   const mfGainLakhs = latestMf.reduce((sum, f) => sum + (f.thisMonthGain || 0), 0) / 100000;
@@ -1675,19 +1688,21 @@ function updateKpis() {
   document.getElementById('kpi-mfs-gain').innerText = (mfGainLakhs >= 0 ? '+' : '') + mfGainLakhs.toFixed(2) + ' L';
   document.getElementById('kpi-mfs-gain').className = mfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
 
-  // PF: current value + this month's gain
-  const pfCurrentLakhs = nw['PF (Debt)']?.values?.slice(-1)?.[0] || 0;
-  const pfGainLakhs = getMonthlyChangeLakhs('PF (Debt)');
-  document.getElementById('kpi-pf-value').innerText = formatLakhs(pfCurrentLakhs);
-  document.getElementById('kpi-pf-gain').innerText = (pfGainLakhs >= 0 ? '+' : '') + pfGainLakhs.toFixed(2) + ' L';
-  document.getElementById('kpi-pf-gain').className = pfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
+  // MFs: active count + best XIRR
+  const mfsActiveCount = latestMf.filter(f => f.units > 0).length;
+  document.getElementById('kpi-mfs-active-count').innerText = mfsActiveCount;
+  const mfXirrPairs = latestMf
+    .filter(f => f.units > 0)
+    .map(f => ({ name: f.scheme, xirr: holdingXIRR(f, 'mf') }))
+    .filter(p => p.xirr != null && isFinite(p.xirr));
+  if (mfXirrPairs.length) {
+    const best = mfXirrPairs.reduce((a, b) => b.xirr > a.xirr ? b : a);
+    document.getElementById('kpi-mfs-best-xirr').innerText = (best.xirr * 100).toFixed(1) + '%';
+    document.getElementById('kpi-mfs-best-xirr-name').innerText = best.name;
+  }
 
-  // PPF: current value + this month's gain
-  const ppfCurrentLakhs = nw['PPF (Debt)']?.values?.slice(-1)?.[0] || 0;
-  const ppfGainLakhs = getMonthlyChangeLakhs('PPF (Debt)');
-  document.getElementById('kpi-ppf-value').innerText = formatLakhs(ppfCurrentLakhs);
-  document.getElementById('kpi-ppf-gain').innerText = (ppfGainLakhs >= 0 ? '+' : '') + ppfGainLakhs.toFixed(2) + ' L';
-  document.getElementById('kpi-ppf-gain').className = ppfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
+  // PF / PPF values now only rendered in Fixed Income tab (fi-pf-value / fi-ppf-value).
+  // The global KPI bar no longer has these cards; initFixedIncomeTab() handles them.
 }
 
 // ── Overview Sub-tab Switching ──────────────────────────────────────────────
