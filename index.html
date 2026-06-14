@@ -87,7 +87,7 @@
       <button class="tab-btn" onclick="switchTab('growth')">Growth & Benchmark</button>
       <button class="tab-btn" onclick="switchTab('fixed-income')">Fixed Income</button>
       <button class="tab-btn" onclick="switchTab('nps')">NPS</button>
-      <button class="tab-btn" onclick="switchTab('monthly')">Monthly Changes</button>
+      <button class="tab-btn" onclick="switchTab('monthly')">Periodic Performance</button>
       <button class="tab-btn" onclick="switchTab('update-log')">📋 Update Log</button>
     </div>
 
@@ -633,6 +633,30 @@
 
     <!-- ==================== MONTHLY CHANGES TAB ==================== -->
     <div id="monthly-tab" class="tab-content">
+
+      <!-- ── Periodic Performance Analytics ── -->
+      <div class="chart-card full-width-card">
+        <div class="chart-header">
+          <h3>📊 Periodic Performance</h3>
+          <div class="time-filters">
+            <button class="periodic-gran-btn subtab-btn active" data-gran="Q" onclick="renderPeriodicPerformance('Q')">Quarterly</button>
+            <button class="periodic-gran-btn subtab-btn" data-gran="H" onclick="renderPeriodicPerformance('H')">Half-Yearly</button>
+            <button class="periodic-gran-btn subtab-btn" data-gran="Y" onclick="renderPeriodicPerformance('Y')">Yearly</button>
+            <button class="periodic-gran-btn subtab-btn" data-gran="MAT" onclick="renderPeriodicPerformance('MAT')">MAT (12M)</button>
+          </div>
+        </div>
+        <!-- Comparison tables — one per comparison pair -->
+        <div id="periodic-comparisons" class="periodic-comparisons-row"></div>
+        <!-- Bar chart -->
+        <div class="chart-container" style="height:260px;margin-top:1.25rem;">
+          <canvas id="periodic-perf-chart"></canvas>
+        </div>
+        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.5rem;padding:0 0.25rem">
+          * Partial period — current period may not be complete. pp = percentage points difference.
+          Market Return = NW Change − New Investment (pure price appreciation / depreciation).
+        </div>
+      </div>
+
       <!-- Monthly Performance Heatmap Filter Bar (Top) -->
       <div class="chart-card full-width-card heatmap-filter-card">
         <div class="chart-header">
