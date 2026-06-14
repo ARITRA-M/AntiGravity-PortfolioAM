@@ -1661,44 +1661,64 @@ function updateKpis() {
     return 0;
   };
 
-  // Stocks: current value, gain since the uploaded baseline price.
+  // Helper: last non-zero value from a breakupSummary.xirr series
+  const lastNonZeroXirr = (vals) => {
+    if (!vals) return null;
+    for (let i = vals.length - 1; i >= 0; i--) {
+      if (vals[i] != null && vals[i] !== 0) return vals[i];
+    }
+    return null;
+  };
+  // Resolve overall stocks / MF XIRR from breakupSummary (same source as XIRR table)
+  const xirrSec = breakupSummary.xirr || {};
+  const findXirrKey = (...needles) => {
+    const keys = Object.keys(xirrSec);
+    for (const n of needles) {
+      const re = new RegExp(n, 'i');
+      const k = keys.find(k => re.test(k) || re.test(xirrSec[k]?.label || ''));
+      if (k) return k;
+    }
+    return null;
+  };
+  const stocksXirrKey = findXirrKey('stock');
+  const mfXirrKey     = findXirrKey('^mf', 'mutual.fund');
+
+  // Stocks: current value + overall gain (absolute + %)
   const stocksCurrentLakhs = latestEquity.reduce((sum, s) => sum + s.cur_val, 0) / 100000;
-  const stocksGainLakhs = latestEquity.reduce((sum, s) => sum + (s.thisMonthGain || 0), 0) / 100000;
+  const stocksInvestedLakhs = latestEquity.reduce((sum, s) => sum + s.invested, 0) / 100000;
+  const stocksGainLakhs = stocksCurrentLakhs - stocksInvestedLakhs;
+  const stocksGainPct = stocksInvestedLakhs > 0 ? (stocksGainLakhs / stocksInvestedLakhs) * 100 : 0;
   document.getElementById('kpi-stocks-uploaded').innerText = formatLakhs(stocksCurrentLakhs);
   document.getElementById('kpi-stocks-gain').innerText = (stocksGainLakhs >= 0 ? '+' : '') + stocksGainLakhs.toFixed(2) + ' L';
   document.getElementById('kpi-stocks-gain').className = stocksGainLakhs >= 0 ? 'trend-up' : 'trend-down';
+  document.getElementById('kpi-stocks-gain-pct').innerText = (stocksGainPct >= 0 ? '+' : '') + stocksGainPct.toFixed(1) + '%';
+  document.getElementById('kpi-stocks-gain-pct').className = stocksGainPct >= 0 ? 'trend-up' : 'trend-down';
 
-  // Stocks: active count + best XIRR
+  // Stocks: active count + overall XIRR
   const stocksActiveCount = latestEquity.filter(s => s.qty > 0).length;
   document.getElementById('kpi-stocks-active-count').innerText = stocksActiveCount;
-  const stockXirrPairs = latestEquity
-    .filter(s => s.qty > 0)
-    .map(s => ({ name: s.instrument, xirr: holdingXIRR(s, 'stock') }))
-    .filter(p => p.xirr != null && isFinite(p.xirr));
-  if (stockXirrPairs.length) {
-    const best = stockXirrPairs.reduce((a, b) => b.xirr > a.xirr ? b : a);
-    document.getElementById('kpi-stocks-best-xirr').innerText = (best.xirr * 100).toFixed(1) + '%';
-    document.getElementById('kpi-stocks-best-xirr-name').innerText = best.name;
+  const stocksOverallXirr = stocksXirrKey ? lastNonZeroXirr(xirrSec[stocksXirrKey].values) : null;
+  if (stocksOverallXirr != null) {
+    document.getElementById('kpi-stocks-best-xirr').innerText = (stocksOverallXirr * 100).toFixed(1) + '%';
   }
 
-  // MFs: current value, gain since the uploaded baseline NAV.
+  // MFs: current value + overall gain (absolute + %)
   const mfCurrentLakhs = latestMf.reduce((sum, f) => sum + f.cur_val, 0) / 100000;
-  const mfGainLakhs = latestMf.reduce((sum, f) => sum + (f.thisMonthGain || 0), 0) / 100000;
+  const mfInvestedLakhs = latestMf.reduce((sum, f) => sum + f.invested, 0) / 100000;
+  const mfGainLakhs = mfCurrentLakhs - mfInvestedLakhs;
+  const mfGainPct = mfInvestedLakhs > 0 ? (mfGainLakhs / mfInvestedLakhs) * 100 : 0;
   document.getElementById('kpi-mfs-uploaded').innerText = formatLakhs(mfCurrentLakhs);
   document.getElementById('kpi-mfs-gain').innerText = (mfGainLakhs >= 0 ? '+' : '') + mfGainLakhs.toFixed(2) + ' L';
   document.getElementById('kpi-mfs-gain').className = mfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
+  document.getElementById('kpi-mfs-gain-pct').innerText = (mfGainPct >= 0 ? '+' : '') + mfGainPct.toFixed(1) + '%';
+  document.getElementById('kpi-mfs-gain-pct').className = mfGainPct >= 0 ? 'trend-up' : 'trend-down';
 
-  // MFs: active count + best XIRR (latestMf uses qty, not units)
+  // MFs: active count + overall XIRR (latestMf uses qty, not units)
   const mfsActiveCount = latestMf.filter(f => f.qty > 0).length;
   document.getElementById('kpi-mfs-active-count').innerText = mfsActiveCount;
-  const mfXirrPairs = latestMf
-    .filter(f => f.qty > 0)
-    .map(f => ({ name: f.scheme, xirr: holdingXIRR(f, 'mf') }))
-    .filter(p => p.xirr != null && isFinite(p.xirr));
-  if (mfXirrPairs.length) {
-    const best = mfXirrPairs.reduce((a, b) => b.xirr > a.xirr ? b : a);
-    document.getElementById('kpi-mfs-best-xirr').innerText = (best.xirr * 100).toFixed(1) + '%';
-    document.getElementById('kpi-mfs-best-xirr-name').innerText = best.name;
+  const mfOverallXirr = mfXirrKey ? lastNonZeroXirr(xirrSec[mfXirrKey].values) : null;
+  if (mfOverallXirr != null) {
+    document.getElementById('kpi-mfs-best-xirr').innerText = (mfOverallXirr * 100).toFixed(1) + '%';
   }
 
   // PF / PPF values now only rendered in Fixed Income tab (fi-pf-value / fi-ppf-value).
