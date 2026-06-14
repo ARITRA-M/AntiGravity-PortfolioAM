@@ -887,6 +887,7 @@ async function loadData() {
       try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
 
       document.getElementById('upload-status').textContent = 'Using locally saved data';
+      if (typeof startAutoRefresh === 'function') startAutoRefresh();
       return;
       } // end else (breakupSummary fetched ok)
     }
@@ -956,6 +957,7 @@ async function loadData() {
     try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
     try { initMonthlyTab(); } catch (e) { console.error('initMonthlyTab failed:', e); }
     try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
+    if (typeof startAutoRefresh === 'function') startAutoRefresh();
   } catch (error) {
     console.error("Error loading portfolio data:", error);
     document.getElementById('live-time-badge').innerText = "Error loading data!";
