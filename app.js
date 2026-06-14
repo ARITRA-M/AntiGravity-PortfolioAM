@@ -1649,6 +1649,34 @@ function updateKpis() {
   document.getElementById('kpi-gold-val').innerText = formatLakhs(portfolioSummary.gold_lakhs);
   document.getElementById('kpi-gold-pct').innerText = portfolioSummary.allocation_pct.Gold.toFixed(1) + '%';
 
+  // Gold XIRR: merge cashflows from all gold holdings (SGBs + Gold ETFs) into one XIRR
+  if (historicalHoldings) {
+    const goldSectors = new Set(['Sovereign Gold Bonds', 'Gold Commodity (ETF)']);
+    const goldInstruments = latestEquity
+      .filter(s => goldSectors.has(s.sector))
+      .map(s => s.instrument);
+    const allCf = [], allDt = [];
+    for (const inst of goldInstruments) {
+      const key = (typeof getStockHistoryKey === 'function' && getStockHistoryKey(inst)) || inst;
+      const history = historicalHoldings.stocks[key]?.history;
+      if (!history) continue;
+      let prevInv = 0;
+      for (let i = 0; i < history.length; i++) {
+        const inv = history[i].invested || 0;
+        const delta = inv - prevInv;
+        if (Math.abs(delta) > 1) { allCf.push(-delta); allDt.push(new Date(history[i].date)); }
+        prevInv = inv;
+      }
+      const last = history[history.length - 1];
+      if (last.cur_val) { allCf.push(last.cur_val); allDt.push(new Date(last.date)); }
+    }
+    const goldXirr = allCf.length >= 2 ? computeXIRR(allCf, allDt) : null;
+    const goldXirrEl = document.getElementById('kpi-gold-xirr');
+    if (goldXirrEl && goldXirr != null && isFinite(goldXirr)) {
+      goldXirrEl.innerText = (goldXirr * 100).toFixed(1) + '%';
+    }
+  }
+
   // Calculate last uploaded total value (sum of invested amounts across all holdings)
   // and this month's gain from breakup_summary net_worth values
   const nw = breakupSummary.net_worth;
