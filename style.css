@@ -668,10 +668,11 @@ th {
   background: rgba(255, 255, 255, 0.02);
   color: var(--text-secondary);
   font-weight: 600;
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
   transition: var(--transition-fast);
 }
 
@@ -692,9 +693,11 @@ th.sort-desc::after {
 }
 
 td {
-  padding: 0.9rem 1.25rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   color: var(--text-primary);
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 tr:last-child td {
@@ -712,6 +715,9 @@ tr:hover td {
   left: 0;
   z-index: 1;
   background: var(--bg-primary);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sector-tag {
@@ -786,14 +792,15 @@ tr:hover td {
 }
 
 /* Historical Stock Detail Modal or Section */
-/* ── Inline row history expansion ── */
+/* ── Holdings row interactivity ── */
+.holdings-row { cursor: default; }
+.holdings-row[onclick] { cursor: pointer; }
+
 .holdings-row:hover td {
   background: rgba(99, 102, 241, 0.05);
 }
-
-/* Sticky first cell must stay solid so scrolled columns don't bleed through */
-.holdings-row:hover td:first-child,
-.holdings-row.history-row-active td:first-child {
+.holdings-row:hover .instrument-cell,
+.holdings-row:hover td:first-child {
   background: color-mix(in srgb, var(--bg-primary) 88%, #6366f1 12%);
 }
 
@@ -801,114 +808,118 @@ tr:hover td {
   background: rgba(99, 102, 241, 0.08);
   border-bottom: none;
 }
+.holdings-row.history-row-active .instrument-cell,
+.holdings-row.history-row-active td:first-child {
+  background: color-mix(in srgb, var(--bg-primary) 85%, #6366f1 15%);
+}
 
 .row-expand-icon {
   display: inline-block;
-  font-size: 0.6rem;
+  font-size: 0.55rem;
   color: var(--text-muted);
   margin-right: 5px;
   transition: transform 0.2s ease;
   vertical-align: middle;
 }
-
 .history-row-active .row-expand-icon {
   transform: rotate(90deg);
   color: var(--accent-indigo);
 }
 
-.history-expansion-row td {
+/* ── Expansion row container ── */
+.history-expansion-row > td {
   padding: 0 !important;
-  border-top: none;
-  background: rgba(15, 17, 26, 0.6);
+  border-top: 2px solid rgba(99, 102, 241, 0.35);
+  border-bottom: 2px solid rgba(99, 102, 241, 0.35);
+  /* Pin content to visible left edge regardless of table scroll position */
+  position: sticky;
+  left: 0;
+  overflow: hidden;
+  background: var(--bg-secondary);
 }
 
+/* ── Expansion panel layout: chart left, table right ── */
 .history-panel {
   display: grid;
-  grid-template-columns: 58% 42%;
-  gap: 0;
-  border-top: 1px solid rgba(99, 102, 241, 0.25);
-  border-bottom: 1px solid var(--card-border);
+  grid-template-columns: 56% 44%;
+  /* Width is set via JS to match the visible container width */
 }
 
 .history-chart-side {
-  padding: 1rem 1rem 1rem 1.25rem;
-  border-right: 1px solid var(--card-border);
-  height: 300px;
+  padding: 1rem 1.25rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  height: 280px;
   position: relative;
 }
-
 .history-chart-side canvas {
   width: 100% !important;
   height: 100% !important;
 }
 
+/* ── Transaction table side ── */
 .history-table-side {
-  padding: 0;
-  max-height: 300px;
-  overflow-x: auto;
   overflow-y: auto;
+  max-height: 280px;
+  background: transparent;
 }
 
 .history-inline-table {
-  width: max-content;  /* let table be as wide as it needs; side scrolls */
-  min-width: 100%;
+  width: 100%;
   border-collapse: collapse;
+  font-size: 0.82rem;
   text-align: left;
-  font-size: 0.85rem;
 }
 
-/* Cancel the outer .table-wrapper sticky-first-column rule for the inline table */
+/* Neutralise outer .table-wrapper sticky-first-column rule */
 .history-inline-table th:first-child,
 .history-inline-table td:first-child {
   position: static !important;
   background: transparent !important;
   z-index: auto !important;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
 }
 
-.history-inline-table th {
+.history-inline-table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: rgba(20, 22, 34, 0.97);
+  background: color-mix(in srgb, var(--bg-secondary) 95%, #6366f1 5%);
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.6rem 0.9rem;
+  letter-spacing: 0.05em;
+  padding: 0.55rem 0.8rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   white-space: nowrap;
   cursor: default;
   user-select: none;
 }
 
-/* Re-apply sticky to th:first-child after the override above */
-.history-inline-table th:first-child {
-  position: sticky !important;
-  background: rgba(20, 22, 34, 0.97) !important;
-}
-
 .history-inline-table td {
-  padding: 0.65rem 0.9rem;
+  padding: 0.6rem 0.8rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  color: var(--text-primary);
   white-space: nowrap;
   vertical-align: middle;
+  /* override outer td rules */
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.82rem;
 }
 
-.history-inline-table tr:last-child td {
-  border-bottom: none;
-}
+.history-inline-table tr:last-child td { border-bottom: none; }
+.history-inline-table tr:hover td { background: rgba(255,255,255,0.02) !important; }
 
-.history-inline-table tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-/* Action tag inside the inline table — give it breathing room */
-.history-inline-table .sector-tag {
-  min-width: 44px;
-  text-align: center;
+.history-action-tag {
   display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 5px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 /* Benchmark Stats */
