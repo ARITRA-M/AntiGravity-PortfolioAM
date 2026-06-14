@@ -1864,15 +1864,11 @@ function renderDailyOverviewTable() {
   let totalStockGain = 0;
   let totalMfGain = 0;
 
-  // Suppress daily changes on weekends since the markets are closed.
-  const istTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
-  const isWeekend = istTime.getDay() === 0 || istTime.getDay() === 6;
-
   // Stocks: daily change = (current LTP - yesterday's close) * qty
+  // On weekends ltp = Friday's close and yesterdayClose = Thursday's close → shows last working day's change.
   // yesterdayClose is fetched from Google Finance during price refresh
   latestEquity.forEach(s => {
     let prevClose = s.yesterdayClose || null;
-    if (isWeekend) prevClose = s.ltp; // Zero out daily change on weekends
 
     const noLivePrice = typeof hasLivePriceSource === 'function' && !hasLivePriceSource(s.instrument);
     const dailyGain = prevClose ? (s.ltp - prevClose) * s.qty : null;
@@ -1893,7 +1889,7 @@ function renderDailyOverviewTable() {
   // MFs: daily change uses previous NAV when the NAV provider returns it.
   latestMf.forEach(f => {
     let previousNav = f.previousNav || null;
-    if (isWeekend) previousNav = f.price; // Zero out daily change on weekends
+    // On weekends: price = Friday's NAV, previousNav = Thursday's NAV → shows Friday's change.
 
     const gain = previousNav ? (f.price - previousNav) * f.qty : null;
     const gainPct = previousNav ? ((f.price - previousNav) / previousNav) * 100 : null;
@@ -1915,10 +1911,10 @@ function renderDailyOverviewTable() {
   let totalPrevStockValue = 0;
   let totalPrevMfValue = 0;
   latestEquity.forEach(s => {
-    if (s.yesterdayClose && !isWeekend) totalPrevStockValue += s.yesterdayClose * s.qty;
+    if (s.yesterdayClose) totalPrevStockValue += s.yesterdayClose * s.qty;
   });
   latestMf.forEach(f => {
-    if (f.previousNav && !isWeekend) totalPrevMfValue += f.previousNav * f.qty;
+    if (f.previousNav) totalPrevMfValue += f.previousNav * f.qty;
   });
   const dailyStockPct = totalPrevStockValue > 0 ? (totalStockGain / totalPrevStockValue) * 100 : 0;
   const dailyMfPct = totalPrevMfValue > 0 ? (totalMfGain / totalPrevMfValue) * 100 : 0;
