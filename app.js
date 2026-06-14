@@ -4589,12 +4589,14 @@ function initUpdateLogTab() {
       const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
       const price = s.price != null ? s.price.toFixed(2) : '—';
       const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
-      const changePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
-        ? ((s.price - s.prevClose) / s.prevClose * 100).toFixed(2) + '%'
-        : '—';
+      const rawChangePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
+        ? (s.price - s.prevClose) / s.prevClose * 100 : null;
+      const changePctCell = rawChangePct != null
+        ? `<td class="${rawChangePct >= 0 ? 'change-up' : 'change-down'}">${rawChangePct >= 0 ? '+' : ''}${rawChangePct.toFixed(2)}%</td>`
+        : '<td>—</td>';
       const lastRefresh = s.lastRefresh ? escapeHtml(s.lastRefresh) : '—';
       const error = s.error ? escapeHtml(s.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${prevClose}</td><td>${changePct}</td><td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
+      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${prevClose}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
     }
     html += '</tbody></table></div>';
   }
@@ -4609,12 +4611,14 @@ function initUpdateLogTab() {
       const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
       const nav = m.nav != null ? m.nav.toFixed(4) : '—';
       const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
-      const changePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
-        ? ((m.nav - m.prevNav) / m.prevNav * 100).toFixed(2) + '%'
-        : '—';
+      const rawChangePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
+        ? (m.nav - m.prevNav) / m.prevNav * 100 : null;
+      const changePctCell = rawChangePct != null
+        ? `<td class="${rawChangePct >= 0 ? 'change-up' : 'change-down'}">${rawChangePct >= 0 ? '+' : ''}${rawChangePct.toFixed(2)}%</td>`
+        : '<td>—</td>';
       const lastRefresh = m.lastRefresh ? escapeHtml(m.lastRefresh) : '—';
       const error = m.error ? escapeHtml(m.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${prevNav}</td><td>${changePct}</td><td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
+      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${prevNav}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
     }
     html += '</tbody></table></div>';
   }
