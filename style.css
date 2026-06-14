@@ -402,7 +402,7 @@ header {
 }
 
 .kpi-slim-icon {
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   opacity: 0.7;
   flex-shrink: 0;
 }
@@ -410,7 +410,7 @@ header {
 .kpi-slim-body { flex: 1; min-width: 0; }
 
 .kpi-slim-label {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -419,7 +419,7 @@ header {
 }
 
 .kpi-slim-value {
-  font-size: 1.2rem;
+  font-size: 1.45rem;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
@@ -427,7 +427,7 @@ header {
 }
 
 .kpi-slim-sub {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
