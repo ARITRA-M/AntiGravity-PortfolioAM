@@ -153,20 +153,24 @@ async function fetchNiftySeries() {
     if (pts.length < 2) throw new Error('Not enough Nifty data');
     _niftySeries = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
 
-    const live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
-
-    // Determine prevClose correctly depending on whether Yahoo has published
-    // today's end-of-day bar yet:
-    //   • Market closed / bar published  → pts[last] = today's close
-    //                                       prevClose = pts[last-1] (yesterday)
-    //   • Market open / pre-publish      → pts[last] = yesterday's close
-    //                                       prevClose = pts[last] itself
-    // Do NOT use meta.chartPreviousClose — on a range query Yahoo returns the
-    // value from ≈1 month before the range start, not the prior trading day.
-    const lastBarDate = new Date(pts[pts.length - 1].t).toDateString();
-    const todayDate   = new Date().toDateString();
-    const lastBarIsToday = lastBarDate === todayDate;
-    const prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
+    // Determine prevClose correctly depending on day:
+    //   • Weekday, bar published today → pts[last] = today's close, prevClose = pts[last-1]
+    //   • Weekday, market open/pre-pub → pts[last] = yesterday's close, prevClose = pts[last]
+    //   • Weekend → market is closed; show last working day's change:
+    //               live = pts[last] (Friday's close), prevClose = pts[last-1] (Thursday's close)
+    // Do NOT use meta.chartPreviousClose on a range query — Yahoo returns a value
+    // from ~1 month before the range start, not the prior trading day.
+    const todayDow = new Date().getDay();
+    const isWeekendToday = todayDow === 0 || todayDow === 6;
+    let live, prevClose;
+    if (isWeekendToday) {
+      live     = pts[pts.length - 1].c;
+      prevClose = pts[pts.length - 2].c;
+    } else {
+      live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
+      const lastBarIsToday = new Date(pts[pts.length - 1].t).toDateString() === new Date().toDateString();
+      prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
+    }
     _niftyDailyPctReal = ((live - prevClose) / prevClose) * 100;
 
     // Month-to-date: last close strictly before the 1st of the current month.
@@ -1941,21 +1945,24 @@ function renderDailyOverviewTable() {
         <div class="tab-kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)}
         </div>
-        <div class="tab-kpi-sub">${dailyStockPct >= 0 ? '+' : ''}${dailyStockPct.toFixed(2)}% since yesterday</div>
+        <div class="tab-kpi-pct">${dailyStockPct >= 0 ? '+' : ''}${dailyStockPct.toFixed(2)}%</div>
+        <div class="tab-kpi-sub">since yesterday</div>
       </div>
       <div class="tab-kpi-card${dailyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent:${totalMfGain >= 0 ? G : R}; cursor:pointer;" onclick="setDailyTypeFilter('mf')">
         <div class="tab-kpi-label">Daily Change — MFs</div>
         <div class="tab-kpi-value ${totalMfGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalMfGain >= 0 ? '+' : ''}${formatINR(totalMfGain)}
         </div>
-        <div class="tab-kpi-sub">${dailyMfPct >= 0 ? '+' : ''}${dailyMfPct.toFixed(2)}% since previous NAV</div>
+        <div class="tab-kpi-pct">${dailyMfPct >= 0 ? '+' : ''}${dailyMfPct.toFixed(2)}%</div>
+        <div class="tab-kpi-sub">since previous NAV</div>
       </div>
       <div class="tab-kpi-card${dailyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent:${totalGain >= 0 ? G : R}; cursor:pointer;" onclick="setDailyTypeFilter('all')">
         <div class="tab-kpi-label">Combined Change</div>
         <div class="tab-kpi-value ${totalGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)}
         </div>
-        <div class="tab-kpi-sub">${dailyTotalPct >= 0 ? '+' : ''}${dailyTotalPct.toFixed(2)}% Stocks + MFs</div>
+        <div class="tab-kpi-pct">${dailyTotalPct >= 0 ? '+' : ''}${dailyTotalPct.toFixed(2)}%</div>
+        <div class="tab-kpi-sub">Stocks + MFs</div>
       </div>
       <div class="tab-kpi-card" style="--card-accent:${niftyDailyPct >= 0 ? G : R};">
         <div class="tab-kpi-label">Nifty 50 (Ref)</div>
@@ -2096,21 +2103,24 @@ function renderMonthlyOverviewTable() {
         <div class="tab-kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)}
         </div>
-        <div class="tab-kpi-sub">${monthlyStockPct >= 0 ? '+' : ''}${monthlyStockPct.toFixed(2)}% since last upload</div>
+        <div class="tab-kpi-pct">${monthlyStockPct >= 0 ? '+' : ''}${monthlyStockPct.toFixed(2)}%</div>
+        <div class="tab-kpi-sub">since last upload</div>
       </div>
       <div class="tab-kpi-card${monthlyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent:${totalMfMonthlyGain >= 0 ? G : R}; cursor:pointer;" onclick="setMonthlyTypeFilter('mf')">
         <div class="tab-kpi-label">Period Gain — MFs</div>
         <div class="tab-kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)}
         </div>
-        <div class="tab-kpi-sub">${monthlyMfPct >= 0 ? '+' : ''}${monthlyMfPct.toFixed(2)}% since last upload</div>
+        <div class="tab-kpi-pct">${monthlyMfPct >= 0 ? '+' : ''}${monthlyMfPct.toFixed(2)}%</div>
+        <div class="tab-kpi-sub">since last upload</div>
       </div>
       <div class="tab-kpi-card${monthlyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent:${totalMonthlyGain >= 0 ? G : R}; cursor:pointer;" onclick="setMonthlyTypeFilter('all')">
         <div class="tab-kpi-label">Combined Gain</div>
         <div class="tab-kpi-value ${totalMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)}
         </div>
-        <div class="tab-kpi-sub">${monthlyTotalPct >= 0 ? '+' : ''}${monthlyTotalPct.toFixed(2)}% Stocks + MFs</div>
+        <div class="tab-kpi-pct">${monthlyTotalPct >= 0 ? '+' : ''}${monthlyTotalPct.toFixed(2)}%</div>
+        <div class="tab-kpi-sub">Stocks + MFs</div>
       </div>
       <div class="tab-kpi-card" style="--card-accent:${niftyMonthlyPct >= 0 ? G : R};">
         <div class="tab-kpi-label">Nifty 50 (Ref)</div>

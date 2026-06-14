@@ -499,6 +499,14 @@ header {
   margin-top: 0.2rem;
 }
 
+.tab-kpi-pct {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--card-accent, var(--accent-green));
+  line-height: 1.2;
+  margin-top: 0.1rem;
+}
+
 @media (max-width: 768px) {
   .kpi-slim-bar { grid-template-columns: repeat(2, 1fr); }
   .kpi-slim-value { font-size: 1rem; }
