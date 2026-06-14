@@ -327,28 +327,18 @@
           </div>
         </div>
 
-        <!-- Benchmark Performance Stats -->
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Performance Comparison (Simulated)</h3>
-          </div>
-          <div class="benchmark-stats" id="benchmark-stats">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-
-        <!-- XIRR Comparison: Portfolio components vs Benchmarks -->
+        <!-- Performance Comparison: Portfolio components vs Benchmarks -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>XIRR — Portfolio vs Benchmarks</h3>
+            <h3>Performance Comparison — Portfolio vs Benchmarks</h3>
             <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0;">
-              Money-weighted XIRR (reflects your contribution timing). Benchmark XIRR replays your monthly contributions into the benchmark at its month-end price — so it differs from the time-weighted graph above.
+              <strong>XIRR</strong> is money-weighted (reflects your contribution timing). <strong>Annualized</strong> is time-weighted (contribution-timing neutral — matches the graph above). Benchmark figures replay your monthly contributions into the benchmark at its month-end price.
             </p>
           </div>
           <div class="table-wrapper">
             <table id="xirr-comparison-table" class="modern-table">
               <thead>
-                <tr><th>Strategy</th><th style="text-align:right">XIRR</th><th style="text-align:right">Total Invested</th><th style="text-align:right">Current Value</th><th style="text-align:right">Absolute Gain</th></tr>
+                <tr><th>Strategy</th><th style="text-align:right">XIRR<br><span style="font-weight:400;font-size:0.7rem;color:var(--text-muted)">money-weighted</span></th><th style="text-align:right">Annualized<br><span style="font-weight:400;font-size:0.7rem;color:var(--text-muted)">time-weighted</span></th><th style="text-align:right">Total Invested</th><th style="text-align:right">Current Value</th><th style="text-align:right">Absolute Gain</th></tr>
               </thead>
               <tbody id="xirr-comparison-body"><!-- populated dynamically --></tbody>
             </table>

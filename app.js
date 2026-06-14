@@ -2315,7 +2315,6 @@ function initGrowthTab() {
   // Initialize benchmark comparison chart (default: Nifty 50)
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
-  updateBenchmarkStats('nifty50');
   renderXirrComparisonTable();
 }
 
@@ -3828,7 +3827,6 @@ function _rerenderBenchmarkCharts() {
   const sel = document.getElementById('benchmark-select');
   const key = sel ? sel.value : 'nifty50';
   try { renderBenchmarkComparisonChart(key); } catch (_) {}
-  try { updateBenchmarkStats(key); } catch (_) {}
   try { renderXirrComparisonTable(); } catch (_) {}
 }
 
@@ -4008,17 +4006,40 @@ function renderXirrComparisonTable() {
   // Fallback for newMoneyTotal — same series the benchmark TWR uses.
   const newMoneyTotal = totalInvKey ? newSec[totalInvKey].values : [];
 
+  // ── Time-weighted annualized return (CAGR) helpers ──
+  // Merged in from the old "Performance Comparison" panel: time-weighted return
+  // strips out contribution timing, complementing the money-weighted XIRR.
+  const years = (breakupSummary.dates && breakupSummary.dates.length)
+    ? breakupSummary.dates.length / 12 : 0;
+  const twrAnnualized = (nwArr, newMoneyArr) => {
+    if (!nwArr || !newMoneyArr || years <= 0) return null;
+    const idx = computeTWRIndex(nwArr, newMoneyArr);
+    const start = idx[0], end = idx[idx.length - 1];
+    if (!(start > 0)) return null;
+    return Math.pow(end / start, 1 / years) - 1;
+  };
+  const benchAnnualized = key => {
+    const h = benchmarkData[key] && benchmarkData[key].history;
+    if (!h || h.length < 2 || years <= 0) return null;
+    const f = h[0].value, l = h[h.length - 1].value;
+    if (!(f > 0)) return null;
+    return Math.pow(l / f, 1 / years) - 1;
+  };
+
   const rows = [
     { label: 'Portfolio (Overall)', type: 'portfolio', emphasis: true,
       xirr:     totalXirrKey ? lastNonZero(xirrSec[totalXirrKey].values) : null,
+      ann:      (totalNwKey && totalInvKey) ? twrAnnualized(nwSec[totalNwKey].values, newSec[totalInvKey].values) : null,
       invested: totalInvKey  ? sumVals(newSec[totalInvKey].values)       : null,
       value:    totalNwKey   ? lastVal(nwSec[totalNwKey].values)         : null },
     { label: 'Stocks (Equity)', type: 'portfolio',
       xirr:     stocksXirrKey ? lastNonZero(xirrSec[stocksXirrKey].values) : null,
+      ann:      (stocksNwKey && stocksInvKey) ? twrAnnualized(nwSec[stocksNwKey].values, newSec[stocksInvKey].values) : null,
       invested: stocksInvKey  ? sumVals(newSec[stocksInvKey].values)       : null,
       value:    stocksNwKey   ? lastVal(nwSec[stocksNwKey].values)         : null },
     { label: 'Mutual Funds (Equity)', type: 'portfolio',
       xirr:     mfXirrKey ? lastNonZero(xirrSec[mfXirrKey].values) : null,
+      ann:      (mfNwKey && mfInvKey) ? twrAnnualized(nwSec[mfNwKey].values, newSec[mfInvKey].values) : null,
       invested: mfInvKey  ? sumVals(newSec[mfInvKey].values)       : null,
       value:    mfNwKey   ? lastVal(nwSec[mfNwKey].values)         : null },
   ];
@@ -4032,6 +4053,7 @@ function renderXirrComparisonTable() {
     rows.push({
       label, type: 'benchmark', simulated: isSimulated,
       xirr: sim ? sim.xirr : null,
+      ann:  benchAnnualized(key),
       invested: sim ? sim.invested : null,
       value:    sim ? sim.currentValue : null,
     });
@@ -4050,6 +4072,7 @@ function renderXirrComparisonTable() {
     return `<tr style="${style}">
       <td>${escapeHtml(r.label)}${typeBadge}</td>
       <td style="text-align:right" class="${cls(r.xirr)}">${fmtPct(r.xirr)}</td>
+      <td style="text-align:right" class="${cls(r.ann)}">${fmtPct(r.ann)}</td>
       <td style="text-align:right">${fmtL(r.invested)}</td>
       <td style="text-align:right">${fmtL(r.value)}</td>
       <td style="text-align:right" class="${cls(gain)}">${fmtL(gain)}</td>
@@ -4135,7 +4158,6 @@ function initBenchmarkTab() {
 
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
-  updateBenchmarkStats('nifty50');
   renderXirrComparisonTable();
 }
 
@@ -4156,7 +4178,6 @@ function switchCapMode(mode, btn) {
 function updateBenchmarkChart() {
   const benchmark = document.getElementById('benchmark-select').value;
   renderBenchmarkComparisonChart(benchmark);
-  updateBenchmarkStats(benchmark);
 }
 
 // Compute a Time-Weighted Return index array (starts at 1.0).
@@ -4255,55 +4276,6 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
       }
     }
   });
-}
-
-function updateBenchmarkStats(benchmarkKey) {
-  const benchmark = benchmarkData[benchmarkKey];
-  const nwTotal = breakupSummary.net_worth["Total"].values;
-  const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
-  const lastIdx = nwTotal.length - 1;
-  
-  const benchFirst = benchmark.history[0].value;
-  const benchLast = benchmark.history[benchmark.history.length - 1].value;
-
-  const twrIdx = computeTWRIndex(nwTotal, newMoneyTotal);
-  const twrStart = twrIdx[0];
-  const twrEnd = twrIdx[twrIdx.length - 1];
-
-  const portfolioReturn = ((twrEnd / twrStart) - 1) * 100;
-  const benchmarkReturn = ((benchLast / benchFirst) - 1) * 100;
-  const outperformance = portfolioReturn - benchmarkReturn;
-
-  const years = nwTotal.length / 12;
-  const portfolioAnn = years > 0 && twrStart > 0
-    ? (Math.pow(twrEnd / twrStart, 1 / years) - 1) * 100
-    : 0;
-  const benchmarkAnn = (Math.pow(benchLast / benchFirst, 1 / years) - 1) * 100;
-  
-  const statsContainer = document.getElementById('benchmark-stats');
-  const fmtPct = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-  statsContainer.innerHTML = `
-    <div class="benchmark-stat-item">
-      <span class="benchmark-stat-label">Portfolio Total Return</span>
-      <span class="benchmark-stat-value ${portfolioReturn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(portfolioReturn)}</span>
-    </div>
-    <div class="benchmark-stat-item">
-      <span class="benchmark-stat-label">${escapeHtml(benchmark.name)} Total Return</span>
-      <span class="benchmark-stat-value ${benchmarkReturn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(benchmarkReturn)}</span>
-    </div>
-    <div class="benchmark-stat-item">
-      <span class="benchmark-stat-label">Outperformance</span>
-      <span class="benchmark-stat-value ${outperformance >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(outperformance)}</span>
-    </div>
-    <div class="benchmark-stat-item">
-      <span class="benchmark-stat-label">Portfolio Annualized</span>
-      <span class="benchmark-stat-value ${portfolioAnn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(portfolioAnn)}</span>
-    </div>
-    <div class="benchmark-stat-item">
-      <span class="benchmark-stat-label">${escapeHtml(benchmark.name)} Annualized</span>
-      <span class="benchmark-stat-value ${benchmarkAnn >= 0 ? 'trend-up' : 'trend-down'}">${fmtPct(benchmarkAnn)}</span>
-    </div>
-  `;
 }
 
 function renderRollingReturnsChart() {
