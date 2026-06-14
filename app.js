@@ -30,8 +30,7 @@ let sectorChart = null;
 let capChart = null;
 let mfCategoryChart = null;
 let mfValuationChart = null;
-let stockHistoricalChart = null;
-let mfHistoricalChart = null;
+// stockHistoricalChart and mfHistoricalChart removed — history now shown inline per row
 let benchmarkComparisonChart = null;
 let rollingReturnsChart = null;
 let stockPerfChart = null;
@@ -3149,7 +3148,7 @@ function initStocksTab() {
   // Destroy existing chart before re-creating
   if (sectorChart) sectorChart.destroy();
   if (capChart) capChart.destroy();
-  if (stockHistoricalChart) stockHistoricalChart.destroy();
+  _collapseStockHistory();
 
   // Normalize gain_pct: compute from pnl/invested if missing or zero
   latestEquity.forEach(s => {
@@ -3370,31 +3369,11 @@ function initStocksTab() {
   capChart._capMode = 'value';
   capChart._buildCapDatasets = _buildCapDatasets;
 
-  // 4. Stock Selector List for Historical Explorer
-  const sortedByVal = [...latestEquity].sort((a, b) => b.cur_val - a.cur_val);
-  const explorerList = document.getElementById('explorer-stock-list');
-  
-  explorerList.innerHTML = sortedByVal.map((s, idx) => `
-    <div class="explorer-item ${idx === 0 ? 'active' : ''}" data-symbol="${escapeAttr(s.instrument)}">
-      <span class="name">${escapeHtml(s.instrument)}</span>
-      <span class="val">${formatINR(s.cur_val)}</span>
-    </div>
-  `).join('');
-
-  explorerList.querySelectorAll('.explorer-item').forEach(item => {
-    item.addEventListener('click', () => selectStockExplorer(item.dataset.symbol, item));
-  });
-
   // Populate Stock Sector Dropdown
   const sectors = [...new Set(latestEquity.map(s => s.sector))].sort();
   const sectorDropdown = document.getElementById('stock-sector-filter');
   sectorDropdown.innerHTML = '<option value="ALL">All Sectors</option>' + 
     sectors.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
-
-  // Load first stock history
-  if (sortedByVal.length > 0) {
-    renderStockHistoricalChart(sortedByVal[0].instrument);
-  }
 
   // Populate Table - default sort by This Month Gain (col 10) descending
   stockSortColumn = 10;
@@ -3408,155 +3387,117 @@ function initStocksTab() {
   renderStocksTable(sortedStocks);
 }
 
-function selectStockExplorer(symbol, element) {
-  document.querySelectorAll('#explorer-stock-list .explorer-item').forEach(el => el.classList.remove('active'));
-  element.classList.add('active');
-  renderStockHistoricalChart(symbol);
-}
+// ── Inline row history expansion (Stocks) ────────────────────────────────────
+let _inlineStockChart = null;
+let _expandedStockSymbol = null;
 
-function renderStockHistoricalChart(symbol) {
-  if (stockHistoricalChart) {
-    stockHistoricalChart.destroy();
-    stockHistoricalChart = null;
+function toggleStockRowHistory(tr, symbol) {
+  if (_expandedStockSymbol === symbol) {
+    _collapseStockHistory();
+    return;
   }
+  _collapseStockHistory();
 
-  // Reuse the shared lookup built by getStockHistoryKey() to avoid duplicating
-  // the normalisation logic (LTD stripping, &-splitting, first-word heuristic).
   const stock = getStockHistoryKey(symbol) || historicalHoldings.stocks[symbol];
-  if (!stock) return;
-  
+  if (!stock?.history?.length) return;
+
+  _expandedStockSymbol = symbol;
+  tr.classList.add('history-row-active');
+
+  const colspan = tr.cells.length;
+  const expRow = document.createElement('tr');
+  expRow.className = 'history-expansion-row';
+  expRow.innerHTML = `<td colspan="${colspan}">
+    <div class="history-panel">
+      <div class="history-chart-side">
+        <canvas id="inline-stock-canvas"></canvas>
+      </div>
+      <div class="history-table-side">
+        <table class="history-inline-table">
+          <thead><tr>
+            <th>Date</th>
+            <th style="text-align:right;">Δ Qty</th>
+            <th style="text-align:right;">Price (₹)</th>
+            <th style="text-align:right;">Δ Invested</th>
+            <th style="text-align:right;">Δ Valuation</th>
+            <th>Action</th>
+          </tr></thead>
+          <tbody id="inline-stock-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </td>`;
+  tr.after(expRow);
+
   const history = stock.history;
-  
-  // Build chart data arrays from history
-  const labels = history.map(h => formatDateString(h.date));
-  const valuations = history.map(h => h.cur_val / 100000);
-  const investments = history.map(h => h.invested / 100000);
-  const ltps = history.map(h => h.ltp);
-  
-  const ctxStockHist = document.getElementById('stock-historical-chart').getContext('2d');
-  
-  stockHistoricalChart = new Chart(ctxStockHist, {
+  const canvas = document.getElementById('inline-stock-canvas');
+  _inlineStockChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
-      labels: labels,
+      labels: history.map(h => formatDateString(h.date)),
       datasets: [
-        {
-          label: 'Current Valuation (₹ L)',
-          data: valuations,
-          borderColor: '#6366f1',
-          backgroundColor: 'rgba(99, 102, 241, 0.1)',
-          fill: true,
-          borderWidth: 2,
-          yAxisID: 'y'
-        },
-        {
-          label: 'Amount Invested (₹ L)',
-          data: investments,
-          borderColor: '#10b981',
-          borderWidth: 1.5,
-          borderDash: [5, 5],
-          fill: false,
-          yAxisID: 'y'
-        },
-        {
-          label: 'LTP (Price in ₹)',
-          data: ltps,
-          borderColor: '#f59e0b',
-          borderWidth: 2,
-          fill: false,
-          yAxisID: 'yPrice'
-        }
+        { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
+          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, borderWidth: 2, yAxisID: 'y' },
+        { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
+          borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
+        { label: 'LTP (₹)', data: history.map(h => h.ltp),
+          borderColor: '#f59e0b', borderWidth: 2, fill: false, yAxisID: 'yPrice' }
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        title: {
-          display: true,
-          text: `${symbol} Performance History`,
-          color: '#fff',
-          font: { family: 'Outfit', size: 16 }
-        },
-        legend: { labels: { color: '#f3f4f6' } }
+        title: { display: true, text: `${symbol} — History`, color: '#f3f4f6', font: { family: 'Outfit', size: 13 } },
+        legend: { labels: { color: '#f3f4f6', boxWidth: 12, font: { size: 11 } } }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 10 } },
-        y: {
-          type: 'linear',
-          display: true,
-          position: 'left',
-          grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (val) => '₹' + val.toFixed(2) + ' L' }
-        },
-        yPrice: {
-          type: 'linear',
-          display: true,
-          position: 'right',
-          grid: { drawOnChartArea: false },
-          ticks: { color: '#9ca3af', callback: (val) => '₹' + val }
-        }
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 10 } } },
+        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' },
+             ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
+        yPrice: { position: 'right', grid: { drawOnChartArea: false },
+                  ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v } }
       }
     }
   });
-  
-  // Populate historical data table below the chart (shows incremental changes — only rows where qty changed)
-  const tableContainer = document.getElementById('stock-historical-data-table');
-  if (tableContainer) {
-    const tbody = document.getElementById('stock-historical-data-body');
-    if (!tbody) return;
-    // Build incremental rows: for each row where qty changed, show the delta from previous row
-    const deltaRows = [];
-    for (let idx = 0; idx < history.length; idx++) {
-      const h = history[idx];
-      if (idx === 0) {
-        // First row: show initial position
-        if (h.qty > 0) {
-          deltaRows.push({
-            date: h.date,
-            deltaQty: h.qty,
-            price: h.ltp,
-            deltaInvested: h.invested,
-            deltaValuation: h.cur_val,
-            action: 'Buy'
-          });
-        }
-      } else {
-        const prev = history[idx - 1];
-        const dQty = h.qty - prev.qty;
-        if (Math.abs(dQty) > 0.001) {
-          deltaRows.push({
-            date: h.date,
-            deltaQty: dQty,
-            price: h.ltp,
-            deltaInvested: h.invested - prev.invested,
-            deltaValuation: h.cur_val - prev.cur_val,
-            action: dQty > 0 ? 'Buy' : 'Sell'
-          });
-        }
-      }
+
+  _renderInlineTransactions(history, document.getElementById('inline-stock-tbody'), 2);
+}
+
+function _collapseStockHistory() {
+  if (_inlineStockChart) { _inlineStockChart.destroy(); _inlineStockChart = null; }
+  document.querySelectorAll('#stocks-table-body .history-expansion-row').forEach(r => r.remove());
+  document.querySelectorAll('#stocks-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
+  _expandedStockSymbol = null;
+}
+
+function _renderInlineTransactions(history, tbody, pricePrecision) {
+  const deltaRows = [];
+  for (let i = 0; i < history.length; i++) {
+    const h = history[i];
+    if (i === 0) {
+      if (h.qty > 0) deltaRows.push({ date: h.date, dQty: h.qty, price: h.ltp, dInv: h.invested, dVal: h.cur_val, action: 'Buy' });
+    } else {
+      const p = history[i - 1];
+      const dQty = h.qty - p.qty;
+      if (Math.abs(dQty) > 0.001) deltaRows.push({
+        date: h.date, dQty, price: h.ltp,
+        dInv: h.invested - p.invested, dVal: h.cur_val - p.cur_val,
+        action: dQty > 0 ? 'Buy' : 'Sell'
+      });
     }
-    tbody.innerHTML = deltaRows.map(r => {
-      const actionStyle = r.action === 'Buy' ? 'background:rgba(16,185,129,0.2);color:#34d399' : 'background:rgba(239,68,68,0.2);color:#f87171';
-      return `
-      <tr>
-        <td>${formatDateString(r.date)}</td>
-        <td style="text-align: right;" class="${r.deltaQty > 0 ? 'trend-up' : 'trend-down'}">
-          ${r.deltaQty > 0 ? '+' : ''}${r.deltaQty.toLocaleString(undefined, {maximumFractionDigits:2})}
-        </td>
-        <td style="text-align: right;">${'₹' + r.price.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
-        <td style="text-align: right;" class="${r.deltaInvested >= 0 ? 'trend-up' : 'trend-down'}">
-          ${r.deltaInvested >= 0 ? '+' : ''}${formatINR(Math.abs(r.deltaInvested))}
-        </td>
-        <td style="text-align: right;" class="${r.deltaValuation >= 0 ? 'trend-up' : 'trend-down'}">
-          ${r.deltaValuation >= 0 ? '+' : ''}${formatINR(Math.abs(r.deltaValuation))}
-        </td>
-        <td><span class="sector-tag" style="${actionStyle}">${r.action}</span></td>
-      </tr>`;
-    }).join('');
-    tableContainer.style.display = 'block';
   }
+  tbody.innerHTML = deltaRows.map(r => {
+    const aStyle = r.action === 'Buy' ? 'background:rgba(16,185,129,0.2);color:#34d399' : 'background:rgba(239,68,68,0.2);color:#f87171';
+    return `<tr>
+      <td>${formatDateString(r.date)}</td>
+      <td style="text-align:right;" class="${r.dQty > 0 ? 'trend-up' : 'trend-down'}">${r.dQty > 0 ? '+' : ''}${r.dQty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
+      <td style="text-align:right;">₹${r.price.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
+      <td style="text-align:right;" class="${r.dInv >= 0 ? 'trend-up' : 'trend-down'}">${r.dInv >= 0 ? '+' : ''}${formatINR(Math.abs(r.dInv))}</td>
+      <td style="text-align:right;" class="${r.dVal >= 0 ? 'trend-up' : 'trend-down'}">${r.dVal >= 0 ? '+' : ''}${formatINR(Math.abs(r.dVal))}</td>
+      <td><span class="sector-tag" style="${aStyle}">${r.action}</span></td>
+    </tr>`;
+  }).join('');
 }
 
 function renderStocksTable(data) {
@@ -3566,10 +3507,11 @@ function renderStocksTable(data) {
     const gain = s.thisMonthGain || 0;
     const noLive = typeof hasLivePriceSource === 'function' && !hasLivePriceSource(s.instrument);
     const xirr = holdingXIRR(s, 'stock');
+    const hasHistory = !!(getStockHistoryKey(s.instrument) || historicalHoldings.stocks?.[s.instrument]);
     return `
-    <tr${noLive ? ' style="opacity:0.65;"' : ''}>
+    <tr class="holdings-row${noLive ? ' stale-row' : ''}"${hasHistory ? ` onclick="toggleStockRowHistory(this,'${escapeAttr(s.instrument)}')" title="Click to view history"` : ''} style="${noLive ? 'opacity:0.65;' : ''}${hasHistory ? 'cursor:pointer;' : ''}">
       <td class="instrument-cell">
-        ${escapeHtml(s.instrument)}
+        ${hasHistory ? '<span class="row-expand-icon">▶</span>' : ''}${escapeHtml(s.instrument)}
         ${noLive ? '<span title="No live price source — price shown is from upload" style="font-size:0.7rem;color:var(--text-muted);margin-left:4px;">(stale)</span>' : ''}
       </td>
       <td><span class="sector-tag">${escapeHtml(s.sector)}</span></td>
@@ -3597,15 +3539,16 @@ function renderStocksTable(data) {
 }
 
 function filterStocksTable() {
+  _collapseStockHistory();
   const query = document.getElementById('stock-search').value.toLowerCase().trim();
   const sector = document.getElementById('stock-sector-filter').value;
-  
+
   const filtered = latestEquity.filter(s => {
     const matchesQuery = s.instrument.toLowerCase().includes(query) || s.sector.toLowerCase().includes(query);
     const matchesSector = (sector === 'ALL') || (s.sector === sector);
     return matchesQuery && matchesSector;
   });
-  
+
   renderStocksTable(filtered);
 }
 
@@ -3670,7 +3613,7 @@ function initMfsTab() {
 
   // Destroy existing charts before re-creating
   if (mfCategoryChart) mfCategoryChart.destroy();
-  if (mfHistoricalChart) mfHistoricalChart.destroy();
+  _collapseMfHistory();
 
   // 1. Stacked Bar Chart — MF Category Allocation over Time
   // Aggregate cur_val by category per date from historical MF data
@@ -3788,31 +3731,11 @@ function initMfsTab() {
     }
   });
 
-  // 2. Scheme Selector for Explorer
-  const sortedMFsByVal = [...latestMf].sort((a, b) => b.cur_val - a.cur_val);
-  const explorerList = document.getElementById('explorer-mf-list');
-  
-  explorerList.innerHTML = sortedMFsByVal.map((f, idx) => `
-    <div class="explorer-item ${idx === 0 ? 'active' : ''}" data-scheme="${escapeAttr(f.scheme)}">
-      <span class="name">${escapeHtml(f.scheme.length > 28 ? f.scheme.substring(0, 25) + '…' : f.scheme)}</span>
-      <span class="val">${formatINR(f.cur_val)}</span>
-    </div>
-  `).join('');
-
-  explorerList.querySelectorAll('.explorer-item').forEach(item => {
-    item.addEventListener('click', () => selectMfExplorer(item.dataset.scheme, item));
-  });
-
   // Populate MF Category dropdown filter
   const categories = [...new Set(latestMf.map(f => f.scheme_type))].sort();
   const typeDropdown = document.getElementById('mf-type-filter');
   typeDropdown.innerHTML = '<option value="ALL">All Categories</option>' + 
     categories.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
-
-  // Load first MF history
-  if (sortedMFsByVal.length > 0) {
-    renderMfHistoricalChart(sortedMFsByVal[0].scheme);
-  }
 
   // Populate table - default sort by This Month Gain (col 10) descending
   mfSortColumn = 10;
@@ -3826,153 +3749,89 @@ function initMfsTab() {
   renderMfsTable(sortedMfs);
 }
 
-function selectMfExplorer(scheme, element) {
-  document.querySelectorAll('#explorer-mf-list .explorer-item').forEach(el => el.classList.remove('active'));
-  element.classList.add('active');
-  renderMfHistoricalChart(scheme);
-}
+// ── Inline row history expansion (MFs) ───────────────────────────────────────
+let _inlineMfChart = null;
+let _expandedMfScheme = null;
 
-function renderMfHistoricalChart(scheme) {
-  if (mfHistoricalChart) {
-    mfHistoricalChart.destroy();
-    mfHistoricalChart = null;
+function toggleMfRowHistory(tr, scheme) {
+  if (_expandedMfScheme === scheme) {
+    _collapseMfHistory();
+    return;
   }
+  _collapseMfHistory();
 
   const mf = historicalHoldings.mfs[scheme];
-  if (!mf) return;
-  
+  if (!mf?.history?.length) return;
+
+  _expandedMfScheme = scheme;
+  tr.classList.add('history-row-active');
+
+  const colspan = tr.cells.length;
+  const expRow = document.createElement('tr');
+  expRow.className = 'history-expansion-row';
+  expRow.innerHTML = `<td colspan="${colspan}">
+    <div class="history-panel">
+      <div class="history-chart-side">
+        <canvas id="inline-mf-canvas"></canvas>
+      </div>
+      <div class="history-table-side">
+        <table class="history-inline-table">
+          <thead><tr>
+            <th>Date</th>
+            <th style="text-align:right;">Δ Units</th>
+            <th style="text-align:right;">NAV (₹)</th>
+            <th style="text-align:right;">Δ Invested</th>
+            <th style="text-align:right;">Δ Valuation</th>
+            <th>Action</th>
+          </tr></thead>
+          <tbody id="inline-mf-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </td>`;
+  tr.after(expRow);
+
   const history = mf.history;
-  
-  // Build chart data arrays from history
-  const labels = history.map(h => formatDateString(h.date));
-  const valuations = history.map(h => h.cur_val / 100000);
-  const investments = history.map(h => h.invested / 100000);
-  const navs = history.map(h => h.ltp);
-  
-  const ctxMfHist = document.getElementById('mf-historical-chart').getContext('2d');
-  
-  mfHistoricalChart = new Chart(ctxMfHist, {
+  const canvas = document.getElementById('inline-mf-canvas');
+  const shortName = scheme.length > 40 ? scheme.substring(0, 38) + '…' : scheme;
+  _inlineMfChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
-      labels: labels,
+      labels: history.map(h => formatDateString(h.date)),
       datasets: [
-        {
-          label: 'Current Valuation (₹ L)',
-          data: valuations,
-          borderColor: '#6366f1',
-          backgroundColor: 'rgba(99, 102, 241, 0.1)',
-          fill: true,
-          borderWidth: 2,
-          yAxisID: 'y'
-        },
-        {
-          label: 'Amount Invested (₹ L)',
-          data: investments,
-          borderColor: '#10b981',
-          borderWidth: 1.5,
-          borderDash: [5, 5],
-          fill: false,
-          yAxisID: 'y'
-        },
-        {
-          label: 'NAV Price (₹)',
-          data: navs,
-          borderColor: '#ec4899',
-          borderWidth: 2,
-          fill: false,
-          yAxisID: 'yPrice'
-        }
+        { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
+          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, borderWidth: 2, yAxisID: 'y' },
+        { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
+          borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
+        { label: 'NAV (₹)', data: history.map(h => h.ltp),
+          borderColor: '#ec4899', borderWidth: 2, fill: false, yAxisID: 'yPrice' }
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        title: {
-          display: true,
-          text: `${scheme.substring(0, 45)}... History`,
-          color: '#fff',
-          font: { family: 'Outfit', size: 14 }
-        },
-        legend: { labels: { color: '#f3f4f6' } }
+        title: { display: true, text: shortName, color: '#f3f4f6', font: { family: 'Outfit', size: 12 } },
+        legend: { labels: { color: '#f3f4f6', boxWidth: 12, font: { size: 11 } } }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 10 } },
-        y: {
-          type: 'linear',
-          display: true,
-          position: 'left',
-          grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (val) => '₹' + val.toFixed(2) + ' L' }
-        },
-        yPrice: {
-          type: 'linear',
-          display: true,
-          position: 'right',
-          grid: { drawOnChartArea: false },
-          ticks: { color: '#9ca3af', callback: (val) => '₹' + val }
-        }
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 10 } } },
+        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' },
+             ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
+        yPrice: { position: 'right', grid: { drawOnChartArea: false },
+                  ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v } }
       }
     }
   });
-  
-  // Populate historical data table below the chart (shows incremental changes — only rows where qty changed)
-  const tableContainer = document.getElementById('mf-historical-data-table');
-  if (tableContainer) {
-    const tbody = document.getElementById('mf-historical-data-body');
-    if (!tbody) return;
-    // Build incremental rows: for each row where qty changed, show the delta from previous row
-    const deltaRows = [];
-    for (let idx = 0; idx < history.length; idx++) {
-      const h = history[idx];
-      if (idx === 0) {
-        // First row: show initial position
-        if (h.qty > 0) {
-          deltaRows.push({
-            date: h.date,
-            deltaQty: h.qty,
-            price: h.ltp,
-            deltaInvested: h.invested,
-            deltaValuation: h.cur_val,
-            action: 'Buy'
-          });
-        }
-      } else {
-        const prev = history[idx - 1];
-        const dQty = h.qty - prev.qty;
-        if (Math.abs(dQty) > 0.001) {
-          deltaRows.push({
-            date: h.date,
-            deltaQty: dQty,
-            price: h.ltp,
-            deltaInvested: h.invested - prev.invested,
-            deltaValuation: h.cur_val - prev.cur_val,
-            action: dQty > 0 ? 'Buy' : 'Sell'
-          });
-        }
-      }
-    }
-    tbody.innerHTML = deltaRows.map(r => {
-      const actionStyle = r.action === 'Buy' ? 'background:rgba(16,185,129,0.2);color:#34d399' : 'background:rgba(239,68,68,0.2);color:#f87171';
-      return `
-      <tr>
-        <td>${formatDateString(r.date)}</td>
-        <td style="text-align: right;" class="${r.deltaQty > 0 ? 'trend-up' : 'trend-down'}">
-          ${r.deltaQty > 0 ? '+' : ''}${r.deltaQty.toLocaleString(undefined, {maximumFractionDigits:4})}
-        </td>
-        <td style="text-align: right;">${'₹' + r.price.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
-        <td style="text-align: right;" class="${r.deltaInvested >= 0 ? 'trend-up' : 'trend-down'}">
-          ${r.deltaInvested >= 0 ? '+' : ''}${formatINR(Math.abs(r.deltaInvested))}
-        </td>
-        <td style="text-align: right;" class="${r.deltaValuation >= 0 ? 'trend-up' : 'trend-down'}">
-          ${r.deltaValuation >= 0 ? '+' : ''}${formatINR(Math.abs(r.deltaValuation))}
-        </td>
-        <td><span class="sector-tag" style="${actionStyle}">${r.action}</span></td>
-      </tr>`;
-    }).join('');
-    tableContainer.style.display = 'block';
-  }
+
+  _renderInlineTransactions(history, document.getElementById('inline-mf-tbody'), 4);
+}
+
+function _collapseMfHistory() {
+  if (_inlineMfChart) { _inlineMfChart.destroy(); _inlineMfChart = null; }
+  document.querySelectorAll('#mfs-table-body .history-expansion-row').forEach(r => r.remove());
+  document.querySelectorAll('#mfs-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
+  _expandedMfScheme = null;
 }
 
 function renderMfsTable(data) {
@@ -3982,9 +3841,10 @@ function renderMfsTable(data) {
     const gain = f.thisMonthGain || 0;
     const lastRefreshed = f.lastRefreshDate || '—';
     const xirr = holdingXIRR(f, 'mf');
+    const hasHistory = !!historicalHoldings.mfs?.[f.scheme];
     return `
-    <tr>
-      <td class="instrument-cell" title="${escapeAttr(f.scheme)}">${escapeHtml(f.scheme)}</td>
+    <tr class="holdings-row"${hasHistory ? ` onclick="toggleMfRowHistory(this,'${escapeAttr(f.scheme)}')" title="Click to view history" style="cursor:pointer;"` : ''}>
+      <td class="instrument-cell" title="${escapeAttr(f.scheme)}">${hasHistory ? '<span class="row-expand-icon">▶</span>' : ''}${escapeHtml(f.scheme)}</td>
       <td><span class="category-tag">${escapeHtml(f.scheme_type.replace('Equity : ', ''))}</span></td>
       <td style="text-align: right;">${f.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${f.price.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
@@ -4010,15 +3870,16 @@ function renderMfsTable(data) {
 }
 
 function filterMfsTable() {
+  _collapseMfHistory();
   const query = document.getElementById('mf-search').value.toLowerCase().trim();
   const cat = document.getElementById('mf-type-filter').value;
-  
+
   const filtered = latestMf.filter(f => {
     const matchesQuery = f.scheme.toLowerCase().includes(query) || f.scheme_type.toLowerCase().includes(query);
     const matchesCat = (cat === 'ALL') || (f.scheme_type === cat);
     return matchesQuery && matchesCat;
   });
-  
+
   renderMfsTable(filtered);
 }
 
