@@ -418,7 +418,35 @@ const SECTOR_MAP = {
   GOLDBEES: 'Gold Commodity (ETF)', SGBAUG28V: 'Sovereign Gold Bonds',
   'SGBJUL28IV-GB': 'Sovereign Gold Bonds', 'SGBSEP28VI-GB': 'Sovereign Gold Bonds',
   '716GS2050-GS': 'Government Bonds', '738REC27TF': 'Corporate Bonds', TVSMNCRPS: 'Debt Instrument',
-  ENRIN: 'Industrial Engineering'
+  ENRIN: 'Industrial Engineering',
+
+  // ── Legacy / exited holdings (major, confidently-classifiable) ──
+  // Tagged so the sector-distribution chart resolves them instead of dumping
+  // them in "Other Equities" once the pre-Aug-2022 floor is lifted. Both the
+  // ticker and the old full-company-name forms are listed (harmless if one was
+  // already stitched away). The long tail of micro-caps / bonds / ETFs / event
+  // rows intentionally stays "Other Equities".
+  'Infosys Ltd.': 'IT & Software Services',
+  'Tata Consultancy Services Ltd.': 'IT & Software Services',
+  'Wipro Ltd.': 'IT & Software Services', TECHM: 'IT & Software Services', LTIM: 'IT & Software Services',
+  'Kotak Mahindra Bank Ltd.': 'Banking & Financial Services',
+  'State Bank of India': 'Banking & Financial Services',
+  'Bajaj Finance Ltd.': 'Banking & Financial Services',
+  INDUSINDBK: 'Banking & Financial Services', AUBANK: 'Banking & Financial Services', CANBK: 'Banking & Financial Services',
+  DIVISLAB: 'Pharmaceuticals', LUPIN: 'Pharmaceuticals', GLAND: 'Pharmaceuticals', GRANULES: 'Pharmaceuticals',
+  'Hindustan Unilever Ltd.': 'Consumer Goods & FMCG', HINDUNILVR: 'Consumer Goods & FMCG',
+  DABUR: 'Consumer Goods & FMCG', ASIANPAINT: 'Consumer Goods & FMCG',
+  'Colgate-Palmolive (India) Ltd.': 'Consumer Goods & FMCG',
+  'Avenue Supermarts Ltd.': 'Consumer Goods & FMCG', RELAXO: 'Consumer Goods & FMCG', ZYDUSWELL: 'Consumer Goods & FMCG',
+  'Bharti Airtel Ltd.': 'Telecommunication Services',
+  'Oil And Natural Gas Corporation Ltd.': 'Energy & Mining',
+  'ICICI Prudential Life Insurance Company Ltd.': 'Insurance',
+  'ICICI Lombard General Insurance Company Ltd.': 'Insurance', STARHEALTH: 'Insurance',
+  TATAMOTORS: 'Automobile & Ancillaries', TATAMTRDVR: 'Automobile & Ancillaries',
+  'Mahindra & Mahindra Ltd.': 'Automobile & Ancillaries',
+  ASHOKLEY: 'Automobile & Ancillaries', SONACOMS: 'Automobile & Ancillaries', HYUNDAI: 'Automobile & Ancillaries',
+  'Oberoi Realty Ltd.': 'Real Estate & Construction', SOBHA: 'Real Estate & Construction', SUNTECK: 'Real Estate & Construction',
+  HINDALCO: 'Metals & Mining'
 };
 
 // SEBI classification: top 100 = Large Cap, 101–250 = Mid Cap, 251+ = Small Cap.
@@ -448,6 +476,23 @@ const MARKET_CAP_MAP = {
   PERSISTENT: 'Mid Cap', CIEINDIA: 'Mid Cap',
   // Small Cap
   ENRIN: 'Small Cap',
+
+  // ── Legacy / exited holdings (major) — mirror of the SECTOR_MAP legacy block ──
+  'Infosys Ltd.': 'Large Cap', 'Tata Consultancy Services Ltd.': 'Large Cap',
+  'Wipro Ltd.': 'Large Cap', TECHM: 'Large Cap', LTIM: 'Large Cap',
+  'Kotak Mahindra Bank Ltd.': 'Large Cap', 'State Bank of India': 'Large Cap',
+  'Bajaj Finance Ltd.': 'Large Cap', INDUSINDBK: 'Large Cap', CANBK: 'Large Cap', AUBANK: 'Mid Cap',
+  DIVISLAB: 'Large Cap', LUPIN: 'Large Cap', GLAND: 'Mid Cap', GRANULES: 'Mid Cap',
+  'Hindustan Unilever Ltd.': 'Large Cap', HINDUNILVR: 'Large Cap', DABUR: 'Large Cap',
+  ASIANPAINT: 'Large Cap', 'Colgate-Palmolive (India) Ltd.': 'Large Cap',
+  'Avenue Supermarts Ltd.': 'Large Cap', RELAXO: 'Mid Cap', ZYDUSWELL: 'Mid Cap',
+  'Bharti Airtel Ltd.': 'Large Cap', 'Oil And Natural Gas Corporation Ltd.': 'Large Cap',
+  'ICICI Prudential Life Insurance Company Ltd.': 'Large Cap',
+  'ICICI Lombard General Insurance Company Ltd.': 'Large Cap', STARHEALTH: 'Mid Cap',
+  TATAMOTORS: 'Large Cap', TATAMTRDVR: 'Large Cap', 'Mahindra & Mahindra Ltd.': 'Large Cap',
+  ASHOKLEY: 'Large Cap', SONACOMS: 'Mid Cap', HYUNDAI: 'Large Cap',
+  'Oberoi Realty Ltd.': 'Mid Cap', SOBHA: 'Mid Cap', SUNTECK: 'Small Cap',
+  HINDALCO: 'Large Cap',
 };
 
 // ── History fragment stitching ───────────────────────────────────────────────
@@ -3030,12 +3075,13 @@ function initStocksTab() {
   // 2. Stacked Bar Chart — Equity Portfolio Sector Distribution over Time
   const stockHistory = historicalHoldings.stocks;
 
-  // Collect all unique dates from all stock histories
-  // Filter to start from Aug 2022 when sector mapping (ticker-based) became available
+  // Collect all unique dates from all stock histories. Floor lowered to
+  // inception now that legacy/exited holdings are stitched + sector-tagged
+  // (pre-Aug-2022 fragments resolve instead of falling into "Other Equities").
   const allStockDates = new Set();
   Object.values(stockHistory).forEach(stock => {
     stock.history.forEach(h => {
-      if (h.date >= '2022-08-01') allStockDates.add(h.date);
+      if (h.date >= '2020-01-01') allStockDates.add(h.date);
     });
   });
   const sortedStockDates = [...allStockDates].sort();
