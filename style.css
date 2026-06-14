@@ -845,35 +845,55 @@ tr:hover td {
 .history-table-side {
   padding: 0;
   max-height: 300px;
+  overflow-x: auto;
   overflow-y: auto;
 }
 
 .history-inline-table {
-  width: 100%;
+  width: max-content;  /* let table be as wide as it needs; side scrolls */
+  min-width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+}
+
+/* Cancel the outer .table-wrapper sticky-first-column rule for the inline table */
+.history-inline-table th:first-child,
+.history-inline-table td:first-child {
+  position: static !important;
+  background: transparent !important;
+  z-index: auto !important;
 }
 
 .history-inline-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text-secondary);
-  font-weight: 600;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 2;
+  background: rgba(20, 22, 34, 0.97);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   white-space: nowrap;
   cursor: default;
   user-select: none;
 }
 
+/* Re-apply sticky to th:first-child after the override above */
+.history-inline-table th:first-child {
+  position: sticky !important;
+  background: rgba(20, 22, 34, 0.97) !important;
+}
+
 .history-inline-table td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 .history-inline-table tr:last-child td {
@@ -881,7 +901,14 @@ tr:hover td {
 }
 
 .history-inline-table tr:hover td {
-  background: rgba(255, 255, 255, 0.01);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Action tag inside the inline table — give it breathing room */
+.history-inline-table .sector-tag {
+  min-width: 44px;
+  text-align: center;
+  display: inline-block;
 }
 
 /* Benchmark Stats */
