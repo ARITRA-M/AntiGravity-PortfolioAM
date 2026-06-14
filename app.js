@@ -3404,7 +3404,7 @@ function _inlineChartOptions(title) {
       y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' },
            ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
       yPrice: { position: 'right', grid: { drawOnChartArea: false },
-                ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v } }
+                ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toLocaleString(undefined, {maximumFractionDigits: 0}) } }
     }
   };
 }
@@ -3420,11 +3420,9 @@ function _buildExpansionHTML(canvasId, tbodyId, qtyLabel, priceLabel) {
           <th>Date</th>
           <th>Action</th>
           <th style="text-align:right;">Δ ${qtyLabel}</th>
-          <th style="text-align:right;">Total ${qtyLabel}</th>
+          <th style="text-align:right;">${qtyLabel}</th>
           <th style="text-align:right;">${priceLabel} (₹)</th>
           <th style="text-align:right;">Δ Invested</th>
-          <th style="text-align:right;">Δ Valuation</th>
-          <th style="text-align:right;">Total Value</th>
         </tr></thead>
         <tbody id="${tbodyId}"></tbody>
       </table>
@@ -3509,9 +3507,7 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
       <td style="text-align:right;" class="${r.dQty > 0 ? 'trend-up' : 'trend-down'}">${r.dQty > 0 ? '+' : ''}${r.dQty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;">${r.qty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;">₹${r.price.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
-      <td style="text-align:right;" class="${r.dInv >= 0 ? 'trend-up' : 'trend-down'}">${r.dInv >= 0 ? '+' : ''}${formatINR(Math.abs(r.dInv))}</td>
-      <td style="text-align:right;" class="${r.dVal >= 0 ? 'trend-up' : 'trend-down'}">${r.dVal >= 0 ? '+' : ''}${formatINR(Math.abs(r.dVal))}</td>
-      <td style="text-align:right;">${formatINR(r.curVal)}</td>
+      <td style="text-align:right;" class="${r.dInv >= 0 ? 'trend-up' : 'trend-down'}">${r.dInv >= 0 ? '+' : '−'}${formatINR(Math.abs(r.dInv))}</td>
     </tr>`;
   }).join('');
 }
