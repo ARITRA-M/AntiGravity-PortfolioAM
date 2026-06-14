@@ -1688,11 +1688,11 @@ function updateKpis() {
   document.getElementById('kpi-mfs-gain').innerText = (mfGainLakhs >= 0 ? '+' : '') + mfGainLakhs.toFixed(2) + ' L';
   document.getElementById('kpi-mfs-gain').className = mfGainLakhs >= 0 ? 'trend-up' : 'trend-down';
 
-  // MFs: active count + best XIRR
-  const mfsActiveCount = latestMf.filter(f => f.units > 0).length;
+  // MFs: active count + best XIRR (latestMf uses qty, not units)
+  const mfsActiveCount = latestMf.filter(f => f.qty > 0).length;
   document.getElementById('kpi-mfs-active-count').innerText = mfsActiveCount;
   const mfXirrPairs = latestMf
-    .filter(f => f.units > 0)
+    .filter(f => f.qty > 0)
     .map(f => ({ name: f.scheme, xirr: holdingXIRR(f, 'mf') }))
     .filter(p => p.xirr != null && isFinite(p.xirr));
   if (mfXirrPairs.length) {
