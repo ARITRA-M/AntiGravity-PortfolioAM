@@ -258,7 +258,8 @@ async function fetchStockQuote(ticker, source) {
   return { price, prevClose };
 }
 
-async function refreshPrices() {
+// stocksOnly=true skips the MF NAV loop — used by the 1-min auto-refresh cycle.
+async function refreshPrices(stocksOnly = false) {
   if (isRefreshing) return;
   isRefreshing = true;
 
@@ -566,9 +567,9 @@ async function refreshPrices() {
       updateProgress(fund.scheme);
     }
 
-    // Kick off MF refresh now so it overlaps the stock batches (different
-    // backend, no rate-limit contention with the Yahoo proxy).
-    const mfRefreshDone = Promise.allSettled(latestMf.map(refreshOneMf));
+    // Kick off MF refresh concurrently with stocks (different backend, no
+    // rate-limit contention). Skipped on stocks-only auto-refresh cycles.
+    const mfRefreshDone = stocksOnly ? Promise.resolve() : Promise.allSettled(latestMf.map(refreshOneMf));
 
     // Run stocks in batches. Spark-served stocks make no network call, so the
     // rate-limit delay is only paid between batches that actually hit the API.
@@ -625,9 +626,11 @@ async function refreshPrices() {
     badge.innerText = `Live: ${refreshDateStr}`;
     badge.style.borderColor = 'rgba(16, 185, 129, 0.5)';
 
-    let statusMsg = `Stocks: ${stockSuccess}/${totalStocks} | MFs: ${mfSuccess}/${mappedMfs} updated`;
+    let statusMsg = stocksOnly
+      ? `Stocks: ${stockSuccess}/${totalStocks} updated (MFs skipped)`
+      : `Stocks: ${stockSuccess}/${totalStocks} | MFs: ${mfSuccess}/${mappedMfs} updated`;
     if (skippedStocks > 0) statusMsg += ` (${skippedStocks} bonds/SGBs skipped)`;
-    if (missingMfs > 0) statusMsg += ` | ${missingMfs} MFs not found on mfapi.in`;
+    if (!stocksOnly && missingMfs > 0) statusMsg += ` | ${missingMfs} MFs not found on mfapi.in`;
 
     if (stockFail > 0 || mfFail > 0) {
       statusMsg += ` | ${stockFail + mfFail} failed (rate limited or API down)`;
@@ -636,7 +639,9 @@ async function refreshPrices() {
       status.className = 'refresh-status visible success';
     }
     status.textContent = statusMsg;
-    updateDataFreshness(`Live refresh: ${refreshDateStr}. Stocks ${stockSuccess}/${totalStocks}, MFs ${mfSuccess}/${mappedMfs}, skipped ${skippedStocks + missingMfs}.`);
+    updateDataFreshness(stocksOnly
+      ? `Live refresh: ${refreshDateStr}. Stocks ${stockSuccess}/${totalStocks} (stocks only).`
+      : `Live refresh: ${refreshDateStr}. Stocks ${stockSuccess}/${totalStocks}, MFs ${mfSuccess}/${mappedMfs}, skipped ${skippedStocks + missingMfs}.`);
   } catch (error) {
     console.error('Price refresh failed:', error);
     status.className = 'refresh-status visible error';
@@ -650,10 +655,14 @@ async function refreshPrices() {
 }
 
 // ── Auto-refresh during NSE market hours (9:15 AM – 3:30 PM IST, Mon–Fri) ───
-const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+// Stocks refresh every 1 min; full refresh (stocks + MFs) every 5th tick.
+const AUTO_REFRESH_TICK_MS  = 1 * 60 * 1000; // 1 minute
+const AUTO_FULL_REFRESH_EVERY = 5;            // full refresh on every 5th tick
+
 let _autoRefreshTimer = null;
 let _autoRefreshCountdownTimer = null;
-let _autoRefreshNextAt = null; // timestamp of next scheduled fire
+let _autoRefreshNextAt = null;
+let _autoRefreshTickCount = 0; // increments each tick; resets on market-closed pause
 
 function isMarketOpen() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
@@ -677,7 +686,9 @@ function updateAutoRefreshBadge() {
     const secsLeft = Math.max(0, Math.round((_autoRefreshNextAt - Date.now()) / 1000));
     const m = Math.floor(secsLeft / 60);
     const s = secsLeft % 60;
-    badge.textContent = `Auto ⟳ ${m}:${String(s).padStart(2, '0')}`;
+    // Show whether next tick is stocks-only or full
+    const nextIsFull = (_autoRefreshTickCount + 1) % AUTO_FULL_REFRESH_EVERY === 0;
+    badge.textContent = `Auto ⟳ ${m}:${String(s).padStart(2, '0')} ${nextIsFull ? '(full)' : '(stocks)'}`;
   } else {
     badge.textContent = 'Auto ⟳';
   }
@@ -688,14 +699,15 @@ function scheduleNextAutoRefresh() {
   clearInterval(_autoRefreshCountdownTimer);
 
   if (!isMarketOpen()) {
-    // Check again in 1 minute in case market opens soon
+    // Check again in 1 minute in case the market opens
     _autoRefreshNextAt = null;
+    _autoRefreshTickCount = 0; // reset so first tick after open is stocks-only
     updateAutoRefreshBadge();
     _autoRefreshTimer = setTimeout(scheduleNextAutoRefresh, 60 * 1000);
     return;
   }
 
-  _autoRefreshNextAt = Date.now() + AUTO_REFRESH_INTERVAL_MS;
+  _autoRefreshNextAt = Date.now() + AUTO_REFRESH_TICK_MS;
   updateAutoRefreshBadge();
 
   // Tick the countdown every second
@@ -704,13 +716,16 @@ function scheduleNextAutoRefresh() {
   _autoRefreshTimer = setTimeout(async () => {
     clearInterval(_autoRefreshCountdownTimer);
     if (isMarketOpen() && !isRefreshing) {
-      await refreshPrices();
+      _autoRefreshTickCount++;
+      const doFull = _autoRefreshTickCount % AUTO_FULL_REFRESH_EVERY === 0;
+      await refreshPrices(/* stocksOnly */ !doFull);
     }
     scheduleNextAutoRefresh();
-  }, AUTO_REFRESH_INTERVAL_MS);
+  }, AUTO_REFRESH_TICK_MS);
 }
 
 // Start auto-refresh once the page data is loaded (called from app.js after init)
 function startAutoRefresh() {
+  _autoRefreshTickCount = 0;
   scheduleNextAutoRefresh();
 }
