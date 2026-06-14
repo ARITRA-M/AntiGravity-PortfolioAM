@@ -1649,34 +1649,6 @@ function updateKpis() {
   document.getElementById('kpi-gold-val').innerText = formatLakhs(portfolioSummary.gold_lakhs);
   document.getElementById('kpi-gold-pct').innerText = portfolioSummary.allocation_pct.Gold.toFixed(1) + '%';
 
-  // Gold XIRR: merge cashflows from all gold holdings (SGBs + Gold ETFs) into one XIRR
-  if (historicalHoldings) {
-    const goldSectors = new Set(['Sovereign Gold Bonds', 'Gold Commodity (ETF)']);
-    const goldInstruments = latestEquity
-      .filter(s => goldSectors.has(s.sector))
-      .map(s => s.instrument);
-    const allCf = [], allDt = [];
-    for (const inst of goldInstruments) {
-      const key = (typeof getStockHistoryKey === 'function' && getStockHistoryKey(inst)) || inst;
-      const history = historicalHoldings.stocks[key]?.history;
-      if (!history) continue;
-      let prevInv = 0;
-      for (let i = 0; i < history.length; i++) {
-        const inv = history[i].invested || 0;
-        const delta = inv - prevInv;
-        if (Math.abs(delta) > 1) { allCf.push(-delta); allDt.push(new Date(history[i].date)); }
-        prevInv = inv;
-      }
-      const last = history[history.length - 1];
-      if (last.cur_val) { allCf.push(last.cur_val); allDt.push(new Date(last.date)); }
-    }
-    const goldXirr = allCf.length >= 2 ? computeXIRR(allCf, allDt) : null;
-    const goldXirrEl = document.getElementById('kpi-gold-xirr');
-    if (goldXirrEl && goldXirr != null && isFinite(goldXirr)) {
-      goldXirrEl.innerText = (goldXirr * 100).toFixed(1) + '%';
-    }
-  }
-
   // Calculate last uploaded total value (sum of invested amounts across all holdings)
   // and this month's gain from breakup_summary net_worth values
   const nw = breakupSummary.net_worth;
@@ -1710,6 +1682,66 @@ function updateKpis() {
   };
   const stocksXirrKey = findXirrKey('stock');
   const mfXirrKey     = findXirrKey('^mf', 'mutual.fund');
+  const debtXirrKey   = findXirrKey('^debt', 'bond', '^pf', '^ppf', 'fixed.income');
+
+  // Helper: extract history from a stock instrument (getStockHistoryKey returns the object, not the key)
+  const getHoldingHistory = (inst) => {
+    if (!historicalHoldings) return null;
+    const obj = (typeof getStockHistoryKey === 'function' && getStockHistoryKey(inst))
+      || historicalHoldings.stocks[inst];
+    return obj?.history || null;
+  };
+
+  // Helper: merge cashflows from multiple histories into arrays for computeXIRR
+  const mergedXirr = (instruments) => {
+    const allCf = [], allDt = [];
+    for (const inst of instruments) {
+      const history = getHoldingHistory(inst);
+      if (!history) continue;
+      let prevInv = 0;
+      for (const row of history) {
+        const delta = (row.invested || 0) - prevInv;
+        if (Math.abs(delta) > 1) { allCf.push(-delta); allDt.push(new Date(row.date)); }
+        prevInv = row.invested || 0;
+      }
+      const last = history[history.length - 1];
+      if (last?.cur_val) { allCf.push(last.cur_val); allDt.push(new Date(last.date)); }
+    }
+    const xirr = allCf.length >= 2 ? computeXIRR(allCf, allDt) : null;
+    return (xirr != null && isFinite(xirr)) ? xirr : null;
+  };
+
+  // Equity XIRR: weighted average of stocks + MF XIRR by current value
+  const stocksXirrVal = stocksXirrKey ? lastNonZeroXirr(xirrSec[stocksXirrKey].values) : null;
+  const mfXirrVal     = mfXirrKey     ? lastNonZeroXirr(xirrSec[mfXirrKey].values)     : null;
+  const stocksVal = latestEquity.reduce((s, e) => s + e.cur_val, 0);
+  const mfVal     = latestMf.reduce((s, f) => s + f.cur_val, 0);
+  let equityXirr = null;
+  if (stocksXirrVal != null && mfXirrVal != null && (stocksVal + mfVal) > 0) {
+    equityXirr = (stocksXirrVal * stocksVal + mfXirrVal * mfVal) / (stocksVal + mfVal);
+  } else {
+    equityXirr = stocksXirrVal ?? mfXirrVal;
+  }
+  const equityXirrEl = document.getElementById('kpi-equity-xirr');
+  if (equityXirrEl && equityXirr != null) {
+    equityXirrEl.innerText = (equityXirr * 100).toFixed(1) + '%';
+  }
+
+  // Debt XIRR: from breakupSummary.xirr if a matching key exists
+  const debtXirrVal = debtXirrKey ? lastNonZeroXirr(xirrSec[debtXirrKey].values) : null;
+  const debtXirrEl = document.getElementById('kpi-debt-xirr');
+  if (debtXirrEl && debtXirrVal != null) {
+    debtXirrEl.innerText = (debtXirrVal * 100).toFixed(1) + '%';
+  }
+
+  // Gold XIRR: merge cashflows across all SGB + Gold ETF holdings
+  const goldSectors = new Set(['Sovereign Gold Bonds', 'Gold Commodity (ETF)']);
+  const goldInstruments = latestEquity.filter(s => goldSectors.has(s.sector)).map(s => s.instrument);
+  const goldXirr = mergedXirr(goldInstruments);
+  const goldXirrEl = document.getElementById('kpi-gold-xirr');
+  if (goldXirrEl && goldXirr != null) {
+    goldXirrEl.innerText = (goldXirr * 100).toFixed(1) + '%';
+  }
 
   // Stocks: current value + overall gain (absolute + %)
   const stocksCurrentLakhs = latestEquity.reduce((sum, s) => sum + s.cur_val, 0) / 100000;
