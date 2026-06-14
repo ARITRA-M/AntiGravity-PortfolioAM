@@ -90,85 +90,38 @@
       <button class="tab-btn" onclick="switchTab('update-log')">📋 Update Log</button>
     </div>
 
-    <!-- KPI Section (Common across tabs) -->
-    <section class="kpi-grid">
-      <div class="kpi-card total-card">
-        <div>
-          <div class="kpi-title">Current Net Worth</div>
-          <div class="kpi-value" id="kpi-net-worth">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          Aggregated Portfolio Value
-        </div>
-      </div>
-      
-      <div class="kpi-card equity-card">
-        <div>
-          <div class="kpi-title">Equity Exposure</div>
-          <div class="kpi-value" id="kpi-equity-val">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          Stocks, MFs & NPS E (<span id="kpi-equity-pct" class="trend-up">0%</span>)
+    <!-- Slim KPI bar — always visible, 4 cards only -->
+    <section class="kpi-slim-bar">
+      <div class="kpi-slim-card" style="--card-accent: #34d399;">
+        <div class="kpi-slim-icon">💼</div>
+        <div class="kpi-slim-body">
+          <div class="kpi-slim-label">Net Worth</div>
+          <div class="kpi-slim-value" id="kpi-net-worth">₹0.00 L</div>
+          <div class="kpi-slim-sub">Total portfolio</div>
         </div>
       </div>
-      
-      <div class="kpi-card debt-card">
-        <div>
-          <div class="kpi-title">Debt Exposure</div>
-          <div class="kpi-value" id="kpi-debt-val">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          Bonds, NPS C/G, PF & PPF (<span id="kpi-debt-pct" class="trend-up">0%</span>)
+      <div class="kpi-slim-card" style="--card-accent: #3b82f6;">
+        <div class="kpi-slim-icon">📈</div>
+        <div class="kpi-slim-body">
+          <div class="kpi-slim-label">Equity</div>
+          <div class="kpi-slim-value" id="kpi-equity-val">₹0.00 L</div>
+          <div class="kpi-slim-sub">Stocks, MFs, NPS E · <span id="kpi-equity-pct">0%</span></div>
         </div>
       </div>
-      
-      <div class="kpi-card gold-card">
-        <div>
-          <div class="kpi-title">Gold & Alternatives</div>
-          <div class="kpi-value" id="kpi-gold-val">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          Gold, SGBs (<span id="kpi-gold-pct" class="trend-up">0%</span>)
+      <div class="kpi-slim-card" style="--card-accent: #8b5cf6;">
+        <div class="kpi-slim-icon">🏦</div>
+        <div class="kpi-slim-body">
+          <div class="kpi-slim-label">Debt</div>
+          <div class="kpi-slim-value" id="kpi-debt-val">₹0.00 L</div>
+          <div class="kpi-slim-sub">Bonds, NPS, PF, PPF · <span id="kpi-debt-pct">0%</span></div>
         </div>
       </div>
-
-      <div class="kpi-card" style="--card-accent: #6366f1;">
-        <div>
-          <div class="kpi-title">Stocks Value</div>
-          <div class="kpi-value" id="kpi-stocks-uploaded">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          Since Upload: <span id="kpi-stocks-gain" class="trend-up">+0.00 L</span>
-        </div>
-      </div>
-
-      <div class="kpi-card" style="--card-accent: #10b981;">
-        <div>
-          <div class="kpi-title">Mutual Funds Value</div>
-          <div class="kpi-value" id="kpi-mfs-uploaded">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          Since Upload: <span id="kpi-mfs-gain" class="trend-up">+0.00 L</span>
-        </div>
-      </div>
-
-      <div class="kpi-card" style="--card-accent: #f59e0b;">
-        <div>
-          <div class="kpi-title">PF (Current)</div>
-          <div class="kpi-value" id="kpi-pf-value">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          This Month: <span id="kpi-pf-gain" class="trend-up">+0.00 L</span>
-        </div>
-      </div>
-
-      <div class="kpi-card" style="--card-accent: #ec4899;">
-        <div>
-          <div class="kpi-title">PPF (Current)</div>
-          <div class="kpi-value" id="kpi-ppf-value">₹0.00 L</div>
-        </div>
-        <div class="kpi-sub">
-          This Month: <span id="kpi-ppf-gain" class="trend-up">+0.00 L</span>
+      <div class="kpi-slim-card" style="--card-accent: #f59e0b;">
+        <div class="kpi-slim-icon">🥇</div>
+        <div class="kpi-slim-body">
+          <div class="kpi-slim-label">Gold</div>
+          <div class="kpi-slim-value" id="kpi-gold-val">₹0.00 L</div>
+          <div class="kpi-slim-sub">SGBs, Gold ETF · <span id="kpi-gold-pct">0%</span></div>
         </div>
       </div>
     </section>
@@ -359,6 +312,25 @@
 
     <!-- ==================== STOCKS TAB ==================== -->
     <div id="stocks-tab" class="tab-content">
+      <!-- Stocks context KPI bar -->
+      <div class="tab-kpi-bar">
+        <div class="tab-kpi-card" style="--card-accent: #6366f1;">
+          <div class="tab-kpi-label">Stocks Value</div>
+          <div class="tab-kpi-value" id="kpi-stocks-uploaded">₹0.00 L</div>
+          <div class="tab-kpi-sub">Since upload: <span id="kpi-stocks-gain">+0.00 L</span></div>
+        </div>
+        <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
+          <div class="tab-kpi-label">Active Holdings</div>
+          <div class="tab-kpi-value" id="kpi-stocks-active-count">—</div>
+          <div class="tab-kpi-sub">Stocks currently held</div>
+        </div>
+        <div class="tab-kpi-card" style="--card-accent: #10b981;">
+          <div class="tab-kpi-label">Best XIRR</div>
+          <div class="tab-kpi-value" id="kpi-stocks-best-xirr">—</div>
+          <div class="tab-kpi-sub" id="kpi-stocks-best-xirr-name">—</div>
+        </div>
+      </div>
+
       <!-- Short-term performance vs Nifty 50 (last ~30 days, daily) -->
       <div class="chart-card full-width-card">
         <div class="chart-header">
@@ -475,6 +447,25 @@
 
     <!-- ==================== MUTUAL FUND TAB ==================== -->
     <div id="mfs-tab" class="tab-content">
+      <!-- MF context KPI bar -->
+      <div class="tab-kpi-bar">
+        <div class="tab-kpi-card" style="--card-accent: #10b981;">
+          <div class="tab-kpi-label">MF Value</div>
+          <div class="tab-kpi-value" id="kpi-mfs-uploaded">₹0.00 L</div>
+          <div class="tab-kpi-sub">Since upload: <span id="kpi-mfs-gain">+0.00 L</span></div>
+        </div>
+        <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
+          <div class="tab-kpi-label">Active Funds</div>
+          <div class="tab-kpi-value" id="kpi-mfs-active-count">—</div>
+          <div class="tab-kpi-sub">Funds currently held</div>
+        </div>
+        <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
+          <div class="tab-kpi-label">Best XIRR</div>
+          <div class="tab-kpi-value" id="kpi-mfs-best-xirr">—</div>
+          <div class="tab-kpi-sub" id="kpi-mfs-best-xirr-name">—</div>
+        </div>
+      </div>
+
       <!-- Short-term performance vs Nifty 50 (last ~30 days, daily) -->
       <div class="chart-card full-width-card">
         <div class="chart-header">
