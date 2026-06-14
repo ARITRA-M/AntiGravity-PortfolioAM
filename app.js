@@ -3417,9 +3417,11 @@ function toggleStockRowHistory(tr, symbol) {
           <thead><tr>
             <th>Date</th>
             <th style="text-align:right;">Δ Qty</th>
+            <th style="text-align:right;">Total Qty</th>
             <th style="text-align:right;">Price (₹)</th>
             <th style="text-align:right;">Δ Invested</th>
             <th style="text-align:right;">Δ Valuation</th>
+            <th style="text-align:right;">Total Value</th>
             <th>Action</th>
           </tr></thead>
           <tbody id="inline-stock-tbody"></tbody>
@@ -3476,14 +3478,14 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
   for (let i = 0; i < history.length; i++) {
     const h = history[i];
     if (i === 0) {
-      if (h.qty > 0) deltaRows.push({ date: h.date, dQty: h.qty, price: h.ltp, dInv: h.invested, dVal: h.cur_val, action: 'Buy' });
+      if (h.qty > 0) deltaRows.push({ date: h.date, dQty: h.qty, qty: h.qty, price: h.ltp, dInv: h.invested, dVal: h.cur_val, curVal: h.cur_val, action: 'Buy' });
     } else {
       const p = history[i - 1];
       const dQty = h.qty - p.qty;
       if (Math.abs(dQty) > 0.001) deltaRows.push({
-        date: h.date, dQty, price: h.ltp,
+        date: h.date, dQty, qty: h.qty, price: h.ltp,
         dInv: h.invested - p.invested, dVal: h.cur_val - p.cur_val,
-        action: dQty > 0 ? 'Buy' : 'Sell'
+        curVal: h.cur_val, action: dQty > 0 ? 'Buy' : 'Sell'
       });
     }
   }
@@ -3492,9 +3494,11 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
     return `<tr>
       <td>${formatDateString(r.date)}</td>
       <td style="text-align:right;" class="${r.dQty > 0 ? 'trend-up' : 'trend-down'}">${r.dQty > 0 ? '+' : ''}${r.dQty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
+      <td style="text-align:right;">${r.qty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;">₹${r.price.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;" class="${r.dInv >= 0 ? 'trend-up' : 'trend-down'}">${r.dInv >= 0 ? '+' : ''}${formatINR(Math.abs(r.dInv))}</td>
       <td style="text-align:right;" class="${r.dVal >= 0 ? 'trend-up' : 'trend-down'}">${r.dVal >= 0 ? '+' : ''}${formatINR(Math.abs(r.dVal))}</td>
+      <td style="text-align:right;">${formatINR(r.curVal)}</td>
       <td><span class="sector-tag" style="${aStyle}">${r.action}</span></td>
     </tr>`;
   }).join('');
@@ -3779,9 +3783,11 @@ function toggleMfRowHistory(tr, scheme) {
           <thead><tr>
             <th>Date</th>
             <th style="text-align:right;">Δ Units</th>
+            <th style="text-align:right;">Total Units</th>
             <th style="text-align:right;">NAV (₹)</th>
             <th style="text-align:right;">Δ Invested</th>
             <th style="text-align:right;">Δ Valuation</th>
+            <th style="text-align:right;">Total Value</th>
             <th>Action</th>
           </tr></thead>
           <tbody id="inline-mf-tbody"></tbody>
