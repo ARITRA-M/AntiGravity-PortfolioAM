@@ -3391,11 +3391,58 @@ function initStocksTab() {
 let _inlineStockChart = null;
 let _expandedStockSymbol = null;
 
-function toggleStockRowHistory(tr, symbol) {
-  if (_expandedStockSymbol === symbol) {
-    _collapseStockHistory();
-    return;
+function _inlineChartOptions(title) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      title: { display: true, text: title, color: '#f3f4f6', font: { family: 'Outfit', size: 13 } },
+      legend: { position: 'top', labels: { color: '#9ca3af', boxWidth: 10, font: { size: 10 }, padding: 10 } }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 10, font: { size: 10 } } },
+      y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' },
+           ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
+      yPrice: { position: 'right', grid: { drawOnChartArea: false },
+                ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v } }
+    }
+  };
+}
+
+function _buildExpansionHTML(canvasId, tbodyId, qtyLabel, priceLabel) {
+  return `
+    <div class="history-chart-side">
+      <canvas id="${canvasId}"></canvas>
+    </div>
+    <div class="history-table-side">
+      <table class="history-inline-table">
+        <thead><tr>
+          <th>Date</th>
+          <th>Action</th>
+          <th style="text-align:right;">Δ ${qtyLabel}</th>
+          <th style="text-align:right;">Total ${qtyLabel}</th>
+          <th style="text-align:right;">${priceLabel} (₹)</th>
+          <th style="text-align:right;">Δ Invested</th>
+          <th style="text-align:right;">Δ Valuation</th>
+          <th style="text-align:right;">Total Value</th>
+        </tr></thead>
+        <tbody id="${tbodyId}"></tbody>
+      </table>
+    </div>`;
+}
+
+function _pinExpansionWidth(expRow, tr) {
+  // Pin panel width to the visible scroll container so there is no nested
+  // horizontal scrollbar — the panel simply fills what's on screen.
+  const wrapper = tr.closest('.table-wrapper');
+  if (wrapper) {
+    const panel = expRow.querySelector('.history-panel');
+    if (panel) panel.style.width = wrapper.clientWidth + 'px';
   }
+}
+
+function toggleStockRowHistory(tr, symbol) {
+  if (_expandedStockSymbol === symbol) { _collapseStockHistory(); return; }
   _collapseStockHistory();
 
   const stock = getStockHistoryKey(symbol) || historicalHoldings.stocks[symbol];
@@ -3404,65 +3451,29 @@ function toggleStockRowHistory(tr, symbol) {
   _expandedStockSymbol = symbol;
   tr.classList.add('history-row-active');
 
-  const colspan = tr.cells.length;
   const expRow = document.createElement('tr');
   expRow.className = 'history-expansion-row';
-  expRow.innerHTML = `<td colspan="${colspan}">
-    <div class="history-panel">
-      <div class="history-chart-side">
-        <canvas id="inline-stock-canvas"></canvas>
-      </div>
-      <div class="history-table-side">
-        <table class="history-inline-table">
-          <thead><tr>
-            <th>Date</th>
-            <th style="text-align:right;">Δ Qty</th>
-            <th style="text-align:right;">Total Qty</th>
-            <th style="text-align:right;">Price (₹)</th>
-            <th style="text-align:right;">Δ Invested</th>
-            <th style="text-align:right;">Δ Valuation</th>
-            <th style="text-align:right;">Total Value</th>
-            <th>Action</th>
-          </tr></thead>
-          <tbody id="inline-stock-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </td>`;
+  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
+    ${_buildExpansionHTML('inline-stock-canvas', 'inline-stock-tbody', 'Qty', 'Price')}
+  </div></td>`;
   tr.after(expRow);
+  _pinExpansionWidth(expRow, tr);
 
   const history = stock.history;
-  const canvas = document.getElementById('inline-stock-canvas');
-  _inlineStockChart = new Chart(canvas.getContext('2d'), {
-    type: 'line',
-    data: {
-      labels: history.map(h => formatDateString(h.date)),
-      datasets: [
-        { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
-          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, borderWidth: 2, yAxisID: 'y' },
-        { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
-          borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
-        { label: 'LTP (₹)', data: history.map(h => h.ltp),
-          borderColor: '#f59e0b', borderWidth: 2, fill: false, yAxisID: 'yPrice' }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        title: { display: true, text: `${symbol} — History`, color: '#f3f4f6', font: { family: 'Outfit', size: 13 } },
-        legend: { labels: { color: '#f3f4f6', boxWidth: 12, font: { size: 11 } } }
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 10 } } },
-        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' },
-             ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
-        yPrice: { position: 'right', grid: { drawOnChartArea: false },
-                  ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v } }
-      }
-    }
-  });
-
+  _inlineStockChart = new Chart(
+    document.getElementById('inline-stock-canvas').getContext('2d'),
+    { type: 'line', data: {
+        labels: history.map(h => formatDateString(h.date)),
+        datasets: [
+          { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
+            borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)', fill: true, borderWidth: 2, yAxisID: 'y' },
+          { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
+            borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
+          { label: 'LTP (₹)', data: history.map(h => h.ltp),
+            borderColor: '#f59e0b', borderWidth: 1.5, fill: false, yAxisID: 'yPrice' }
+        ]
+      }, options: _inlineChartOptions(`${symbol} — History`) }
+  );
   _renderInlineTransactions(history, document.getElementById('inline-stock-tbody'), 2);
 }
 
@@ -3490,16 +3501,17 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
     }
   }
   tbody.innerHTML = deltaRows.map(r => {
-    const aStyle = r.action === 'Buy' ? 'background:rgba(16,185,129,0.2);color:#34d399' : 'background:rgba(239,68,68,0.2);color:#f87171';
+    const isBuy = r.action === 'Buy';
+    const aStyle = isBuy ? 'background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)' : 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)';
     return `<tr>
-      <td>${formatDateString(r.date)}</td>
+      <td style="white-space:nowrap;">${formatDateString(r.date)}</td>
+      <td><span class="history-action-tag" style="${aStyle}">${r.action}</span></td>
       <td style="text-align:right;" class="${r.dQty > 0 ? 'trend-up' : 'trend-down'}">${r.dQty > 0 ? '+' : ''}${r.dQty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;">${r.qty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;">₹${r.price.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;" class="${r.dInv >= 0 ? 'trend-up' : 'trend-down'}">${r.dInv >= 0 ? '+' : ''}${formatINR(Math.abs(r.dInv))}</td>
       <td style="text-align:right;" class="${r.dVal >= 0 ? 'trend-up' : 'trend-down'}">${r.dVal >= 0 ? '+' : ''}${formatINR(Math.abs(r.dVal))}</td>
       <td style="text-align:right;">${formatINR(r.curVal)}</td>
-      <td><span class="sector-tag" style="${aStyle}">${r.action}</span></td>
     </tr>`;
   }).join('');
 }
@@ -3758,10 +3770,7 @@ let _inlineMfChart = null;
 let _expandedMfScheme = null;
 
 function toggleMfRowHistory(tr, scheme) {
-  if (_expandedMfScheme === scheme) {
-    _collapseMfHistory();
-    return;
-  }
+  if (_expandedMfScheme === scheme) { _collapseMfHistory(); return; }
   _collapseMfHistory();
 
   const mf = historicalHoldings.mfs[scheme];
@@ -3770,66 +3779,30 @@ function toggleMfRowHistory(tr, scheme) {
   _expandedMfScheme = scheme;
   tr.classList.add('history-row-active');
 
-  const colspan = tr.cells.length;
   const expRow = document.createElement('tr');
   expRow.className = 'history-expansion-row';
-  expRow.innerHTML = `<td colspan="${colspan}">
-    <div class="history-panel">
-      <div class="history-chart-side">
-        <canvas id="inline-mf-canvas"></canvas>
-      </div>
-      <div class="history-table-side">
-        <table class="history-inline-table">
-          <thead><tr>
-            <th>Date</th>
-            <th style="text-align:right;">Δ Units</th>
-            <th style="text-align:right;">Total Units</th>
-            <th style="text-align:right;">NAV (₹)</th>
-            <th style="text-align:right;">Δ Invested</th>
-            <th style="text-align:right;">Δ Valuation</th>
-            <th style="text-align:right;">Total Value</th>
-            <th>Action</th>
-          </tr></thead>
-          <tbody id="inline-mf-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </td>`;
+  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
+    ${_buildExpansionHTML('inline-mf-canvas', 'inline-mf-tbody', 'Units', 'NAV')}
+  </div></td>`;
   tr.after(expRow);
+  _pinExpansionWidth(expRow, tr);
 
   const history = mf.history;
-  const canvas = document.getElementById('inline-mf-canvas');
-  const shortName = scheme.length > 40 ? scheme.substring(0, 38) + '…' : scheme;
-  _inlineMfChart = new Chart(canvas.getContext('2d'), {
-    type: 'line',
-    data: {
-      labels: history.map(h => formatDateString(h.date)),
-      datasets: [
-        { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
-          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, borderWidth: 2, yAxisID: 'y' },
-        { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
-          borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
-        { label: 'NAV (₹)', data: history.map(h => h.ltp),
-          borderColor: '#ec4899', borderWidth: 2, fill: false, yAxisID: 'yPrice' }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        title: { display: true, text: shortName, color: '#f3f4f6', font: { family: 'Outfit', size: 12 } },
-        legend: { labels: { color: '#f3f4f6', boxWidth: 12, font: { size: 11 } } }
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 10 } } },
-        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' },
-             ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
-        yPrice: { position: 'right', grid: { drawOnChartArea: false },
-                  ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v } }
-      }
-    }
-  });
-
+  const shortName = scheme.length > 42 ? scheme.substring(0, 40) + '…' : scheme;
+  _inlineMfChart = new Chart(
+    document.getElementById('inline-mf-canvas').getContext('2d'),
+    { type: 'line', data: {
+        labels: history.map(h => formatDateString(h.date)),
+        datasets: [
+          { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
+            borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)', fill: true, borderWidth: 2, yAxisID: 'y' },
+          { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
+            borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
+          { label: 'NAV (₹)', data: history.map(h => h.ltp),
+            borderColor: '#ec4899', borderWidth: 1.5, fill: false, yAxisID: 'yPrice' }
+        ]
+      }, options: _inlineChartOptions(shortName) }
+  );
   _renderInlineTransactions(history, document.getElementById('inline-mf-tbody'), 4);
 }
 
