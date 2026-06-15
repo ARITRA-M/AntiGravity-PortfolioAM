@@ -1217,6 +1217,42 @@ tr:hover td {
     padding: 0.5rem 0.6rem;
     white-space: nowrap;
   }
+
+  /* ── Holdings tables: hide secondary columns on mobile so the table fits  ──
+     the viewport without horizontal scroll. This eliminates the nested-scroll
+     conflict with the inline expansion panel's own horizontal scroll.
+     Stocks visible: Instrument · Qty · LTP · Gain% · This Month Gain
+     Hidden:  Sector(2) · Uploaded Price(5) · Purchase Price(6) ·
+              Invested(7) · Valuation(8) · P&L(9) · XIRR(11)          */
+  #stocks-table th:nth-child(2),  #stocks-table td:nth-child(2),
+  #stocks-table th:nth-child(5),  #stocks-table td:nth-child(5),
+  #stocks-table th:nth-child(6),  #stocks-table td:nth-child(6),
+  #stocks-table th:nth-child(7),  #stocks-table td:nth-child(7),
+  #stocks-table th:nth-child(8),  #stocks-table td:nth-child(8),
+  #stocks-table th:nth-child(9),  #stocks-table td:nth-child(9),
+  #stocks-table th:nth-child(11), #stocks-table td:nth-child(11) {
+    display: none;
+  }
+
+  /* MFs visible: Scheme · Units · NAV · Gain% · This Month Gain
+     Hidden: Category(2) · Uploaded NAV(5) · Purchase NAV(6) ·
+             Invested(7) · Valuation(8) · P&L(9) · XIRR(11)            */
+  #mfs-table th:nth-child(2),  #mfs-table td:nth-child(2),
+  #mfs-table th:nth-child(5),  #mfs-table td:nth-child(5),
+  #mfs-table th:nth-child(6),  #mfs-table td:nth-child(6),
+  #mfs-table th:nth-child(7),  #mfs-table td:nth-child(7),
+  #mfs-table th:nth-child(8),  #mfs-table td:nth-child(8),
+  #mfs-table th:nth-child(9),  #mfs-table td:nth-child(9),
+  #mfs-table th:nth-child(11), #mfs-table td:nth-child(11) {
+    display: none;
+  }
+
+  /* Remove horizontal scroll from holdings table-wrappers on mobile —
+     now that columns fit the viewport, no outer scroll = no conflict */
+  #stocks-table-wrapper,
+  #mfs-table-wrapper {
+    overflow-x: visible;
+  }
   
   /* Fix search input overflow on mobile */
   .search-input {
