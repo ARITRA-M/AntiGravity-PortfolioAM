@@ -1,5 +1,5 @@
 // Tab IDs
-const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log'];
+const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log', 'manage'];
 
 // App version for cache busting — auto-derived from today's date so JSON files
 // are never served stale after a deploy. The server.js commit script no longer
@@ -635,7 +635,11 @@ function stitchHistoryFragments(hh) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  initPortfolioUpload();
+  // Show the Commit button on localhost — it now persists ledger edits / closed
+  // periods (the Excel-upload flow that used to reveal it has been removed).
+  const _isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1');
+  const _commitBtn = document.getElementById('commit-btn');
+  if (_commitBtn && _isLocal && !window.__staticMode) _commitBtn.style.display = 'inline-flex';
   // Kick off the Nifty 50 fetch; once resolved, re-render the overview cards/tables.
   fetchNiftySeries().then(() => {
     const dailySummaryEl = document.getElementById('daily-summary-kpis');
@@ -765,7 +769,13 @@ async function commitData() {
       breakup_summary: breakupSummary,
       latest_equity: latestEquity,
       latest_mf: latestMf,
-      historical_holdings: historicalHoldings
+      historical_holdings: historicalHoldings,
+      // Ledger blobs (new transaction-entry model). Persisting them makes the
+      // committed files the source of truth, so the local breakup override can
+      // be cleared after a successful commit.
+      ledger_transactions: (typeof transactions !== 'undefined' && transactions) || [],
+      ledger_balances: (typeof balances !== 'undefined' && balances) || [],
+      ledger_frozen_base: (typeof frozenBase !== 'undefined' && frozenBase) || null,
     };
     if (typeof PortfolioCrypto !== 'undefined' && await PortfolioCrypto.hasKey()) {
       for (const k of Object.keys(payload)) {
@@ -787,6 +797,8 @@ async function commitData() {
       }
       if (status) status.textContent = '✅ ' + data.message;
       if (data.details) console.log('Commit details:', data.details.join(' | '));
+      // Committed files now hold the appended periods — drop the local override.
+      if (typeof clearBreakupOverride === 'function') clearBreakupOverride();
     } else if (res.status === 401) {
       if (status) status.textContent = '🔒 Session expired. Please unlock the portfolio first.';
     } else {
@@ -851,6 +863,7 @@ async function loadData() {
       if (!breakupSummary) { /* fall through to full server load below */ }
       else {
       initializeLiveBaseline();
+      try { if (typeof integrateLedger === 'function') integrateLedger(); } catch (e) { console.error('integrateLedger failed:', e); }
 
       // Restore the persisted refresh report (Update Log + per-stock refresh
       // times) and, if a refresh has happened, recompute live totals from the
@@ -943,6 +956,7 @@ async function loadData() {
     historicalHoldings = stitchHistoryFragments(await parsePortfolioJson(resHist));
 
     initializeLiveBaseline();
+    if (typeof integrateLedger === 'function') integrateLedger();
 
     // Generate benchmark data (simulated immediately; real data fetched async below)
     generateBenchmarkData();
@@ -1611,7 +1625,8 @@ const tabInitMap = {
   'fixed-income': initFixedIncomeTab,
   'nps': initNpsTab,
   'monthly': initMonthlyTab,
-  'update-log': initUpdateLogTab
+  'update-log': initUpdateLogTab,
+  'manage': initManageTab
 };
 
 // Tab Switching
@@ -5476,4 +5491,273 @@ function sortMfs(colIdx) {
   });
 
   renderMfsTable(filtered);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// MANAGE PORTFOLIO TAB — incremental transaction & balance entry
+// Backed by js/ledger.js (deriveHoldings, closeMonth) + js/export.js.
+// ════════════════════════════════════════════════════════════════════════
+
+function initManageTab() {
+  const today = new Date().toISOString().slice(0, 10);
+  ['txn-date', 'bal-date', 'close-date'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.value) el.value = today;
+  });
+  onTxnAssetClassChange();
+  renderLedger();
+}
+
+// Populate the instrument autocomplete from current holdings for the chosen class.
+function populateInstrumentDatalist() {
+  const dl = document.getElementById('txn-instrument-list');
+  if (!dl) return;
+  const cls = document.getElementById('txn-assetClass').value;
+  const names = cls === 'mf'
+    ? (latestMf || []).map(f => f.scheme)
+    : (latestEquity || []).map(s => s.instrument);
+  dl.innerHTML = names.sort().map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+}
+
+function onTxnAssetClassChange() {
+  const cls = document.getElementById('txn-assetClass').value;
+  document.getElementById('txn-category-wrap').style.display = cls === 'mf' ? '' : 'none';
+  populateInstrumentDatalist();
+}
+
+function onTxnAmountInputs() {
+  const qty = parseFloat(document.getElementById('txn-qty').value);
+  const price = parseFloat(document.getElementById('txn-price').value);
+  const amtEl = document.getElementById('txn-amount');
+  if (!amtEl.dataset.touched && isFinite(qty) && isFinite(price)) {
+    amtEl.value = +(qty * price).toFixed(2);
+  }
+}
+
+function handleTxnSubmit(e) {
+  e.preventDefault();
+  if (typeof addTransaction !== 'function') { alert('Ledger module not loaded.'); return false; }
+  const editId = document.getElementById('txn-edit-id').value;
+  const payload = {
+    assetClass: document.getElementById('txn-assetClass').value,
+    type: document.getElementById('txn-type').value,
+    instrument: document.getElementById('txn-instrument').value.trim(),
+    category: document.getElementById('txn-category').value.trim() || null,
+    date: document.getElementById('txn-date').value,
+    qty: parseFloat(document.getElementById('txn-qty').value),
+    price: parseFloat(document.getElementById('txn-price').value),
+    amount: document.getElementById('txn-amount').value ? parseFloat(document.getElementById('txn-amount').value) : null,
+    note: document.getElementById('txn-note').value.trim(),
+  };
+  if (!payload.instrument || !isFinite(payload.qty) || !isFinite(payload.price)) {
+    alert('Instrument, quantity and price are required.'); return false;
+  }
+  if (editId) updateTransaction(editId, payload);
+  else addTransaction(payload);
+  resetTxnForm();
+  refreshAfterLedgerChange();
+  renderLedger();
+  return false;
+}
+
+function resetTxnForm() {
+  const f = document.getElementById('txn-form');
+  if (f) f.reset();
+  document.getElementById('txn-edit-id').value = '';
+  document.getElementById('txn-amount').dataset.touched = '';
+  document.getElementById('txn-submit-btn').textContent = 'Add Transaction';
+  document.getElementById('txn-cancel-btn').style.display = 'none';
+  document.getElementById('txn-date').value = new Date().toISOString().slice(0, 10);
+  onTxnAssetClassChange();
+}
+
+function editTxn(id) {
+  const t = (transactions || []).find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('txn-edit-id').value = t.id;
+  document.getElementById('txn-assetClass').value = t.assetClass;
+  document.getElementById('txn-type').value = t.type;
+  document.getElementById('txn-instrument').value = t.instrument;
+  document.getElementById('txn-category').value = t.category || '';
+  document.getElementById('txn-date').value = t.date;
+  document.getElementById('txn-qty').value = t.qty;
+  document.getElementById('txn-price').value = t.price;
+  const amt = document.getElementById('txn-amount');
+  amt.value = t.amount; amt.dataset.touched = '1';
+  document.getElementById('txn-note').value = t.note || '';
+  document.getElementById('txn-submit-btn').textContent = 'Update Transaction';
+  document.getElementById('txn-cancel-btn').style.display = '';
+  onTxnAssetClassChange();
+  document.getElementById('txn-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeTxn(id) {
+  if (!confirm('Delete this transaction?')) return;
+  deleteTransaction(id);
+  refreshAfterLedgerChange();
+  renderLedger();
+}
+
+function handleBalSubmit(e) {
+  e.preventDefault();
+  const editId = document.getElementById('bal-edit-id').value;
+  const payload = {
+    component: document.getElementById('bal-component').value,
+    date: document.getElementById('bal-date').value,
+    value: parseFloat(document.getElementById('bal-value').value),
+    contribution: parseFloat(document.getElementById('bal-contribution').value) || 0,
+    note: document.getElementById('bal-note').value.trim(),
+  };
+  if (!isFinite(payload.value)) { alert('Current value is required.'); return false; }
+  if (editId) updateBalance(editId, payload);
+  else addBalance(payload);
+  resetBalForm();
+  renderLedger();
+  return false;
+}
+
+function resetBalForm() {
+  const f = document.getElementById('bal-form');
+  if (f) f.reset();
+  document.getElementById('bal-edit-id').value = '';
+  document.getElementById('bal-submit-btn').textContent = 'Save Balance';
+  document.getElementById('bal-cancel-btn').style.display = 'none';
+  document.getElementById('bal-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('bal-contribution').value = '0';
+}
+
+function editBal(id) {
+  const b = (balances || []).find(x => x.id === id);
+  if (!b) return;
+  document.getElementById('bal-edit-id').value = b.id;
+  document.getElementById('bal-component').value = b.component;
+  document.getElementById('bal-date').value = b.date;
+  document.getElementById('bal-value').value = b.value;
+  document.getElementById('bal-contribution').value = b.contribution;
+  document.getElementById('bal-note').value = b.note || '';
+  document.getElementById('bal-submit-btn').textContent = 'Update Balance';
+  document.getElementById('bal-cancel-btn').style.display = '';
+  document.getElementById('bal-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeBal(id) {
+  if (!confirm('Delete this balance entry?')) return;
+  deleteBalance(id);
+  renderLedger();
+}
+
+// Re-derive holdings from the ledger and re-render every analytics view,
+// including Periodic Performance.
+function refreshAfterLedgerChange() {
+  if (typeof applyLedgerToHoldings === 'function') applyLedgerToHoldings();
+  if (typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
+  try { updateKpis(); } catch (e) { console.error(e); }
+  try { renderDailyOverviewTable(); renderMonthlyOverviewTable(); } catch (e) {}
+  try { initStocksTab(); } catch (e) {}
+  try { initMfsTab(); } catch (e) {}
+  try { initGrowthTab(); } catch (e) {}
+  try { initFixedIncomeTab(); } catch (e) {}
+  try { initNpsTab(); } catch (e) {}
+  try { initMonthlyTab(); } catch (e) {}   // Periodic Performance
+  try { saveRefreshedPrices(latestEquity, latestMf); } catch (e) {}
+}
+
+function handleCloseMonth() {
+  const date = document.getElementById('close-date').value;
+  const preview = document.getElementById('close-preview');
+  if (!date) { preview.textContent = 'Pick a close date first.'; return; }
+  try {
+    const res = closeMonth(date);
+    refreshAfterLedgerChange();
+    renderLedger();
+    const xirr = res.portfolioXirr != null ? (res.portfolioXirr * 100).toFixed(2) + '%' : '—';
+    preview.innerHTML = `<span class="trend-up">✓ Period ${res.date} closed.</span><br>` +
+      `Net worth: <b>${formatLakhs(res.totalValue)}</b> · Change: <b>${formatLakhs(res.netChange)}</b> · ` +
+      `New investment: <b>${formatLakhs(res.newInvestment)}</b> · Portfolio XIRR: <b>${xirr}</b><br>` +
+      `<span style="color:var(--text-muted)">Click 🚀 Commit (top bar) to save permanently.</span>`;
+  } catch (err) {
+    preview.innerHTML = `<span class="trend-down">⚠️ ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function handleImportBackup(e) {
+  const file = e.target.files && e.target.files[0];
+  const status = document.getElementById('backup-status');
+  if (!file) return;
+  if (!confirm('Importing will REPLACE all current in-memory data. Continue?')) { e.target.value = ''; return; }
+  try {
+    const data = await importBackupJson(file);
+    portfolioSummary = data.portfolio_summary || portfolioSummary;
+    breakupSummary = data.breakup_summary || breakupSummary;
+    latestEquity = data.latest_equity || latestEquity;
+    latestMf = data.latest_mf || latestMf;
+    historicalHoldings = data.historical_holdings || historicalHoldings;
+    if (typeof stitchHistoryFragments === 'function') historicalHoldings = stitchHistoryFragments(historicalHoldings);
+    transactions = data.transactions || [];
+    balances = data.balances || [];
+    frozenBase = data.frozen_base || null;
+    saveLedger();
+    saveBreakupOverride();
+    initializeLiveBaseline();
+    refreshAfterLedgerChange();
+    renderLedger();
+    status.innerHTML = `<span class="trend-up">✓ Imported backup from ${escapeHtml((data._backup_meta || {}).exported_at || 'file')}. Commit to persist.</span>`;
+  } catch (err) {
+    status.innerHTML = `<span class="trend-down">⚠️ ${escapeHtml(err.message)}</span>`;
+  } finally {
+    e.target.value = '';
+  }
+}
+
+// Combined chronological ledger of transactions + balances with edit/delete.
+function renderLedger() {
+  const el = document.getElementById('ledger-content');
+  if (!el) return;
+  const txns = (transactions || []).map(t => ({ kind: 'txn', ...t }));
+  const bals = (balances || []).map(b => ({ kind: 'bal', ...b }));
+  const rows = [...txns, ...bals].sort((a, b) => b.date.localeCompare(a.date));
+
+  if (!rows.length) {
+    el.innerHTML = '<p class="manage-hint">No transactions or balance entries yet. Add some above, then “Close Period” to snapshot a new data point.</p>';
+    return;
+  }
+
+  const body = rows.map(r => {
+    if (r.kind === 'txn') {
+      const cls = r.type === 'buy' ? 'trend-up' : 'trend-down';
+      return `<tr>
+        <td>${r.date}</td>
+        <td><span class="ledger-tag">${r.assetClass === 'mf' ? 'MF' : 'Stock'}</span></td>
+        <td>${escapeHtml(r.instrument)}</td>
+        <td class="${cls}">${r.type.toUpperCase()}</td>
+        <td style="text-align:right;">${(+r.qty).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+        <td style="text-align:right;">${formatINR(r.price)}</td>
+        <td style="text-align:right;">${formatINR(r.amount)}</td>
+        <td>${escapeHtml(r.note || '')}</td>
+        <td style="white-space:nowrap;">
+          <button class="ledger-btn" onclick="editTxn('${r.id}')">✏️</button>
+          <button class="ledger-btn" onclick="removeTxn('${r.id}')">🗑️</button>
+        </td></tr>`;
+    }
+    return `<tr>
+      <td>${r.date}</td>
+      <td><span class="ledger-tag bal">Balance</span></td>
+      <td>${escapeHtml(r.component)}</td>
+      <td>UPDATE</td>
+      <td style="text-align:right;">—</td>
+      <td style="text-align:right;">—</td>
+      <td style="text-align:right;">${formatINR(r.value)}${r.contribution ? ` <span style="color:var(--text-muted)">(+${formatINR(r.contribution)})</span>` : ''}</td>
+      <td>${escapeHtml(r.note || '')}</td>
+      <td style="white-space:nowrap;">
+        <button class="ledger-btn" onclick="editBal('${r.id}')">✏️</button>
+        <button class="ledger-btn" onclick="removeBal('${r.id}')">🗑️</button>
+      </td></tr>`;
+  }).join('');
+
+  el.innerHTML = `<div class="table-wrapper"><table class="ledger-table">
+    <thead><tr>
+      <th>Date</th><th>Kind</th><th>Instrument / Component</th><th>Action</th>
+      <th style="text-align:right;">Qty</th><th style="text-align:right;">Price/NAV</th>
+      <th style="text-align:right;">Amount / Value</th><th>Note</th><th></th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
 }
