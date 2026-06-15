@@ -1669,6 +1669,8 @@ tr:hover td {
 .periodic-comp-table td:first-child { text-align: left; color: var(--text-secondary); font-size: 0.78rem; }
 .periodic-comp-table tr:last-child td { border-bottom: none; }
 .periodic-comp-table tr:hover td { background: rgba(255,255,255,0.02); }
+.periodic-comp-table td.trend-up { color: var(--accent-green); }
+.periodic-comp-table td.trend-down { color: var(--accent-red); }
 
 /* Monthly Changes Tab Styles */
 .monthly-summary-grid {
