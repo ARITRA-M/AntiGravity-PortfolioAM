@@ -3449,6 +3449,14 @@ function _buildExpansionHTML(canvasId, tbodyId, qtyLabel, priceLabel) {
     </div>`;
 }
 
+function _pinExpansionWidth(expRow, tr) {
+  const wrapper = tr.closest('.table-wrapper');
+  if (wrapper) {
+    const panel = expRow.querySelector('.history-panel');
+    if (panel) panel.style.width = wrapper.clientWidth + 'px';
+  }
+}
+
 function toggleStockRowHistory(tr, symbol) {
   if (_expandedStockSymbol === symbol) { _collapseStockHistory(); return; }
   _collapseStockHistory();
@@ -3459,9 +3467,13 @@ function toggleStockRowHistory(tr, symbol) {
   _expandedStockSymbol = symbol;
   tr.classList.add('history-row-active');
 
-  const panel = document.getElementById('stock-expansion-panel');
-  panel.innerHTML = `<div class="history-panel">${_buildExpansionHTML('inline-stock-canvas', 'inline-stock-tbody', 'Qty', 'Price')}</div>`;
-  panel.style.display = '';
+  const expRow = document.createElement('tr');
+  expRow.className = 'history-expansion-row';
+  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
+    ${_buildExpansionHTML('inline-stock-canvas', 'inline-stock-tbody', 'Qty', 'Price')}
+  </div></td>`;
+  tr.after(expRow);
+  _pinExpansionWidth(expRow, tr);
 
   const history = stock.history;
   _inlineStockChart = new Chart(
@@ -3483,8 +3495,7 @@ function toggleStockRowHistory(tr, symbol) {
 
 function _collapseStockHistory() {
   if (_inlineStockChart) { _inlineStockChart.destroy(); _inlineStockChart = null; }
-  const panel = document.getElementById('stock-expansion-panel');
-  if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
+  document.querySelectorAll('#stocks-table-body .history-expansion-row').forEach(r => r.remove());
   document.querySelectorAll('#stocks-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
   _expandedStockSymbol = null;
 }
@@ -3785,9 +3796,13 @@ function toggleMfRowHistory(tr, scheme) {
   _expandedMfScheme = scheme;
   tr.classList.add('history-row-active');
 
-  const panel = document.getElementById('mf-expansion-panel');
-  panel.innerHTML = `<div class="history-panel">${_buildExpansionHTML('inline-mf-canvas', 'inline-mf-tbody', 'Units', 'NAV')}</div>`;
-  panel.style.display = '';
+  const expRow = document.createElement('tr');
+  expRow.className = 'history-expansion-row';
+  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
+    ${_buildExpansionHTML('inline-mf-canvas', 'inline-mf-tbody', 'Units', 'NAV')}
+  </div></td>`;
+  tr.after(expRow);
+  _pinExpansionWidth(expRow, tr);
 
   const history = mf.history;
   const shortName = scheme.length > 42 ? scheme.substring(0, 40) + '…' : scheme;
@@ -3810,8 +3825,7 @@ function toggleMfRowHistory(tr, scheme) {
 
 function _collapseMfHistory() {
   if (_inlineMfChart) { _inlineMfChart.destroy(); _inlineMfChart = null; }
-  const panel = document.getElementById('mf-expansion-panel');
-  if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
+  document.querySelectorAll('#mfs-table-body .history-expansion-row').forEach(r => r.remove());
   document.querySelectorAll('#mfs-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
   _expandedMfScheme = null;
 }

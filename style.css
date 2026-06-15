@@ -826,18 +826,22 @@ tr:hover td {
   color: var(--accent-indigo);
 }
 
-/* ── Expansion panel — rendered below the table-wrapper, not inside the table ── */
-.expansion-panel-below {
-  margin-top: 0.5rem;
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 10px;
+/* ── Expansion row — in-table <tr> directly after the clicked row ── */
+.history-expansion-row > td {
+  padding: 0 !important;
+  border-top: 2px solid rgba(99, 102, 241, 0.35);
+  border-bottom: 2px solid rgba(99, 102, 241, 0.35);
+  /* Sticky pins panel to left edge as main table scrolls; no overflow:hidden
+     so the inner .history-table-side can capture horizontal touch gestures */
+  position: sticky;
+  left: 0;
   background: var(--bg-secondary);
-  overflow: hidden;
 }
 
 .history-panel {
   display: grid;
   grid-template-columns: 56% 44%;
+  /* Width is set via JS to match the visible viewport width */
 }
 
 .history-chart-side {
@@ -859,6 +863,9 @@ tr:hover td {
   background: transparent;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
+  /* Prevents the outer table's horizontal scroll from capturing pan gestures
+     meant for this inner scroll container (key fix for mobile WebKit/Chrome) */
+  overscroll-behavior-x: contain;
 }
 
 .history-inline-table {
@@ -869,6 +876,16 @@ tr:hover td {
   text-align: left;
 }
 
+/* Neutralise outer .table-wrapper sticky-first-column rule inside the panel */
+.history-inline-table th:first-child,
+.history-inline-table td:first-child {
+  position: static !important;
+  background: transparent !important;
+  z-index: auto !important;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
 
 .history-inline-table thead th {
   position: sticky;
