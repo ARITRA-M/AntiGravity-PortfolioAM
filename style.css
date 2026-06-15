@@ -826,23 +826,18 @@ tr:hover td {
   color: var(--accent-indigo);
 }
 
-/* ── Expansion row container ── */
-.history-expansion-row > td {
-  padding: 0 !important;
-  border-top: 2px solid rgba(99, 102, 241, 0.35);
-  border-bottom: 2px solid rgba(99, 102, 241, 0.35);
-  /* Pin content to visible left edge regardless of table scroll position */
-  position: sticky;
-  left: 0;
-  overflow: hidden;
+/* ── Expansion panel — rendered below the table-wrapper, not inside the table ── */
+.expansion-panel-below {
+  margin-top: 0.5rem;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 10px;
   background: var(--bg-secondary);
+  overflow: hidden;
 }
 
-/* ── Expansion panel layout: chart left, table right ── */
 .history-panel {
   display: grid;
   grid-template-columns: 56% 44%;
-  /* Width is set via JS to match the visible container width */
 }
 
 .history-chart-side {
@@ -874,16 +869,6 @@ tr:hover td {
   text-align: left;
 }
 
-/* Neutralise outer .table-wrapper sticky-first-column rule */
-.history-inline-table th:first-child,
-.history-inline-table td:first-child {
-  position: static !important;
-  background: transparent !important;
-  z-index: auto !important;
-  max-width: none !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
-}
 
 .history-inline-table thead th {
   position: sticky;
@@ -1118,7 +1103,8 @@ tr:hover td {
 .history-table-side {
   -webkit-overflow-scrolling: touch;
 }
-.table-wrapper {
+.table-wrapper,
+.history-table-side {
   touch-action: pan-x pan-y;
 }
 
@@ -1150,6 +1136,7 @@ tr:hover td {
   .history-chart-side {
     border-right: none;
     border-bottom: 1px solid var(--card-border);
+    height: 220px;
   }
 
   /* Mobile-friendly tabs - horizontal scroll */
