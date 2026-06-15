@@ -18,9 +18,8 @@ function isStableDebt(instrument) {
 }
 
 // ── Helper: Determine which API source to use for a given instrument ──
-function getPriceSource(instrument) {
-  if (instrument.includes('-RR')) return 'yahoo';  // REITs not on Google Finance
-  return 'google';
+function getPriceSource(_instrument) {
+  return 'yahoo';
 }
 
 // ── Price Snapshot Persistence (localStorage) ───────────────────────────────
