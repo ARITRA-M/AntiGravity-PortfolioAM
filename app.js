@@ -178,7 +178,7 @@ async function fetchNiftySeries() {
 // reconstructing past trades. Series are rebased to 100 for a clean,
 // scale-free comparison against the Nifty 50.
 
-const PERF_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const PERF_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — shorter TTL prevents stale bad-data persisting
 
 // Fetch daily closes for many Yahoo symbols using the multi-symbol spark
 // endpoint (≈15 per request). Returns Map<symbol, {dates:[ms], closes:[]}>.
@@ -242,7 +242,25 @@ async function buildStockPerfSeries() {
     return v;
   });
   if (!values.some(v => v > 0)) return null;
-  return { axis, portfolio: values, benchmark: _niftySeries.closes, covered: closesBySym.size, total: holdings.length };
+
+  // Trim axis to start at the first date where every fetched holding has price data.
+  // Without this, early days with partial coverage produce an understated portfolio
+  // value which — after rebasing to 100 — makes the chart start below 0%.
+  const coveredSymbols = [...closesBySym.keys()];
+  let trimFrom = 0;
+  for (let i = 0; i < axis.length; i++) {
+    if (coveredSymbols.every(sym => closeAtOrBefore(closesBySym.get(sym), axis[i]) != null)) {
+      trimFrom = i;
+      break;
+    }
+  }
+  return {
+    axis: axis.slice(trimFrom),
+    portfolio: values.slice(trimFrom),
+    benchmark: _niftySeries.closes.slice(trimFrom),
+    covered: closesBySym.size,
+    total: holdings.length,
+  };
 }
 
 // Build the MF performance series (current MF holdings vs Nifty 50).
@@ -287,7 +305,23 @@ async function buildMfPerfSeries() {
     return v;
   });
   if (!values.some(v => v > 0)) return null;
-  return { axis, portfolio: values, benchmark: _niftySeries.closes, covered, total: holdings.length };
+
+  // Trim to first date where all fetched schemes have NAV data (same logic as stock series).
+  const coveredSchemes = [...navByScheme.entries()].filter(([, v]) => v).map(([k]) => k);
+  let trimFrom = 0;
+  for (let i = 0; i < axis.length; i++) {
+    if (coveredSchemes.every(s => closeAtOrBefore(navByScheme.get(s), axis[i]) != null)) {
+      trimFrom = i;
+      break;
+    }
+  }
+  return {
+    axis: axis.slice(trimFrom),
+    portfolio: values.slice(trimFrom),
+    benchmark: _niftySeries.closes.slice(trimFrom),
+    covered,
+    total: holdings.length,
+  };
 }
 
 // Rebase a numeric series to start at 100 (first non-zero value = 100).
