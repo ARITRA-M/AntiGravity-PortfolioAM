@@ -4647,26 +4647,28 @@ function renderPeriodicPerformance(gran) {
   const ctx = document.getElementById('periodic-perf-chart').getContext('2d');
   if (periodicPerfChart) periodicPerfChart.destroy();
   periodicPerfChart = new Chart(ctx, {
-    type: 'bar',
+    type: 'line',
     data: {
       labels,
       datasets: [
         { label: 'NW Change (₹ L)', data: nwChange,
-          backgroundColor: nwChange.map(v => v >= 0 ? 'rgba(99,102,241,0.7)' : 'rgba(239,68,68,0.5)'),
-          borderRadius: 4 },
+          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)',
+          fill: true, borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#6366f1', tension: 0.3 },
         { label: 'Market Return (₹ L)', data: mktRet,
-          backgroundColor: mktRet.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'),
-          borderRadius: 4 },
+          borderColor: '#10b981', backgroundColor: 'transparent',
+          fill: false, borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#10b981',
+          borderDash: [5, 3], tension: 0.3 },
         { label: 'New Investment (₹ L)', data: newInvL,
-          backgroundColor: 'rgba(251,191,36,0.55)',
-          borderRadius: 4 },
+          borderColor: '#f59e0b', backgroundColor: 'transparent',
+          fill: false, borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#f59e0b',
+          borderDash: [2, 3], tension: 0.3 },
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'top', labels: { color: '#9ca3af', boxWidth: 12, font: { size: 11 } } },
+        legend: { position: 'top', labels: { color: '#9ca3af', boxWidth: 20, usePointStyle: true, font: { size: 11 } } },
         tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ₹${c.parsed.y.toFixed(2)} L` } }
       },
       scales: {
