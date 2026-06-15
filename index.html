@@ -385,7 +385,7 @@
               </select>
             </div>
           </div>
-          <div class="table-wrapper">
+          <div class="table-wrapper" id="stocks-table-wrapper">
             <table id="stocks-table">
               <thead>
                 <tr>
@@ -401,7 +401,6 @@
                   <th onclick="sortStocks(9)" style="text-align: right;">Gain %</th>
                   <th onclick="sortStocks(10)" style="text-align: right;" title="Money-weighted annualized return from this holding's contribution history">XIRR</th>
                   <th onclick="sortStocks(11)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
-                  <th onclick="sortStocks(12)" style="text-align: right;">Last Refreshed</th>
                 </tr>
               </thead>
               <tbody id="stocks-table-body">
@@ -409,6 +408,7 @@
               </tbody>
             </table>
           </div>
+          <div id="stock-expansion-panel" class="expansion-panel-below" style="display:none;"></div>
         </div>
       </div>
     </div>
@@ -468,7 +468,7 @@
               </select>
             </div>
           </div>
-          <div class="table-wrapper">
+          <div class="table-wrapper" id="mfs-table-wrapper">
             <table id="mfs-table">
               <thead>
                 <tr>
@@ -484,7 +484,6 @@
                   <th onclick="sortMfs(9)" style="text-align: right;">Gain %</th>
                   <th onclick="sortMfs(10)" style="text-align: right;" title="Money-weighted annualized return from this holding's contribution history">XIRR</th>
                   <th onclick="sortMfs(11)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
-                  <th onclick="sortMfs(12)" style="text-align: right;">Last Refreshed</th>
                 </tr>
               </thead>
               <tbody id="mfs-table-body">
@@ -492,6 +491,7 @@
               </tbody>
             </table>
           </div>
+          <div id="mf-expansion-panel" class="expansion-panel-below" style="display:none;"></div>
         </div>
       </div>
     </div>

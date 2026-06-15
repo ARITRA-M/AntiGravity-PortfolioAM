@@ -3415,16 +3415,6 @@ function _buildExpansionHTML(canvasId, tbodyId, qtyLabel, priceLabel) {
     </div>`;
 }
 
-function _pinExpansionWidth(expRow, tr) {
-  // Pin panel width to the visible scroll container so there is no nested
-  // horizontal scrollbar — the panel simply fills what's on screen.
-  const wrapper = tr.closest('.table-wrapper');
-  if (wrapper) {
-    const panel = expRow.querySelector('.history-panel');
-    if (panel) panel.style.width = wrapper.clientWidth + 'px';
-  }
-}
-
 function toggleStockRowHistory(tr, symbol) {
   if (_expandedStockSymbol === symbol) { _collapseStockHistory(); return; }
   _collapseStockHistory();
@@ -3435,13 +3425,9 @@ function toggleStockRowHistory(tr, symbol) {
   _expandedStockSymbol = symbol;
   tr.classList.add('history-row-active');
 
-  const expRow = document.createElement('tr');
-  expRow.className = 'history-expansion-row';
-  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
-    ${_buildExpansionHTML('inline-stock-canvas', 'inline-stock-tbody', 'Qty', 'Price')}
-  </div></td>`;
-  tr.after(expRow);
-  _pinExpansionWidth(expRow, tr);
+  const panel = document.getElementById('stock-expansion-panel');
+  panel.innerHTML = `<div class="history-panel">${_buildExpansionHTML('inline-stock-canvas', 'inline-stock-tbody', 'Qty', 'Price')}</div>`;
+  panel.style.display = '';
 
   const history = stock.history;
   _inlineStockChart = new Chart(
@@ -3463,7 +3449,8 @@ function toggleStockRowHistory(tr, symbol) {
 
 function _collapseStockHistory() {
   if (_inlineStockChart) { _inlineStockChart.destroy(); _inlineStockChart = null; }
-  document.querySelectorAll('#stocks-table-body .history-expansion-row').forEach(r => r.remove());
+  const panel = document.getElementById('stock-expansion-panel');
+  if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
   document.querySelectorAll('#stocks-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
   _expandedStockSymbol = null;
 }
@@ -3536,7 +3523,6 @@ function renderStocksTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
-      <td style="text-align: right;">${s.lastRefreshDate || '—'}</td>
     </tr>
   `}).join('');
 }
@@ -3596,7 +3582,6 @@ function sortStocks(colIdx) {
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = holdingXIRR(a, 'stock') ?? -Infinity; valB = holdingXIRR(b, 'stock') ?? -Infinity; break;
       case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
-      case 12: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
     }
 
     if (typeof valA === 'string') {
@@ -3766,13 +3751,9 @@ function toggleMfRowHistory(tr, scheme) {
   _expandedMfScheme = scheme;
   tr.classList.add('history-row-active');
 
-  const expRow = document.createElement('tr');
-  expRow.className = 'history-expansion-row';
-  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
-    ${_buildExpansionHTML('inline-mf-canvas', 'inline-mf-tbody', 'Units', 'NAV')}
-  </div></td>`;
-  tr.after(expRow);
-  _pinExpansionWidth(expRow, tr);
+  const panel = document.getElementById('mf-expansion-panel');
+  panel.innerHTML = `<div class="history-panel">${_buildExpansionHTML('inline-mf-canvas', 'inline-mf-tbody', 'Units', 'NAV')}</div>`;
+  panel.style.display = '';
 
   const history = mf.history;
   const shortName = scheme.length > 42 ? scheme.substring(0, 40) + '…' : scheme;
@@ -3795,7 +3776,8 @@ function toggleMfRowHistory(tr, scheme) {
 
 function _collapseMfHistory() {
   if (_inlineMfChart) { _inlineMfChart.destroy(); _inlineMfChart = null; }
-  document.querySelectorAll('#mfs-table-body .history-expansion-row').forEach(r => r.remove());
+  const panel = document.getElementById('mf-expansion-panel');
+  if (panel) { panel.style.display = 'none'; panel.innerHTML = ''; }
   document.querySelectorAll('#mfs-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
   _expandedMfScheme = null;
 }
@@ -3830,7 +3812,6 @@ function renderMfsTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
-      <td style="text-align: right;">${escapeHtml(lastRefreshed)}</td>
     </tr>
   `}).join('');
 }
@@ -5433,7 +5414,6 @@ function sortMfs(colIdx) {
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = holdingXIRR(a, 'mf') ?? -Infinity; valB = holdingXIRR(b, 'mf') ?? -Infinity; break;
       case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
-      case 12: valA = a.lastRefreshDate || ''; valB = b.lastRefreshDate || ''; break;
     }
 
     if (typeof valA === 'string') {
