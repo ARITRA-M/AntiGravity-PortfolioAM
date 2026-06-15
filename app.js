@@ -2011,8 +2011,11 @@ function renderDailyOverviewTable() {
   }
 
   const tbody = document.getElementById('daily-overview-body');
-  tbody.innerHTML = filteredCombined.map(item => `
-    <tr${item.stale ? ' style="opacity:0.6;"' : ''}>
+  tbody.innerHTML = filteredCombined.map(item => {
+    const rowClass = item.change === null ? '' : item.change >= 0 ? 'row-gain' : 'row-loss';
+    const staleAttr = item.stale ? ' style="opacity:0.6;"' : '';
+    return `
+    <tr class="${rowClass}"${staleAttr}>
       <td class="instrument-cell">
         ${escapeHtml(item.name)}
         ${item.stale ? '<span title="No live price — showing upload-time value" style="font-size:0.7rem;color:var(--text-muted);margin-left:4px;">(stale)</span>' : ''}
@@ -2027,7 +2030,8 @@ function renderDailyOverviewTable() {
         ${item.stale ? '—' : item.changePct === null ? 'N/A' : `${item.changePct >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%`}
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 // ── Monthly Overview Table Sorting (column-header click) ───────────────────
@@ -2167,7 +2171,7 @@ function renderMonthlyOverviewTable() {
 
   const tbody = document.getElementById('monthly-overview-body');
   tbody.innerHTML = filteredCombined.map(item => `
-    <tr>
+    <tr class="${item.gain >= 0 ? 'row-gain' : 'row-loss'}">
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatINR(item.uploadedVal)}</td>
