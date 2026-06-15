@@ -75,35 +75,7 @@ const benchmarkData = {
   }
 };
 
-// Deterministic daily Sensex simulation (for overview KPI cards).
-// Uses sine-based noise seeded by day-of-year so the same day always returns the same value.
-function getSimulatedSensexDailyChangePct(forDate) {
-  // Use the last completed trading day when called without arguments
-  // (i.e. from renderDailyOverviewTable before market open).
-  // When forDate is explicitly provided, use that date directly.
-  const src = forDate || new Date();
-  let targetDate;
-  if (!forDate) {
-    targetDate = new Date(src);
-    const dow = targetDate.getDay();
-    if (dow === 0) {          // Sunday   → previous Friday
-      targetDate.setDate(targetDate.getDate() - 2);
-    } else if (dow === 1) {   // Monday   → previous Friday
-      targetDate.setDate(targetDate.getDate() - 3);
-    } else if (dow === 6) {   // Saturday → previous Friday
-      targetDate.setDate(targetDate.getDate() - 1);
-    } else {                   // Tue–Fri  → previous calendar day
-      targetDate.setDate(targetDate.getDate() - 1);
-    }
-  } else {
-    targetDate = new Date(src);
-  }
-  const startOfYear = new Date(targetDate.getFullYear(), 0, 0);
-  const dayOfYear = Math.floor((targetDate - startOfYear) / (1000 * 60 * 60 * 24));
-  const noise = Math.sin(dayOfYear * 0.7 + targetDate.getFullYear() * 1.3) * 0.5; // ±0.5% noise
-  const drift = 0.047; // ~12% annual drift ≈ 0.047% per trading day
-  return drift + noise;
-}
+
 
 // ── Real Nifty 50 benchmark (fetched from Yahoo Finance ^NSEI via CORS proxy) ──
 // A single 1-month daily series powers the overview KPI cards (daily + MTD
@@ -1928,7 +1900,7 @@ function renderDailyOverviewTable() {
   const dailyTotalPrev = totalPrevStockValue + totalPrevMfValue;
   const dailyTotalPct = dailyTotalPrev > 0 ? (totalGain / dailyTotalPrev) * 100 : 0;
 
-  // ── Sensex daily change (real data if available, simulated fallback) ──
+  // ── Nifty 50 daily change (real data from Yahoo Finance ^NSEI) ──
   const niftyDailyPct = _niftyDailyPctReal != null ? _niftyDailyPctReal : 0;
   const niftyDailyLabel = _niftyDailyPctReal != null ? 'Daily change (Nifty 50)' : 'Daily change (loading…)';
 
