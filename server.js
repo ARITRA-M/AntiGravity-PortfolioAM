@@ -494,7 +494,8 @@ app.get('/api/search-mf-scheme', async (req, res) => {
 });
 
 // ── Commit portfolio data to GitHub (one-click deploy) ───────────────────
-const ALLOWED_SAVE_KEYS = new Set(['portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings']);
+const ALLOWED_SAVE_KEYS = new Set(['portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings',
+  'ledger_transactions', 'ledger_balances', 'ledger_frozen_base']);
 
 app.post('/api/commit-data', (req, res) => {
   try {

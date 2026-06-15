@@ -14,6 +14,7 @@
   <!-- Vendor scripts: load locally for offline PWA support -->
   <script src="vendor/chart.umd.js"></script>
   <script src="vendor/read-excel-file.min.js"></script>
+  <script src="vendor/xlsx.core.min.js"></script>
   <script>
     // Detect if running on GitHub Pages (no local backend server)
     window.__isGitHubPages = window.location.hostname.includes('github.io') ||
@@ -61,10 +62,9 @@
         <h1>Portfolio Analytics</h1>
         <p>Interactive long-term performance & asset intelligence dashboard</p>
         <div class="header-actions">
-          <label class="upload-btn" for="portfolio-upload">Upload Portfolio Analysis.xlsx</label>
-          <input type="file" id="portfolio-upload" accept=".xlsx,.xls" hidden>
+          <button class="upload-btn" onclick="switchTab('manage')" title="Add transactions, update balances, close a period, or back up your data">✏️ Manage Portfolio</button>
           <button class="commit-btn" id="commit-btn" onclick="commitData()" style="display:none;" title="Save data to disk, bump versions, and push to GitHub so all devices stay in sync">🚀 Commit</button>
-          <span class="upload-status" id="upload-status">Using bundled portfolio file</span>
+          <span class="upload-status" id="upload-status">Portfolio loaded</span>
           <button class="refresh-btn" id="refresh-prices-btn" onclick="refreshPrices()" title="Fetch latest prices from the internet">
             <span class="refresh-icon">⟳</span>
             <span class="refresh-text">Refresh Prices</span>
@@ -89,6 +89,7 @@
       <button class="tab-btn" onclick="switchTab('nps')">NPS</button>
       <button class="tab-btn" onclick="switchTab('monthly')">Periodic Performance</button>
       <button class="tab-btn" onclick="switchTab('update-log')">📋 Update Log</button>
+      <button class="tab-btn" onclick="switchTab('manage')">✏️ Manage Portfolio</button>
     </div>
 
     <!-- Slim KPI bar — always visible, 4 cards only -->
@@ -765,12 +766,136 @@
       </div>
     </div>
 
+    <!-- ════════════════════ MANAGE PORTFOLIO TAB ════════════════════ -->
+    <div id="manage-tab" class="tab-content">
+      <div class="manage-grid">
+
+        <!-- Add Transaction (stocks / MFs) -->
+        <div class="chart-card manage-card">
+          <div class="chart-header"><h3>➕ Add Transaction</h3></div>
+          <p class="manage-hint">Buy / sell for stocks &amp; mutual funds. New instruments are created automatically.</p>
+          <form id="txn-form" class="manage-form" onsubmit="return handleTxnSubmit(event)">
+            <input type="hidden" id="txn-edit-id" value="">
+            <div class="manage-row">
+              <label>Asset class
+                <select id="txn-assetClass" onchange="onTxnAssetClassChange()">
+                  <option value="stock">Stock</option>
+                  <option value="mf">Mutual Fund</option>
+                </select>
+              </label>
+              <label>Type
+                <select id="txn-type">
+                  <option value="buy">Buy</option>
+                  <option value="sell">Sell</option>
+                </select>
+              </label>
+            </div>
+            <div class="manage-row">
+              <label>Instrument
+                <input id="txn-instrument" list="txn-instrument-list" autocomplete="off" placeholder="e.g. SIEMENS" required>
+                <datalist id="txn-instrument-list"></datalist>
+              </label>
+              <label id="txn-category-wrap" style="display:none;">MF category
+                <input id="txn-category" placeholder="e.g. Equity : Mid Cap">
+              </label>
+            </div>
+            <div class="manage-row">
+              <label>Date <input type="date" id="txn-date" required></label>
+              <label>Quantity <input type="number" step="any" id="txn-qty" oninput="onTxnAmountInputs()" required></label>
+            </div>
+            <div class="manage-row">
+              <label>Price (₹) <input type="number" step="any" id="txn-price" oninput="onTxnAmountInputs()" required></label>
+              <label>Amount (₹) <input type="number" step="any" id="txn-amount" placeholder="auto = qty × price"></label>
+            </div>
+            <div class="manage-row">
+              <label class="manage-full">Note <input id="txn-note" placeholder="optional"></label>
+            </div>
+            <div class="manage-actions">
+              <button type="submit" class="upload-btn" id="txn-submit-btn">Add Transaction</button>
+              <button type="button" class="ghost-btn" id="txn-cancel-btn" style="display:none;" onclick="resetTxnForm()">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Update Balance (opaque components) -->
+        <div class="chart-card manage-card">
+          <div class="chart-header"><h3>🏦 Update Balance</h3></div>
+          <p class="manage-hint">Current value + amount contributed this period for NPS, PF, PPF, Bonds, Gold, Cash, Crypto.</p>
+          <form id="bal-form" class="manage-form" onsubmit="return handleBalSubmit(event)">
+            <input type="hidden" id="bal-edit-id" value="">
+            <div class="manage-row">
+              <label>Component
+                <select id="bal-component">
+                  <option value="NPS-E">NPS E (Equity)</option>
+                  <option value="NPS-C">NPS C (Debt)</option>
+                  <option value="NPS-G">NPS G (Debt)</option>
+                  <option value="PF">PF</option>
+                  <option value="PPF">PPF</option>
+                  <option value="Bonds">Bonds</option>
+                  <option value="Gold">Gold</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Crypto">Crypto</option>
+                </select>
+              </label>
+              <label>Date <input type="date" id="bal-date" required></label>
+            </div>
+            <div class="manage-row">
+              <label>Current value (₹) <input type="number" step="any" id="bal-value" required></label>
+              <label>Contributed this period (₹) <input type="number" step="any" id="bal-contribution" value="0"></label>
+            </div>
+            <div class="manage-row">
+              <label class="manage-full">Note <input id="bal-note" placeholder="optional"></label>
+            </div>
+            <div class="manage-actions">
+              <button type="submit" class="upload-btn" id="bal-submit-btn">Save Balance</button>
+              <button type="button" class="ghost-btn" id="bal-cancel-btn" style="display:none;" onclick="resetBalForm()">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Close Month -->
+        <div class="chart-card manage-card">
+          <div class="chart-header"><h3>📅 Close Period</h3></div>
+          <p class="manage-hint">Snapshot a new monthly data point — appends a column to every chart (net worth, returns, XIRR) using current live prices &amp; entered balances.</p>
+          <div class="manage-row">
+            <label>Close date <input type="date" id="close-date"></label>
+          </div>
+          <div class="manage-actions">
+            <button type="button" class="upload-btn" onclick="handleCloseMonth()">Close Period →</button>
+          </div>
+          <div id="close-preview" class="manage-preview"></div>
+        </div>
+
+        <!-- Backup / Restore -->
+        <div class="chart-card manage-card">
+          <div class="chart-header"><h3>💾 Backup &amp; Restore</h3></div>
+          <p class="manage-hint">Export a complete copy of all data. JSON is machine-restorable; Excel mirrors the original Portfolio Analysis.xlsx layout.</p>
+          <div class="manage-actions">
+            <button type="button" class="upload-btn" onclick="exportBackupJson()">⬇ Export JSON</button>
+            <button type="button" class="upload-btn" onclick="exportBackupXlsx()">⬇ Export Excel</button>
+            <label class="ghost-btn" for="import-backup" style="cursor:pointer;">⬆ Import JSON</label>
+            <input type="file" id="import-backup" accept=".json" hidden onchange="handleImportBackup(event)">
+          </div>
+          <div id="backup-status" class="manage-preview"></div>
+        </div>
+
+        <!-- Ledger -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header"><h3>📒 Ledger</h3></div>
+          <div id="ledger-content"><!-- populated by renderLedger() --></div>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 
   <!-- Scripts -->
   <script src="js/crypto.js"></script>
   <script src="auth.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/ledger.js"></script>
+  <script src="js/export.js"></script>
   <script src="app.js"></script>
   <script>
     // ── Service Worker Registration with Update Detection ──────────────────────
