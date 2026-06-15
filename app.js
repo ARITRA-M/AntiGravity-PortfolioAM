@@ -1125,12 +1125,12 @@ function setLatestSectionValue(section, key, value) {
 
 function refreshAllTabs() {
   updateKpis();
-  // Refresh the Nifty 50 benchmark (non-blocking), then re-render overview.
+  // Re-render stock/MF price data immediately — don't wait for Nifty fetch.
+  if (latestEquity) renderDailyOverviewTable();
+  if (latestEquity) renderMonthlyOverviewTable();
+  // Then refresh Nifty 50 and re-render again once it resolves.
   fetchNiftySeries().then(() => {
-    const dailySummaryEl = document.getElementById('daily-summary-kpis');
-    if (dailySummaryEl && dailySummaryEl.offsetParent !== null) {
-      renderDailyOverviewTable();
-    }
+    if (latestEquity) renderDailyOverviewTable();
     if (latestEquity) renderMonthlyOverviewTable();
   });
 
@@ -1615,6 +1615,13 @@ function switchTab(tabId) {
     if (tabId === 'monthly') {
       initMonthlyTab();
     }
+
+    // Always re-render overview on visit — prices may have refreshed
+    // while user was on another tab, so stale data needs flushing.
+    if (tabId === 'overview' && latestEquity) {
+      renderDailyOverviewTable();
+      renderMonthlyOverviewTable();
+    }
   }, 100);
 }
 
@@ -1772,6 +1779,11 @@ function switchOverviewSubtab(subtab, btn) {
   // Toggle content visibility
   document.querySelectorAll('.overview-subcontent').forEach(c => c.classList.remove('active'));
   document.getElementById(`overview-${subtab}`).classList.add('active');
+  // Always re-render on visit — prices may have refreshed while on another subtab
+  if (latestEquity) {
+    if (subtab === 'daily') renderDailyOverviewTable();
+    if (subtab === 'monthly') renderMonthlyOverviewTable();
+  }
 }
 
 // ── Daily Type Filter (Stocks / MFs / All) — click KPI cards ───────────────
