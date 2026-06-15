@@ -4582,9 +4582,10 @@ function renderPeriodicPerformance(gran) {
   const comparisons = _buildComparisons(buckets, _periodicGran);
 
   // ── Comparison Cards ──
+  // breakupSummary values are already in lakhs — use formatLakhs, not formatINR
   const cardsFmt = (v, isPct) => isPct
     ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
-    : `${v >= 0 ? '+' : '−'}${formatINR(Math.abs(v))}`;
+    : `${v >= 0 ? '+' : '−'}${formatLakhs(Math.abs(v))}`;
 
   const deltaClass = v => v >= 0 ? 'trend-up' : 'trend-down';
 
@@ -4624,8 +4625,8 @@ function renderPeriodicPerformance(gran) {
           </tr>
           <tr>
             <td>New Investment</td>
-            <td>${formatINR(a.newInv)}</td>
-            <td>${formatINR(b.newInv)}</td>
+            <td>${formatLakhs(a.newInv)}</td>
+            <td>${formatLakhs(b.newInv)}</td>
             <td class="${deltaClass(invDelta)}">${cardsFmt(invDelta, false)}</td>
           </tr>
         </tbody>
@@ -4637,10 +4638,11 @@ function renderPeriodicPerformance(gran) {
     '<div style="color:var(--text-muted);padding:1rem">Not enough data for comparison</div>';
 
   // ── Bar Chart ──
+  // breakupSummary stores values in lakhs already — no conversion needed
   const labels   = buckets.map(b => b.shortLbl);
-  const nwChange = buckets.map(b => +(b.deltaNW / 100000).toFixed(2));
-  const mktRet   = buckets.map(b => +(b.mktRet / 100000).toFixed(2));
-  const newInvL  = buckets.map(b => +(b.newInv / 100000).toFixed(2));
+  const nwChange = buckets.map(b => +b.deltaNW.toFixed(2));
+  const mktRet   = buckets.map(b => +b.mktRet.toFixed(2));
+  const newInvL  = buckets.map(b => +b.newInv.toFixed(2));
 
   const ctx = document.getElementById('periodic-perf-chart').getContext('2d');
   if (periodicPerfChart) periodicPerfChart.destroy();
