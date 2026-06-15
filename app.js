@@ -4108,8 +4108,10 @@ function renderXirrComparisonTable() {
   // ── Time-weighted annualized return (CAGR) helpers ──
   // Merged in from the old "Performance Comparison" panel: time-weighted return
   // strips out contribution timing, complementing the money-weighted XIRR.
-  const years = (breakupSummary.dates && breakupSummary.dates.length)
-    ? breakupSummary.dates.length / 12 : 0;
+  const dates = breakupSummary.dates || [];
+  const years = dates.length >= 2
+    ? (new Date(dates[dates.length - 1]) - new Date(dates[0])) / (365.25 * 86400 * 1000)
+    : 0;
   const twrAnnualized = (nwArr, newMoneyArr) => {
     if (!nwArr || !newMoneyArr || years <= 0) return null;
     const idx = computeTWRIndex(nwArr, newMoneyArr);
@@ -4290,7 +4292,9 @@ function computeTWRIndex(nwArr, newMoneyArr) {
   const idx = [1];
   for (let i = 1; i < nwArr.length; i++) {
     const newMoney = newMoneyArr[i] || 0;
-    const base = nwArr[i - 1] + Math.max(newMoney, 0);
+    // Include withdrawals (newMoney < 0) in the denominator so they aren't
+    // misread as market losses. Guard base > 0 to avoid division by zero.
+    const base = nwArr[i - 1] + newMoney;
     idx.push(idx[idx.length - 1] * (base > 0 ? nwArr[i] / base : 1));
   }
   return idx;
