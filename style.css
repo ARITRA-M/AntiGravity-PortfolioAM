@@ -858,13 +858,17 @@ tr:hover td {
 
 /* ── Transaction table side ── */
 .history-table-side {
+  overflow-x: auto;
   overflow-y: auto;
   max-height: 280px;
   background: transparent;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
 }
 
 .history-inline-table {
-  width: 100%;
+  width: max-content;   /* natural column widths; parent scrolls */
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 0.82rem;
   text-align: left;
