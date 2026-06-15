@@ -718,6 +718,8 @@ function scheduleNextAutoRefresh() {
       _autoRefreshTickCount++;
       const doFull = _autoRefreshTickCount % AUTO_FULL_REFRESH_EVERY === 0;
       await refreshPrices(/* stocksOnly */ !doFull);
+      // Refresh Nifty 50 daily/monthly KPI after every stock refresh
+      if (typeof fetchNiftySeries === 'function') fetchNiftySeries();
     }
     scheduleNextAutoRefresh();
   }, AUTO_REFRESH_TICK_MS);
