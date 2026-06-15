@@ -540,6 +540,11 @@ header {
   font-weight: 600;
 }
 
+tr.row-gain td { background: rgba(16, 185, 129, 0.05); }
+tr.row-loss td { background: rgba(239, 68, 68, 0.05); }
+tr.row-gain:hover td { background: rgba(16, 185, 129, 0.10); }
+tr.row-loss:hover td { background: rgba(239, 68, 68, 0.10); }
+
 /* Visualization Layout */
 .dashboard-grid {
   display: grid;
