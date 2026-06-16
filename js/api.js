@@ -122,14 +122,33 @@ function buildDirectUrl(endpointType, param) {
   }
 }
 
-// Parse Yahoo Finance /v8/finance/chart response into { price, prevClose }
+// YYYY-MM-DD for a Date in Asia/Kolkata (IST) — used to tell whether the last
+// traded price belongs to today's session or a prior one.
+function istDateString(d) {
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+// Parse Yahoo Finance /v8/finance/chart response into { price, prevClose }.
+//
+// Baseline correctness: Yahoo's meta.chartPreviousClose is the close of the
+// session BEFORE the one regularMarketPrice belongs to. Between sessions (e.g.
+// pre-open, when the last trade is still the prior day's close), that points one
+// session too far back, so "daily change" wrongly shows the last completed
+// session's move instead of 0. Fix: if the last trade is from a prior day
+// (IST), the baseline is that last close itself → change starts at 0 for the
+// new day; only once today's session trades do we compare against the prior
+// close.
 function parseYahooChart(data) {
   const r = data?.chart?.result?.[0];
   if (!r?.meta?.regularMarketPrice) return null;
-  return {
-    price: r.meta.regularMarketPrice,
-    prevClose: r.meta.chartPreviousClose ?? r.meta.previousClose ?? null
-  };
+  const meta = r.meta;
+  const price = meta.regularMarketPrice;
+  let prevClose = meta.chartPreviousClose ?? meta.previousClose ?? null;
+  if (meta.regularMarketTime) {
+    const ltpDate = istDateString(new Date(meta.regularMarketTime * 1000));
+    if (ltpDate < istDateString(new Date())) prevClose = price; // no session today yet
+  }
+  return { price, prevClose };
 }
 
 const MAX_RETRIES = 2;
@@ -210,10 +229,28 @@ async function fetchSparkQuotes(tickers) {
       for (const r of (raw?.spark?.result || [])) {
         const resp = r?.response?.[0];
         if (!resp) continue;
-        const closes = (resp.indicators?.quote?.[0]?.close || []).filter(c => c != null);
-        const price = resp.meta?.regularMarketPrice ?? closes[closes.length - 1] ?? null;
-        const prevClose = closes.length >= 2 ? closes[closes.length - 2]
-                        : (resp.meta?.chartPreviousClose ?? null);
+        // Pair each daily close with its date so we can tell whether the latest
+        // bar is today's session or a completed prior one. (spark's
+        // meta.chartPreviousClose is the pre-range value, so it's unusable here.)
+        const closeArr = resp.indicators?.quote?.[0]?.close || [];
+        const tsArr = resp.timestamp || [];
+        const bars = [];
+        for (let i = 0; i < closeArr.length; i++) {
+          if (closeArr[i] != null) bars.push({ t: tsArr[i], c: closeArr[i] });
+        }
+        if (!bars.length) continue;
+        const price = resp.meta?.regularMarketPrice ?? bars[bars.length - 1].c;
+        // Baseline: if the latest daily bar is from a prior day (IST), the market
+        // hasn't traded today → baseline = that latest close (so today's change
+        // starts at 0). Once today's bar exists, use the prior session's close.
+        const lastDate = istDateString(new Date(bars[bars.length - 1].t * 1000));
+        let prevClose;
+        if (lastDate < istDateString(new Date())) {
+          prevClose = bars[bars.length - 1].c;
+        } else {
+          prevClose = bars.length >= 2 ? bars[bars.length - 2].c
+                    : (resp.meta?.chartPreviousClose ?? null);
+        }
         if (price != null && price > 0) out.set(r.symbol, { price, prevClose });
       }
     } catch (_) { /* a failed batch just means those stocks fall back to per-stock fetch */ }
