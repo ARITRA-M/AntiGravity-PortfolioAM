@@ -128,27 +128,21 @@ function istDateString(d) {
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
-// Parse Yahoo Finance /v8/finance/chart response into { price, prevClose }.
-//
-// Baseline correctness: Yahoo's meta.chartPreviousClose is the close of the
-// session BEFORE the one regularMarketPrice belongs to. Between sessions (e.g.
-// pre-open, when the last trade is still the prior day's close), that points one
-// session too far back, so "daily change" wrongly shows the last completed
-// session's move instead of 0. Fix: if the last trade is from a prior day
-// (IST), the baseline is that last close itself → change starts at 0 for the
-// new day; only once today's session trades do we compare against the prior
-// close.
+// Parse Yahoo Finance /v8/finance/chart response into { price, prevClose, asOf }.
+// On the default 1-day range, meta.chartPreviousClose is the close of the
+// session immediately before the one the price belongs to — i.e. exactly the
+// "previous close" a broker shows (e.g. pre-open Tuesday: price = Monday's
+// close, prevClose = Friday's close → daily change = Monday's session move).
+// asOf = the market timestamp the price belongs to (NOT the refresh time).
 function parseYahooChart(data) {
   const r = data?.chart?.result?.[0];
   if (!r?.meta?.regularMarketPrice) return null;
   const meta = r.meta;
-  const price = meta.regularMarketPrice;
-  let prevClose = meta.chartPreviousClose ?? meta.previousClose ?? null;
-  if (meta.regularMarketTime) {
-    const ltpDate = istDateString(new Date(meta.regularMarketTime * 1000));
-    if (ltpDate < istDateString(new Date())) prevClose = price; // no session today yet
-  }
-  return { price, prevClose };
+  return {
+    price: meta.regularMarketPrice,
+    prevClose: meta.chartPreviousClose ?? meta.previousClose ?? null,
+    asOf: meta.regularMarketTime ? meta.regularMarketTime * 1000 : null,
+  };
 }
 
 const MAX_RETRIES = 2;
@@ -229,9 +223,8 @@ async function fetchSparkQuotes(tickers) {
       for (const r of (raw?.spark?.result || [])) {
         const resp = r?.response?.[0];
         if (!resp) continue;
-        // Pair each daily close with its date so we can tell whether the latest
-        // bar is today's session or a completed prior one. (spark's
-        // meta.chartPreviousClose is the pre-range value, so it's unusable here.)
+        // Pair each daily close with its date. (spark's meta.chartPreviousClose
+        // is the pre-range value, so it's unusable as the previous close here.)
         const closeArr = resp.indicators?.quote?.[0]?.close || [];
         const tsArr = resp.timestamp || [];
         const bars = [];
@@ -240,18 +233,23 @@ async function fetchSparkQuotes(tickers) {
         }
         if (!bars.length) continue;
         const price = resp.meta?.regularMarketPrice ?? bars[bars.length - 1].c;
-        // Baseline: if the latest daily bar is from a prior day (IST), the market
-        // hasn't traded today → baseline = that latest close (so today's change
-        // starts at 0). Once today's bar exists, use the prior session's close.
-        const lastDate = istDateString(new Date(bars[bars.length - 1].t * 1000));
-        let prevClose;
-        if (lastDate < istDateString(new Date())) {
-          prevClose = bars[bars.length - 1].c;
-        } else {
-          prevClose = bars.length >= 2 ? bars[bars.length - 2].c
-                    : (resp.meta?.chartPreviousClose ?? null);
+        // Previous close = the close of the latest session STRICTLY BEFORE the
+        // session the current price belongs to. Using the price's own session
+        // date (regularMarketTime) — not "today" — means pre-open we still show
+        // the last completed session's move (e.g. Mon close vs Fri close), and
+        // it's robust if the latest daily bar hasn't appeared in the series yet
+        // (which previously made the baseline land a day too far back).
+        const rmt = resp.meta?.regularMarketTime;
+        const asOf = rmt ? rmt * 1000 : (bars[bars.length - 1].t * 1000);
+        const ltpSession = istDateString(new Date(asOf));
+        let prevClose = null;
+        for (let i = bars.length - 1; i >= 0; i--) {
+          if (istDateString(new Date(bars[i].t * 1000)) < ltpSession) { prevClose = bars[i].c; break; }
         }
-        if (price != null && price > 0) out.set(r.symbol, { price, prevClose });
+        if (prevClose == null) {
+          prevClose = bars.length >= 2 ? bars[bars.length - 2].c : (resp.meta?.chartPreviousClose ?? null);
+        }
+        if (price != null && price > 0) out.set(r.symbol, { price, prevClose, asOf });
       }
     } catch (_) { /* a failed batch just means those stocks fall back to per-stock fetch */ }
   }));
@@ -408,12 +406,12 @@ async function refreshPrices(stocksOnly = false) {
         // Fast path: serve from the bulk spark prefetch (no per-stock network).
         // Miss → fall back to the single-stock fetch (counts as a network call).
         const pre = sparkQuotes.get(yahooTickerOf(ticker));
-        let price, prevClose;
+        let price, prevClose, asOf = null;
         if (pre) {
-          ({ price, prevClose } = pre);
+          ({ price, prevClose, asOf = null } = pre);
         } else {
           netCallsInBatch++;
-          ({ price, prevClose } = await fetchStockQuote(ticker, source));
+          ({ price, prevClose, asOf = null } = await fetchStockQuote(ticker, source));
         }
 
         if (price && price > 0) {
@@ -422,10 +420,11 @@ async function refreshPrices(stocksOnly = false) {
           stock.pnl = stock.cur_val - stock.invested;
           stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
           stock.lastRefreshDate = refreshDateStr;
+          stock.priceAsOf = asOf; // market timestamp the price belongs to (not refresh time)
           stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
           if (prevClose && prevClose > 0) stock.yesterdayClose = prevClose;
           stockSuccess++;
-          stockDetails.push({ instrument: ticker, status: 'success', price, prevClose, error: null });
+          stockDetails.push({ instrument: ticker, status: 'success', price, prevClose, asOf, error: null });
           // Persist snapshot for fallback on future failures
           savePriceSnapshot(ticker, { price, prevClose, refreshDate: refreshDateStr });
         } else {
@@ -544,11 +543,12 @@ async function refreshPrices(stocksOnly = false) {
             const prev = raw.data.find((e, i) => i > 0 && Number(e.nav) > 0);
             data = {
               nav: parseFloat(latest.nav),
-              prevNav: prev ? parseFloat(prev.nav) : null
+              prevNav: prev ? parseFloat(prev.nav) : null,
+              navDate: latest.date || null // mfapi gives the NAV's own date (DD-MM-YYYY)
             };
           }
         } else {
-          // Local server returns already-parsed { nav, prevNav }
+          // Local server returns already-parsed { nav, prevNav, navDate? }
           data = await resp.json();
         }
 
@@ -558,10 +558,11 @@ async function refreshPrices(stocksOnly = false) {
           fund.pnl = fund.cur_val - fund.invested;
           fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
           fund.lastRefreshDate = refreshDateStr;
+          fund.navDate = data.navDate || null; // the date this NAV is for (not refresh time)
           fund.previousNav = data.prevNav || null;
           fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
           mfSuccess++;
-          mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, error: null });
+          mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, navDate: data.navDate || null, error: null });
           // Persist snapshot for fallback on future failures
           savePriceSnapshot(fund.scheme, { nav: data.nav, prevNav: data.prevNav, refreshDate: refreshDateStr });
         } else {

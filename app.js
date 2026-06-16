@@ -4736,6 +4736,17 @@ function initMonthlyTab() {
 }
 
 // ── Update Log Tab ──────────────────────────────────────────────────────────
+// Format a market-data timestamp (epoch ms) as an IST date+time — this is the
+// date the price actually belongs to (e.g. last session's close), distinct from
+// when the refresh ran.
+function formatPriceAsOf(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
+}
+
 function initUpdateLogTab() {
   const container = document.getElementById('update-log-content');
   if (!container) {
@@ -4774,11 +4785,12 @@ function initUpdateLogTab() {
   if (report.stockDetails && report.stockDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📈 Stock Refresh Details</h3>';
     html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Prev Close (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
+    html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Price As Of</th><th>Prev Close (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
     for (const s of report.stockDetails) {
       const statusClass = s.status === 'success' ? 'status-ok' : s.status === 'stale' ? 'status-stale' : (s.status === 'skipped' || s.status === 'stable') ? 'status-skip' : 'status-fail';
       const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
       const price = s.price != null ? s.price.toFixed(2) : '—';
+      const priceAsOf = escapeHtml(formatPriceAsOf(s.asOf));
       const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
       const rawChangePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
         ? (s.price - s.prevClose) / s.prevClose * 100 : null;
@@ -4787,7 +4799,7 @@ function initUpdateLogTab() {
         : '<td>—</td>';
       const lastRefresh = s.lastRefresh ? escapeHtml(s.lastRefresh) : '—';
       const error = s.error ? escapeHtml(s.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${prevClose}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
+      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${priceAsOf}</td><td>${prevClose}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
     }
     html += '</tbody></table></div>';
   }
@@ -4796,11 +4808,12 @@ function initUpdateLogTab() {
   if (report.mfDetails && report.mfDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📊 Mutual Fund NAV Details</h3>';
     html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>Prev NAV (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
+    html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>NAV Date</th><th>Prev NAV (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
     for (const m of report.mfDetails) {
       const statusClass = m.status === 'success' ? 'status-ok' : m.status === 'stale' ? 'status-stale' : m.status === 'skipped' ? 'status-skip' : 'status-fail';
       const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
       const nav = m.nav != null ? m.nav.toFixed(4) : '—';
+      const navDate = m.navDate ? escapeHtml(m.navDate) : '—';
       const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
       const rawChangePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
         ? (m.nav - m.prevNav) / m.prevNav * 100 : null;
@@ -4809,7 +4822,7 @@ function initUpdateLogTab() {
         : '<td>—</td>';
       const lastRefresh = m.lastRefresh ? escapeHtml(m.lastRefresh) : '—';
       const error = m.error ? escapeHtml(m.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${prevNav}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
+      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${navDate}</td><td>${prevNav}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
     }
     html += '</tbody></table></div>';
   }
