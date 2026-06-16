@@ -1235,7 +1235,8 @@ tr:hover td {
   #stocks-table th:nth-child(7),  #stocks-table td:nth-child(7),
   #stocks-table th:nth-child(8),  #stocks-table td:nth-child(8),
   #stocks-table th:nth-child(9),  #stocks-table td:nth-child(9),
-  #stocks-table th:nth-child(11), #stocks-table td:nth-child(11) {
+  #stocks-table th:nth-child(11), #stocks-table td:nth-child(11),
+  #stocks-table th:nth-child(12), #stocks-table td:nth-child(12) {
     display: none;
   }
 
@@ -1248,7 +1249,8 @@ tr:hover td {
   #mfs-table th:nth-child(7),  #mfs-table td:nth-child(7),
   #mfs-table th:nth-child(8),  #mfs-table td:nth-child(8),
   #mfs-table th:nth-child(9),  #mfs-table td:nth-child(9),
-  #mfs-table th:nth-child(11), #mfs-table td:nth-child(11) {
+  #mfs-table th:nth-child(11), #mfs-table td:nth-child(11),
+  #mfs-table th:nth-child(12), #mfs-table td:nth-child(12) {
     display: none;
   }
 
@@ -2204,6 +2206,11 @@ tr:hover td {
   border-bottom: 2px solid var(--border-color);
   white-space: nowrap;
 }
+.update-log-table th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+.update-log-table th.sortable-th:hover { color: var(--text-primary); }
 
 .update-log-table td {
   padding: 0.5rem 0.75rem;
@@ -2337,4 +2344,115 @@ tr:hover td {
 /* Make room for banner when visible (app-container shift) */
 #sw-update-banner:not([style*="display: none"]) + .app-container {
   margin-top: 0;
+}
+
+/* ════════════════ Manage Portfolio tab ════════════════ */
+.manage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+.manage-card { display: flex; flex-direction: column; }
+.full-width-card.chart-card { grid-column: 1 / -1; }
+.manage-grid .full-width-card { grid-column: 1 / -1; }
+
+.manage-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin: 0 0 0.9rem;
+  line-height: 1.4;
+}
+.manage-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.manage-row { display: flex; gap: 0.75rem; }
+.manage-row label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.manage-row label.manage-full { flex-basis: 100%; }
+.manage-form input,
+.manage-form select {
+  background: var(--bg-secondary, rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 7px;
+  padding: 0.5rem 0.6rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.manage-form input:focus,
+.manage-form select:focus {
+  outline: none;
+  border-color: rgba(99,102,241,0.55);
+}
+.manage-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.4rem;
+}
+.ghost-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.18);
+  color: var(--text-secondary);
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+.ghost-btn:hover { background: rgba(255,255,255,0.06); }
+.manage-preview {
+  margin-top: 0.9rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.ledger-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.ledger-table th {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  white-space: nowrap;
+}
+.ledger-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: var(--text-primary);
+}
+.ledger-table tr:hover td { background: rgba(255,255,255,0.02); }
+.ledger-tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(59,130,246,0.18);
+  color: #93c5fd;
+}
+.ledger-tag.bal { background: rgba(245,158,11,0.18); color: #fcd34d; }
+.ledger-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.1rem 0.25rem;
+  opacity: 0.75;
+}
+.ledger-btn:hover { opacity: 1; }
+
+@media (max-width: 768px) {
+  .manage-grid { grid-template-columns: 1fr; }
+  .manage-row { flex-direction: column; }
 }

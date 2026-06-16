@@ -37,4 +37,7 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        pytest
+        # This repo has no Python test suite (it's a JS/Node app with helper
+        # scripts). pytest exits 5 when it collects no tests — treat that as a
+        # pass so the scaffold workflow doesn't hard-fail every build.
+        pytest || [ $? -eq 5 ]
