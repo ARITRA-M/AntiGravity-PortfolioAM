@@ -1235,7 +1235,8 @@ tr:hover td {
   #stocks-table th:nth-child(7),  #stocks-table td:nth-child(7),
   #stocks-table th:nth-child(8),  #stocks-table td:nth-child(8),
   #stocks-table th:nth-child(9),  #stocks-table td:nth-child(9),
-  #stocks-table th:nth-child(11), #stocks-table td:nth-child(11) {
+  #stocks-table th:nth-child(11), #stocks-table td:nth-child(11),
+  #stocks-table th:nth-child(12), #stocks-table td:nth-child(12) {
     display: none;
   }
 
@@ -1248,7 +1249,8 @@ tr:hover td {
   #mfs-table th:nth-child(7),  #mfs-table td:nth-child(7),
   #mfs-table th:nth-child(8),  #mfs-table td:nth-child(8),
   #mfs-table th:nth-child(9),  #mfs-table td:nth-child(9),
-  #mfs-table th:nth-child(11), #mfs-table td:nth-child(11) {
+  #mfs-table th:nth-child(11), #mfs-table td:nth-child(11),
+  #mfs-table th:nth-child(12), #mfs-table td:nth-child(12) {
     display: none;
   }
 
@@ -2204,6 +2206,11 @@ tr:hover td {
   border-bottom: 2px solid var(--border-color);
   white-space: nowrap;
 }
+.update-log-table th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+.update-log-table th.sortable-th:hover { color: var(--text-primary); }
 
 .update-log-table td {
   padding: 0.5rem 0.75rem;

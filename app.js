@@ -3587,6 +3587,7 @@ function renderStocksTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
+      <td style="text-align: right;">${escapeHtml(formatPriceAsOf(s.priceAsOf))}</td>
     </tr>
   `}).join('');
 }
@@ -3646,6 +3647,7 @@ function sortStocks(colIdx) {
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = holdingXIRR(a, 'stock') ?? -Infinity; valB = holdingXIRR(b, 'stock') ?? -Infinity; break;
       case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 12: valA = a.priceAsOf ?? -Infinity; valB = b.priceAsOf ?? -Infinity; break;
     }
 
     if (typeof valA === 'string') {
@@ -3879,6 +3881,7 @@ function renderMfsTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
+      <td style="text-align: right;">${f.navDate ? escapeHtml(f.navDate) : '—'}</td>
     </tr>
   `}).join('');
 }
@@ -4747,6 +4750,14 @@ function formatPriceAsOf(ms) {
   });
 }
 
+// Parse an mfapi NAV date (DD-MM-YYYY) to epoch ms for sorting; -Infinity if absent.
+function _mfNavDateMs(navDate) {
+  if (!navDate) return -Infinity;
+  const [d, mo, y] = String(navDate).split('-').map(Number);
+  const t = new Date(y, (mo || 1) - 1, d || 1).getTime();
+  return isNaN(t) ? -Infinity : t;
+}
+
 function initUpdateLogTab() {
   const container = document.getElementById('update-log-content');
   if (!container) {
@@ -4781,51 +4792,109 @@ function initUpdateLogTab() {
   }
   html += '</div>';
 
-  // ── Per-Stock Details Table ──
+  // ── Per-Stock / Per-MF detail tables (sortable — populated below) ──
   if (report.stockDetails && report.stockDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📈 Stock Refresh Details</h3>';
-    html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Price As Of</th><th>Prev Close (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
-    for (const s of report.stockDetails) {
-      const statusClass = s.status === 'success' ? 'status-ok' : s.status === 'stale' ? 'status-stale' : (s.status === 'skipped' || s.status === 'stable') ? 'status-skip' : 'status-fail';
-      const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
-      const price = s.price != null ? s.price.toFixed(2) : '—';
-      const priceAsOf = escapeHtml(formatPriceAsOf(s.asOf));
-      const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
-      const rawChangePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
-        ? (s.price - s.prevClose) / s.prevClose * 100 : null;
-      const changePctCell = rawChangePct != null
-        ? `<td class="${rawChangePct >= 0 ? 'change-up' : 'change-down'}">${rawChangePct >= 0 ? '+' : ''}${rawChangePct.toFixed(2)}%</td>`
-        : '<td>—</td>';
-      const error = s.error ? escapeHtml(s.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${priceAsOf}</td><td>${prevClose}</td>${changePctCell}<td class="error-cell">${error}</td></tr>`;
-    }
-    html += '</tbody></table></div>';
+    html += '<div id="ul-stock-table"></div>';
   }
-
-  // ── Per-MF Details Table ──
   if (report.mfDetails && report.mfDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📊 Mutual Fund NAV Details</h3>';
-    html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>NAV Date</th><th>Prev NAV (₹)</th><th>Change %</th><th>Error</th></tr></thead><tbody>';
-    for (const m of report.mfDetails) {
-      const statusClass = m.status === 'success' ? 'status-ok' : m.status === 'stale' ? 'status-stale' : m.status === 'skipped' ? 'status-skip' : 'status-fail';
-      const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
-      const nav = m.nav != null ? m.nav.toFixed(4) : '—';
-      const navDate = m.navDate ? escapeHtml(m.navDate) : '—';
-      const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
-      const rawChangePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
-        ? (m.nav - m.prevNav) / m.prevNav * 100 : null;
-      const changePctCell = rawChangePct != null
-        ? `<td class="${rawChangePct >= 0 ? 'change-up' : 'change-down'}">${rawChangePct >= 0 ? '+' : ''}${rawChangePct.toFixed(2)}%</td>`
-        : '<td>—</td>';
-      const error = m.error ? escapeHtml(m.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${navDate}</td><td>${prevNav}</td>${changePctCell}<td class="error-cell">${error}</td></tr>`;
-    }
-    html += '</tbody></table></div>';
+    html += '<div id="ul-mf-table"></div>';
   }
 
   container.innerHTML = html;
+  renderUlStockTable();
+  renderUlMfTable();
+}
+
+// ── Sortable Update Log detail tables ──────────────────────────────────────
+let _ulStockSort = { col: 0, asc: true };
+let _ulMfSort = { col: 0, asc: true };
+
+function _ulChangePct(price, base) {
+  return (price != null && base != null && base > 0) ? (price - base) / base * 100 : null;
+}
+function _ulSortIndicator(state, col) {
+  return state.col === col ? (state.asc ? ' ▲' : ' ▼') : '';
+}
+// Build a sortable table: headers[], rows sorted by keyFns[col], rendered by rowFn.
+function _ulRenderSortable(rows, headers, keyFns, state, sortFnName, rowFn) {
+  const { col, asc } = state;
+  const kf = keyFns[col] || (() => '');
+  const sorted = rows.slice().sort((a, b) => {
+    const va = kf(a), vb = kf(b);
+    const r = (typeof va === 'string' || typeof vb === 'string')
+      ? String(va).localeCompare(String(vb)) : (va - vb);
+    return asc ? r : -r;
+  });
+  let h = '<div class="table-wrapper"><table class="update-log-table"><thead><tr>';
+  headers.forEach((label, i) => {
+    h += `<th class="sortable-th" onclick="${sortFnName}(${i})">${escapeHtml(label)}${_ulSortIndicator(state, i)}</th>`;
+  });
+  h += '</tr></thead><tbody>';
+  sorted.forEach(r => { h += rowFn(r); });
+  h += '</tbody></table></div>';
+  return h;
+}
+
+function renderUlStockTable() {
+  const el = document.getElementById('ul-stock-table');
+  const report = window.lastRefreshReport || lastRefreshReport;
+  if (!el || !report || !report.stockDetails) return;
+  const headers = ['Instrument', 'Status', 'Price (₹)', 'Price As Of', 'Prev Close (₹)', 'Change %', 'Error'];
+  const keyFns = [
+    s => s.instrument || '', s => s.status || '', s => s.price ?? -Infinity, s => s.asOf ?? -Infinity,
+    s => s.prevClose ?? -Infinity, s => _ulChangePct(s.price, s.prevClose) ?? -Infinity, s => s.error || '',
+  ];
+  const rowFn = (s) => {
+    const statusClass = s.status === 'success' ? 'status-ok' : s.status === 'stale' ? 'status-stale' : (s.status === 'skipped' || s.status === 'stable') ? 'status-skip' : 'status-fail';
+    const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
+    const price = s.price != null ? s.price.toFixed(2) : '—';
+    const priceAsOf = escapeHtml(formatPriceAsOf(s.asOf));
+    const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
+    const chg = _ulChangePct(s.price, s.prevClose);
+    const changePctCell = chg != null
+      ? `<td class="${chg >= 0 ? 'change-up' : 'change-down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</td>` : '<td>—</td>';
+    const error = s.error ? escapeHtml(s.error) : '—';
+    return `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${priceAsOf}</td><td>${prevClose}</td>${changePctCell}<td class="error-cell">${error}</td></tr>`;
+  };
+  el.innerHTML = _ulRenderSortable(report.stockDetails, headers, keyFns, _ulStockSort, 'sortUlStock', rowFn);
+}
+
+function renderUlMfTable() {
+  const el = document.getElementById('ul-mf-table');
+  const report = window.lastRefreshReport || lastRefreshReport;
+  if (!el || !report || !report.mfDetails) return;
+  const headers = ['Scheme', 'Status', 'NAV (₹)', 'NAV Date', 'Prev NAV (₹)', 'Change %', 'Error'];
+  const navKey = m => _mfNavDateMs(m.navDate); // chronological (mfapi gives DD-MM-YYYY)
+  const keyFns = [
+    m => m.scheme || '', m => m.status || '', m => m.nav ?? -Infinity, navKey,
+    m => m.prevNav ?? -Infinity, m => _ulChangePct(m.nav, m.prevNav) ?? -Infinity, m => m.error || '',
+  ];
+  const rowFn = (m) => {
+    const statusClass = m.status === 'success' ? 'status-ok' : m.status === 'stale' ? 'status-stale' : m.status === 'skipped' ? 'status-skip' : 'status-fail';
+    const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
+    const nav = m.nav != null ? m.nav.toFixed(4) : '—';
+    const navDate = m.navDate ? escapeHtml(m.navDate) : '—';
+    const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
+    const chg = _ulChangePct(m.nav, m.prevNav);
+    const changePctCell = chg != null
+      ? `<td class="${chg >= 0 ? 'change-up' : 'change-down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</td>` : '<td>—</td>';
+    const error = m.error ? escapeHtml(m.error) : '—';
+    return `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${navDate}</td><td>${prevNav}</td>${changePctCell}<td class="error-cell">${error}</td></tr>`;
+  };
+  el.innerHTML = _ulRenderSortable(report.mfDetails, headers, keyFns, _ulMfSort, 'sortUlMf', rowFn);
+}
+
+function sortUlStock(col) {
+  if (_ulStockSort.col === col) _ulStockSort.asc = !_ulStockSort.asc;
+  else { _ulStockSort.col = col; _ulStockSort.asc = true; }
+  renderUlStockTable();
+}
+function sortUlMf(col) {
+  if (_ulMfSort.col === col) _ulMfSort.asc = !_ulMfSort.asc;
+  else { _ulMfSort.col = col; _ulMfSort.asc = true; }
+  renderUlMfTable();
 }
 
 // Build the heatmap month data array (used for selection and filtering)
@@ -5492,6 +5561,7 @@ function sortMfs(colIdx) {
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = holdingXIRR(a, 'mf') ?? -Infinity; valB = holdingXIRR(b, 'mf') ?? -Infinity; break;
       case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 12: valA = _mfNavDateMs(a.navDate); valB = _mfNavDateMs(b.navDate); break;
     }
 
     if (typeof valA === 'string') {
