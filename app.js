@@ -646,7 +646,9 @@ window.addEventListener('DOMContentLoaded', () => {
   // periods (the Excel-upload flow that used to reveal it has been removed).
   const _isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1');
   const _commitBtn = document.getElementById('commit-btn');
-  if (_commitBtn && _isLocal && !window.__staticMode) _commitBtn.style.display = 'inline-flex';
+  // Show on any local run (both `npm run dev` and `npm run static` now expose
+  // the /api/commit-data endpoint). Hidden only on the hosted GitHub Pages site.
+  if (_commitBtn && _isLocal) _commitBtn.style.display = 'inline-flex';
   // Kick off the Nifty 50 fetch; once resolved, re-render the overview cards/tables.
   fetchNiftySeries().then(() => {
     const dailySummaryEl = document.getElementById('daily-summary-kpis');
@@ -760,11 +762,8 @@ async function commitData() {
     if (status) status.textContent = '⚠️ Commit only works on the local machine (localhost).';
     return;
   }
-  // Commit (git push) needs the backend; static mode has no /api endpoint.
-  if (window.__staticMode) {
-    if (status) status.textContent = '⚠️ Commit needs the backend — run "npm run dev" instead of "npm run static".';
-    return;
-  }
+  // Both `npm run dev` and `npm run static` expose /api/commit-data locally,
+  // so no static-mode gate here — the fetch below surfaces any real failure.
   try {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing...'; }
     if (status) status.textContent = 'Committing to GitHub...';
