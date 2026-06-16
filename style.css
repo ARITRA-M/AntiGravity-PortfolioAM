@@ -2449,3 +2449,15 @@ tr:hover td {
   .manage-grid { grid-template-columns: 1fr; }
   .manage-row { flex-direction: column; }
 }
+
+/* Daily-change baseline caption (explains the previous-close roll) */
+.daily-baseline-note {
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 7px;
+  padding: 0.5rem 0.7rem;
+}
+.daily-baseline-note b { color: var(--text-secondary); font-weight: 600; }
