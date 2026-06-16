@@ -111,6 +111,7 @@ function saveNiftySnapshot(data) {
 // series is cached on _niftySeries for the performance charts. Falls back to
 // the last saved snapshot (KPI values only) when offline.
 async function fetchNiftySeries() {
+  let live = null;
   try {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=1mo&interval=1d';
     const res = await fetchViaCorsProxy(url, {}, 12000);
@@ -125,26 +126,17 @@ async function fetchNiftySeries() {
     const pts = ts.map((t, i) => ({ t: t * 1000, c: closes[i] })).filter(p => p.c != null);
     if (pts.length < 2) throw new Error('Not enough Nifty data');
     _niftySeries = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
+    live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
 
-    // Determine prevClose correctly depending on day:
-    //   • Weekday, bar published today → pts[last] = today's close, prevClose = pts[last-1]
-    //   • Weekday, market open/pre-pub → pts[last] = yesterday's close, prevClose = pts[last]
-    //   • Weekend → market is closed; show last working day's change:
-    //               live = pts[last] (Friday's close), prevClose = pts[last-1] (Thursday's close)
-    // Do NOT use meta.chartPreviousClose on a range query — Yahoo returns a value
-    // from ~1 month before the range start, not the prior trading day.
-    const todayDow = new Date().getDay();
-    const isWeekendToday = todayDow === 0 || todayDow === 6;
-    let live, prevClose;
-    if (isWeekendToday) {
-      live     = pts[pts.length - 1].c;
-      prevClose = pts[pts.length - 2].c;
-    } else {
-      live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
-      const lastBarIsToday = new Date(pts[pts.length - 1].t).toDateString() === new Date().toDateString();
-      prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
-    }
-    _niftyDailyPctReal = ((live - prevClose) / prevClose) * 100;
+    // Series-based daily change — FALLBACK ONLY. The 1-month daily series can
+    // carry a NULL/missing close for a recent session (Yahoo publishes the index
+    // bar late), which gets filtered out and makes this skip a day (e.g. compare
+    // Tue vs Fri instead of Tue vs Mon). The authoritative value is computed from
+    // the range=1d meta below.
+    const lastBarIsToday = new Date(pts[pts.length - 1].t).toDateString() === new Date().toDateString();
+    const prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
+    const liveForDaily = lastBarIsToday ? live : pts[pts.length - 1].c;
+    _niftyDailyPctReal = ((liveForDaily - prevClose) / prevClose) * 100;
 
     // Month-to-date: last close strictly before the 1st of the current month.
     const now = new Date();
@@ -152,14 +144,6 @@ async function fetchNiftySeries() {
     let monthStartClose = null;
     for (const p of pts) if (p.t < monthStartMs) monthStartClose = p.c;
     if (monthStartClose) _niftyMonthlyPctReal = ((live - monthStartClose) / monthStartClose) * 100;
-
-    saveNiftySnapshot({
-      dailyChangePct: _niftyDailyPctReal,
-      monthlyChangePct: _niftyMonthlyPctReal,
-      series: _niftySeries,
-      timestamp: Date.now()
-    });
-    return _niftySeries;
   } catch {
     const snap = loadNiftySnapshot();
     if (snap) {
@@ -169,6 +153,29 @@ async function fetchNiftySeries() {
     }
     return _niftySeries;
   }
+
+  // Authoritative daily change: the range=1d (default) chart meta exposes
+  // chartPreviousClose as the TRUE prior-session close — unlike the long-range
+  // series, which can be missing a recent bar. This is what fixes a daily change
+  // computed against the wrong session (e.g. showing +1.55% Tue-vs-Fri when the
+  // real move is +0.56% Tue-vs-Mon, because Yahoo's Monday index bar was null).
+  try {
+    const dres = await fetchViaCorsProxy('https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI', {}, 10000);
+    if (dres.ok) {
+      const dm = (await dres.json())?.chart?.result?.[0]?.meta;
+      if (dm && dm.regularMarketPrice > 0 && dm.chartPreviousClose > 0) {
+        _niftyDailyPctReal = ((dm.regularMarketPrice - dm.chartPreviousClose) / dm.chartPreviousClose) * 100;
+      }
+    }
+  } catch { /* keep the series-derived value */ }
+
+  saveNiftySnapshot({
+    dailyChangePct: _niftyDailyPctReal,
+    monthlyChangePct: _niftyMonthlyPctReal,
+    series: _niftySeries,
+    timestamp: Date.now()
+  });
+  return _niftySeries;
 }
 
 // ── Short-term (≈30 day) daily performance charts: holdings vs Nifty 50 ──────
