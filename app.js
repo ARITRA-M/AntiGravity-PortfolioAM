@@ -2007,21 +2007,6 @@ function renderDailyOverviewTable() {
     `;
   }
 
-  // Baseline caption — makes the "daily change" comparison window explicit so a
-  // refresh that re-pulls a rolled-forward previous close looks like information,
-  // not a glitch. The previous-close *date* isn't stored (Yahoo gives only a
-  // price), so we anchor on when prices were last captured.
-  const noteEl = document.getElementById('daily-baseline-note');
-  if (noteEl) {
-    const refreshedAt = (window.lastRefreshReport && window.lastRefreshReport.refreshedAt) || null;
-    const asOf = refreshedAt
-      ? `prices as of ${refreshedAt}`
-      : 'prices not yet refreshed this session';
-    noteEl.innerHTML = `ⓘ Baseline = each holding's <b>previous market close</b> from Yahoo, ` +
-      `which rolls forward at the end of every trading session — so this figure can change ` +
-      `between refreshes even with no trades. Currently comparing against the last close known when ${escapeHtml(asOf)}.`;
-  }
-
   // Sort by selected column
   const col = dailyOverviewSortCol;
   const asc = dailyOverviewSortAsc;
