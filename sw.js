@@ -1,5 +1,5 @@
 // Service Worker for Portfolio Analytics PWA
-const CACHE_NAME = 'portfolio-analytics-v58';
+const CACHE_NAME = 'portfolio-analytics-v69';
 
 // Determine the base path - works on both local server (/) and GitHub Pages subpath
 const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '') || '';
@@ -12,8 +12,11 @@ const ASSETS_TO_CACHE = [
   BASE_PATH + '/auth.js',
   BASE_PATH + '/js/crypto.js',
   BASE_PATH + '/js/api.js',
+  BASE_PATH + '/js/ledger.js',
+  BASE_PATH + '/js/export.js',
   BASE_PATH + '/vendor/chart.umd.js',
   BASE_PATH + '/vendor/read-excel-file.min.js',
+  BASE_PATH + '/vendor/xlsx.core.min.js',
   BASE_PATH + '/manifest.json',
   BASE_PATH + '/icons/icon-192.png',
   BASE_PATH + '/icons/icon-512.png'
@@ -28,6 +31,8 @@ const NETWORK_FIRST_FILES = new Set([
   '/auth.js',
   '/js/api.js',
   '/js/crypto.js',
+  '/js/ledger.js',
+  '/js/export.js',
   '/index.html',
   '/',
 ]);

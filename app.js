@@ -1,5 +1,5 @@
 // Tab IDs
-const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log'];
+const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log', 'manage'];
 
 // App version for cache busting — auto-derived from today's date so JSON files
 // are never served stale after a deploy. The server.js commit script no longer
@@ -111,6 +111,7 @@ function saveNiftySnapshot(data) {
 // series is cached on _niftySeries for the performance charts. Falls back to
 // the last saved snapshot (KPI values only) when offline.
 async function fetchNiftySeries() {
+  let live = null;
   try {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=1mo&interval=1d';
     const res = await fetchViaCorsProxy(url, {}, 12000);
@@ -125,26 +126,17 @@ async function fetchNiftySeries() {
     const pts = ts.map((t, i) => ({ t: t * 1000, c: closes[i] })).filter(p => p.c != null);
     if (pts.length < 2) throw new Error('Not enough Nifty data');
     _niftySeries = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
+    live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
 
-    // Determine prevClose correctly depending on day:
-    //   • Weekday, bar published today → pts[last] = today's close, prevClose = pts[last-1]
-    //   • Weekday, market open/pre-pub → pts[last] = yesterday's close, prevClose = pts[last]
-    //   • Weekend → market is closed; show last working day's change:
-    //               live = pts[last] (Friday's close), prevClose = pts[last-1] (Thursday's close)
-    // Do NOT use meta.chartPreviousClose on a range query — Yahoo returns a value
-    // from ~1 month before the range start, not the prior trading day.
-    const todayDow = new Date().getDay();
-    const isWeekendToday = todayDow === 0 || todayDow === 6;
-    let live, prevClose;
-    if (isWeekendToday) {
-      live     = pts[pts.length - 1].c;
-      prevClose = pts[pts.length - 2].c;
-    } else {
-      live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
-      const lastBarIsToday = new Date(pts[pts.length - 1].t).toDateString() === new Date().toDateString();
-      prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
-    }
-    _niftyDailyPctReal = ((live - prevClose) / prevClose) * 100;
+    // Series-based daily change — FALLBACK ONLY. The 1-month daily series can
+    // carry a NULL/missing close for a recent session (Yahoo publishes the index
+    // bar late), which gets filtered out and makes this skip a day (e.g. compare
+    // Tue vs Fri instead of Tue vs Mon). The authoritative value is computed from
+    // the range=1d meta below.
+    const lastBarIsToday = new Date(pts[pts.length - 1].t).toDateString() === new Date().toDateString();
+    const prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
+    const liveForDaily = lastBarIsToday ? live : pts[pts.length - 1].c;
+    _niftyDailyPctReal = ((liveForDaily - prevClose) / prevClose) * 100;
 
     // Month-to-date: last close strictly before the 1st of the current month.
     const now = new Date();
@@ -152,14 +144,6 @@ async function fetchNiftySeries() {
     let monthStartClose = null;
     for (const p of pts) if (p.t < monthStartMs) monthStartClose = p.c;
     if (monthStartClose) _niftyMonthlyPctReal = ((live - monthStartClose) / monthStartClose) * 100;
-
-    saveNiftySnapshot({
-      dailyChangePct: _niftyDailyPctReal,
-      monthlyChangePct: _niftyMonthlyPctReal,
-      series: _niftySeries,
-      timestamp: Date.now()
-    });
-    return _niftySeries;
   } catch {
     const snap = loadNiftySnapshot();
     if (snap) {
@@ -169,6 +153,29 @@ async function fetchNiftySeries() {
     }
     return _niftySeries;
   }
+
+  // Authoritative daily change: the range=1d (default) chart meta exposes
+  // chartPreviousClose as the TRUE prior-session close — unlike the long-range
+  // series, which can be missing a recent bar. This is what fixes a daily change
+  // computed against the wrong session (e.g. showing +1.55% Tue-vs-Fri when the
+  // real move is +0.56% Tue-vs-Mon, because Yahoo's Monday index bar was null).
+  try {
+    const dres = await fetchViaCorsProxy('https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI', {}, 10000);
+    if (dres.ok) {
+      const dm = (await dres.json())?.chart?.result?.[0]?.meta;
+      if (dm && dm.regularMarketPrice > 0 && dm.chartPreviousClose > 0) {
+        _niftyDailyPctReal = ((dm.regularMarketPrice - dm.chartPreviousClose) / dm.chartPreviousClose) * 100;
+      }
+    }
+  } catch { /* keep the series-derived value */ }
+
+  saveNiftySnapshot({
+    dailyChangePct: _niftyDailyPctReal,
+    monthlyChangePct: _niftyMonthlyPctReal,
+    series: _niftySeries,
+    timestamp: Date.now()
+  });
+  return _niftySeries;
 }
 
 // ── Short-term (≈30 day) daily performance charts: holdings vs Nifty 50 ──────
@@ -635,7 +642,13 @@ function stitchHistoryFragments(hh) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  initPortfolioUpload();
+  // Show the Commit button on localhost — it now persists ledger edits / closed
+  // periods (the Excel-upload flow that used to reveal it has been removed).
+  const _isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1');
+  const _commitBtn = document.getElementById('commit-btn');
+  // Show on any local run (both `npm run dev` and `npm run static` now expose
+  // the /api/commit-data endpoint). Hidden only on the hosted GitHub Pages site.
+  if (_commitBtn && _isLocal) _commitBtn.style.display = 'inline-flex';
   // Kick off the Nifty 50 fetch; once resolved, re-render the overview cards/tables.
   fetchNiftySeries().then(() => {
     const dailySummaryEl = document.getElementById('daily-summary-kpis');
@@ -749,11 +762,8 @@ async function commitData() {
     if (status) status.textContent = '⚠️ Commit only works on the local machine (localhost).';
     return;
   }
-  // Commit (git push) needs the backend; static mode has no /api endpoint.
-  if (window.__staticMode) {
-    if (status) status.textContent = '⚠️ Commit needs the backend — run "npm run dev" instead of "npm run static".';
-    return;
-  }
+  // Both `npm run dev` and `npm run static` expose /api/commit-data locally,
+  // so no static-mode gate here — the fetch below surfaces any real failure.
   try {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing...'; }
     if (status) status.textContent = 'Committing to GitHub...';
@@ -765,7 +775,13 @@ async function commitData() {
       breakup_summary: breakupSummary,
       latest_equity: latestEquity,
       latest_mf: latestMf,
-      historical_holdings: historicalHoldings
+      historical_holdings: historicalHoldings,
+      // Ledger blobs (new transaction-entry model). Persisting them makes the
+      // committed files the source of truth, so the local breakup override can
+      // be cleared after a successful commit.
+      ledger_transactions: (typeof transactions !== 'undefined' && transactions) || [],
+      ledger_balances: (typeof balances !== 'undefined' && balances) || [],
+      ledger_frozen_base: (typeof frozenBase !== 'undefined' && frozenBase) || null,
     };
     if (typeof PortfolioCrypto !== 'undefined' && await PortfolioCrypto.hasKey()) {
       for (const k of Object.keys(payload)) {
@@ -787,6 +803,8 @@ async function commitData() {
       }
       if (status) status.textContent = '✅ ' + data.message;
       if (data.details) console.log('Commit details:', data.details.join(' | '));
+      // Committed files now hold the appended periods — drop the local override.
+      if (typeof clearBreakupOverride === 'function') clearBreakupOverride();
     } else if (res.status === 401) {
       if (status) status.textContent = '🔒 Session expired. Please unlock the portfolio first.';
     } else {
@@ -851,6 +869,7 @@ async function loadData() {
       if (!breakupSummary) { /* fall through to full server load below */ }
       else {
       initializeLiveBaseline();
+      try { if (typeof integrateLedger === 'function') integrateLedger(); } catch (e) { console.error('integrateLedger failed:', e); }
 
       // Restore the persisted refresh report (Update Log + per-stock refresh
       // times) and, if a refresh has happened, recompute live totals from the
@@ -943,6 +962,7 @@ async function loadData() {
     historicalHoldings = stitchHistoryFragments(await parsePortfolioJson(resHist));
 
     initializeLiveBaseline();
+    if (typeof integrateLedger === 'function') integrateLedger();
 
     // Generate benchmark data (simulated immediately; real data fetched async below)
     generateBenchmarkData();
@@ -1168,7 +1188,10 @@ function refreshAllTabs() {
     if (latestEquity) renderMonthlyOverviewTable();
   });
 
-  // Only initialize the currently visible tab (others load lazily on first visit)
+  // Re-render the currently visible tab so refreshed prices actually show.
+  // First visit → lazy-init. Already initialized → re-render its live-data view
+  // (previously this was skipped, so prices updated in memory but the on-screen
+  // table stayed stale until the user switched tabs).
   const activeTab = document.querySelector('.tab-content.active');
   if (activeTab) {
     const tabId = activeTab.id.replace('-tab', '');
@@ -1176,6 +1199,15 @@ function refreshAllTabs() {
       initializedTabs.add(tabId);
       const initFn = tabInitMap[tabId];
       if (initFn) initFn();
+    } else {
+      // Only the live-price tabs re-render here; chart/history tabs (growth,
+      // monthly, nps, fixed-income) don't show live-ticking prices and would
+      // just flicker — they re-render on tab switch.
+      try {
+        if (tabId === 'stocks') reapplyStocksView();
+        else if (tabId === 'mfs') reapplyMfsView();
+        else if (tabId === 'overview') { renderDailyOverviewTable(); renderMonthlyOverviewTable(); }
+      } catch (e) { console.error('refreshAllTabs re-render failed:', e); }
     }
   }
 
@@ -1611,7 +1643,8 @@ const tabInitMap = {
   'fixed-income': initFixedIncomeTab,
   'nps': initNpsTab,
   'monthly': initMonthlyTab,
-  'update-log': initUpdateLogTab
+  'update-log': initUpdateLogTab,
+  'manage': initManageTab
 };
 
 // Tab Switching
@@ -1966,7 +1999,7 @@ function renderDailyOverviewTable() {
         <div class="tab-kpi-value ${totalStockGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalStockGain >= 0 ? '+' : ''}${formatINR(totalStockGain)} <span class="tab-kpi-inline-pct">(${dailyStockPct >= 0 ? '+' : ''}${dailyStockPct.toFixed(2)}%)</span>
         </div>
-        <div class="tab-kpi-sub">since yesterday</div>
+        <div class="tab-kpi-sub">vs previous market close</div>
       </div>
       <div class="tab-kpi-card${dailyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent:${totalMfGain >= 0 ? G : R}; cursor:pointer;" onclick="setDailyTypeFilter('mf')">
         <div class="tab-kpi-label">Daily Change — MFs</div>
@@ -3572,6 +3605,7 @@ function renderStocksTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
+      <td style="text-align: right;">${escapeHtml(formatPriceAsOf(s.priceAsOf))}</td>
     </tr>
   `}).join('');
 }
@@ -3587,6 +3621,38 @@ function filterStocksTable() {
     return matchesQuery && matchesSector;
   });
 
+  renderStocksTable(filtered);
+}
+
+// Re-render the stocks table with the CURRENT filter + sort, without touching
+// charts or resetting user state. Used after a live price refresh so the
+// visible numbers update even when the user is sitting on the Stocks tab.
+function reapplyStocksView() {
+  if (!latestEquity) return;
+  const query = (document.getElementById('stock-search')?.value || '').toLowerCase().trim();
+  const sector = document.getElementById('stock-sector-filter')?.value || 'ALL';
+  const filtered = latestEquity.filter(s => {
+    const mq = s.instrument.toLowerCase().includes(query) || s.sector.toLowerCase().includes(query);
+    const ms = (sector === 'ALL') || (s.sector === sector);
+    return mq && ms;
+  });
+  if (stockSortColumn >= 0) {
+    const val = (s) => {
+      switch (stockSortColumn) {
+        case 0: return s.instrument; case 1: return s.sector; case 2: return s.qty;
+        case 3: return s.ltp; case 4: return s.lastUploadedPrice ?? 0; case 5: return s.avg_cost;
+        case 6: return s.invested; case 7: return s.cur_val; case 8: return s.pnl;
+        case 9: return s.gain_pct; case 10: return holdingXIRR(s, 'stock') ?? -Infinity;
+        case 11: return s.thisMonthGain ?? 0; case 12: return s.priceAsOf ?? -Infinity;
+        default: return s.instrument;
+      }
+    };
+    filtered.sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (typeof va === 'string') return stockSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return stockSortAsc ? va - vb : vb - va;
+    });
+  }
   renderStocksTable(filtered);
 }
 
@@ -3631,6 +3697,7 @@ function sortStocks(colIdx) {
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = holdingXIRR(a, 'stock') ?? -Infinity; valB = holdingXIRR(b, 'stock') ?? -Infinity; break;
       case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 12: valA = a.priceAsOf ?? -Infinity; valB = b.priceAsOf ?? -Infinity; break;
     }
 
     if (typeof valA === 'string') {
@@ -3864,6 +3931,7 @@ function renderMfsTable(data) {
       <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
+      <td style="text-align: right;">${f.navDate ? escapeHtml(f.navDate) : '—'}</td>
     </tr>
   `}).join('');
 }
@@ -4721,6 +4789,25 @@ function initMonthlyTab() {
 }
 
 // ── Update Log Tab ──────────────────────────────────────────────────────────
+// Format a market-data timestamp (epoch ms) as an IST date+time — this is the
+// date the price actually belongs to (e.g. last session's close), distinct from
+// when the refresh ran.
+function formatPriceAsOf(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
+}
+
+// Parse an mfapi NAV date (DD-MM-YYYY) to epoch ms for sorting; -Infinity if absent.
+function _mfNavDateMs(navDate) {
+  if (!navDate) return -Infinity;
+  const [d, mo, y] = String(navDate).split('-').map(Number);
+  const t = new Date(y, (mo || 1) - 1, d || 1).getTime();
+  return isNaN(t) ? -Infinity : t;
+}
+
 function initUpdateLogTab() {
   const container = document.getElementById('update-log-content');
   if (!container) {
@@ -4755,51 +4842,109 @@ function initUpdateLogTab() {
   }
   html += '</div>';
 
-  // ── Per-Stock Details Table ──
+  // ── Per-Stock / Per-MF detail tables (sortable — populated below) ──
   if (report.stockDetails && report.stockDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📈 Stock Refresh Details</h3>';
-    html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Instrument</th><th>Status</th><th>Price (₹)</th><th>Prev Close (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
-    for (const s of report.stockDetails) {
-      const statusClass = s.status === 'success' ? 'status-ok' : s.status === 'stale' ? 'status-stale' : (s.status === 'skipped' || s.status === 'stable') ? 'status-skip' : 'status-fail';
-      const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
-      const price = s.price != null ? s.price.toFixed(2) : '—';
-      const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
-      const rawChangePct = (s.price != null && s.prevClose != null && s.prevClose > 0)
-        ? (s.price - s.prevClose) / s.prevClose * 100 : null;
-      const changePctCell = rawChangePct != null
-        ? `<td class="${rawChangePct >= 0 ? 'change-up' : 'change-down'}">${rawChangePct >= 0 ? '+' : ''}${rawChangePct.toFixed(2)}%</td>`
-        : '<td>—</td>';
-      const lastRefresh = s.lastRefresh ? escapeHtml(s.lastRefresh) : '—';
-      const error = s.error ? escapeHtml(s.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${prevClose}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
-    }
-    html += '</tbody></table></div>';
+    html += '<div id="ul-stock-table"></div>';
   }
-
-  // ── Per-MF Details Table ──
   if (report.mfDetails && report.mfDetails.length > 0) {
     html += '<h3 style="margin-top: 1.5rem; margin-bottom: 0.75rem;">📊 Mutual Fund NAV Details</h3>';
-    html += '<div class="table-wrapper"><table class="update-log-table">';
-    html += '<thead><tr><th>Scheme</th><th>Status</th><th>NAV (₹)</th><th>Prev NAV (₹)</th><th>Change %</th><th>Last Refreshed</th><th>Error</th></tr></thead><tbody>';
-    for (const m of report.mfDetails) {
-      const statusClass = m.status === 'success' ? 'status-ok' : m.status === 'stale' ? 'status-stale' : m.status === 'skipped' ? 'status-skip' : 'status-fail';
-      const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
-      const nav = m.nav != null ? m.nav.toFixed(4) : '—';
-      const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
-      const rawChangePct = (m.nav != null && m.prevNav != null && m.prevNav > 0)
-        ? (m.nav - m.prevNav) / m.prevNav * 100 : null;
-      const changePctCell = rawChangePct != null
-        ? `<td class="${rawChangePct >= 0 ? 'change-up' : 'change-down'}">${rawChangePct >= 0 ? '+' : ''}${rawChangePct.toFixed(2)}%</td>`
-        : '<td>—</td>';
-      const lastRefresh = m.lastRefresh ? escapeHtml(m.lastRefresh) : '—';
-      const error = m.error ? escapeHtml(m.error) : '—';
-      html += `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${prevNav}</td>${changePctCell}<td>${lastRefresh}</td><td class="error-cell">${error}</td></tr>`;
-    }
-    html += '</tbody></table></div>';
+    html += '<div id="ul-mf-table"></div>';
   }
 
   container.innerHTML = html;
+  renderUlStockTable();
+  renderUlMfTable();
+}
+
+// ── Sortable Update Log detail tables ──────────────────────────────────────
+let _ulStockSort = { col: 0, asc: true };
+let _ulMfSort = { col: 0, asc: true };
+
+function _ulChangePct(price, base) {
+  return (price != null && base != null && base > 0) ? (price - base) / base * 100 : null;
+}
+function _ulSortIndicator(state, col) {
+  return state.col === col ? (state.asc ? ' ▲' : ' ▼') : '';
+}
+// Build a sortable table: headers[], rows sorted by keyFns[col], rendered by rowFn.
+function _ulRenderSortable(rows, headers, keyFns, state, sortFnName, rowFn) {
+  const { col, asc } = state;
+  const kf = keyFns[col] || (() => '');
+  const sorted = rows.slice().sort((a, b) => {
+    const va = kf(a), vb = kf(b);
+    const r = (typeof va === 'string' || typeof vb === 'string')
+      ? String(va).localeCompare(String(vb)) : (va - vb);
+    return asc ? r : -r;
+  });
+  let h = '<div class="table-wrapper"><table class="update-log-table"><thead><tr>';
+  headers.forEach((label, i) => {
+    h += `<th class="sortable-th" onclick="${sortFnName}(${i})">${escapeHtml(label)}${_ulSortIndicator(state, i)}</th>`;
+  });
+  h += '</tr></thead><tbody>';
+  sorted.forEach(r => { h += rowFn(r); });
+  h += '</tbody></table></div>';
+  return h;
+}
+
+function renderUlStockTable() {
+  const el = document.getElementById('ul-stock-table');
+  const report = window.lastRefreshReport || lastRefreshReport;
+  if (!el || !report || !report.stockDetails) return;
+  const headers = ['Instrument', 'Status', 'Price (₹)', 'Price As Of', 'Prev Close (₹)', 'Change %', 'Error'];
+  const keyFns = [
+    s => s.instrument || '', s => s.status || '', s => s.price ?? -Infinity, s => s.asOf ?? -Infinity,
+    s => s.prevClose ?? -Infinity, s => _ulChangePct(s.price, s.prevClose) ?? -Infinity, s => s.error || '',
+  ];
+  const rowFn = (s) => {
+    const statusClass = s.status === 'success' ? 'status-ok' : s.status === 'stale' ? 'status-stale' : (s.status === 'skipped' || s.status === 'stable') ? 'status-skip' : 'status-fail';
+    const statusText = s.status === 'success' ? '✅ OK' : s.status === 'stale' ? '⚠️ Stale' : s.status === 'stable' ? '🔒 Stable' : s.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
+    const price = s.price != null ? s.price.toFixed(2) : '—';
+    const priceAsOf = escapeHtml(formatPriceAsOf(s.asOf));
+    const prevClose = s.prevClose != null ? s.prevClose.toFixed(2) : '—';
+    const chg = _ulChangePct(s.price, s.prevClose);
+    const changePctCell = chg != null
+      ? `<td class="${chg >= 0 ? 'change-up' : 'change-down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</td>` : '<td>—</td>';
+    const error = s.error ? escapeHtml(s.error) : '—';
+    return `<tr class="${statusClass}"><td>${escapeHtml(s.instrument)}</td><td>${statusText}</td><td>${price}</td><td>${priceAsOf}</td><td>${prevClose}</td>${changePctCell}<td class="error-cell">${error}</td></tr>`;
+  };
+  el.innerHTML = _ulRenderSortable(report.stockDetails, headers, keyFns, _ulStockSort, 'sortUlStock', rowFn);
+}
+
+function renderUlMfTable() {
+  const el = document.getElementById('ul-mf-table');
+  const report = window.lastRefreshReport || lastRefreshReport;
+  if (!el || !report || !report.mfDetails) return;
+  const headers = ['Scheme', 'Status', 'NAV (₹)', 'NAV Date', 'Prev NAV (₹)', 'Change %', 'Error'];
+  const navKey = m => _mfNavDateMs(m.navDate); // chronological (mfapi gives DD-MM-YYYY)
+  const keyFns = [
+    m => m.scheme || '', m => m.status || '', m => m.nav ?? -Infinity, navKey,
+    m => m.prevNav ?? -Infinity, m => _ulChangePct(m.nav, m.prevNav) ?? -Infinity, m => m.error || '',
+  ];
+  const rowFn = (m) => {
+    const statusClass = m.status === 'success' ? 'status-ok' : m.status === 'stale' ? 'status-stale' : m.status === 'skipped' ? 'status-skip' : 'status-fail';
+    const statusText = m.status === 'success' ? '✅ OK' : m.status === 'stale' ? '⚠️ Stale' : m.status === 'skipped' ? '⏭️ Skipped' : '❌ Failed';
+    const nav = m.nav != null ? m.nav.toFixed(4) : '—';
+    const navDate = m.navDate ? escapeHtml(m.navDate) : '—';
+    const prevNav = m.prevNav != null ? m.prevNav.toFixed(4) : '—';
+    const chg = _ulChangePct(m.nav, m.prevNav);
+    const changePctCell = chg != null
+      ? `<td class="${chg >= 0 ? 'change-up' : 'change-down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</td>` : '<td>—</td>';
+    const error = m.error ? escapeHtml(m.error) : '—';
+    return `<tr class="${statusClass}"><td>${escapeHtml(m.scheme)}</td><td>${statusText}</td><td>${nav}</td><td>${navDate}</td><td>${prevNav}</td>${changePctCell}<td class="error-cell">${error}</td></tr>`;
+  };
+  el.innerHTML = _ulRenderSortable(report.mfDetails, headers, keyFns, _ulMfSort, 'sortUlMf', rowFn);
+}
+
+function sortUlStock(col) {
+  if (_ulStockSort.col === col) _ulStockSort.asc = !_ulStockSort.asc;
+  else { _ulStockSort.col = col; _ulStockSort.asc = true; }
+  renderUlStockTable();
+}
+function sortUlMf(col) {
+  if (_ulMfSort.col === col) _ulMfSort.asc = !_ulMfSort.asc;
+  else { _ulMfSort.col = col; _ulMfSort.asc = true; }
+  renderUlMfTable();
 }
 
 // Build the heatmap month data array (used for selection and filtering)
@@ -5425,6 +5570,37 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   }
 }
 
+// Re-render the MF table with the CURRENT filter + sort (no chart churn), used
+// after a live refresh so refreshed NAVs show while the user is on the MF tab.
+function reapplyMfsView() {
+  if (!latestMf) return;
+  const query = (document.getElementById('mf-search')?.value || '').toLowerCase().trim();
+  const cat = document.getElementById('mf-type-filter')?.value || 'ALL';
+  const filtered = latestMf.filter(f => {
+    const mq = f.scheme.toLowerCase().includes(query) || f.scheme_type.toLowerCase().includes(query);
+    const mc = (cat === 'ALL') || (f.scheme_type === cat);
+    return mq && mc;
+  });
+  if (mfSortColumn >= 0) {
+    const val = (f) => {
+      switch (mfSortColumn) {
+        case 0: return f.scheme; case 1: return f.scheme_type; case 2: return f.qty;
+        case 3: return f.price; case 4: return f.lastUploadedPrice ?? 0; case 5: return f.avg_nav;
+        case 6: return f.invested; case 7: return f.cur_val; case 8: return f.pnl;
+        case 9: return f.gain_pct; case 10: return holdingXIRR(f, 'mf') ?? -Infinity;
+        case 11: return f.thisMonthGain ?? 0; case 12: return _mfNavDateMs(f.navDate);
+        default: return f.scheme;
+      }
+    };
+    filtered.sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (typeof va === 'string') return mfSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return mfSortAsc ? va - vb : vb - va;
+    });
+  }
+  renderMfsTable(filtered);
+}
+
 function sortMfs(colIdx) {
   if (mfSortColumn === colIdx) {
     mfSortAsc = !mfSortAsc;
@@ -5466,6 +5642,7 @@ function sortMfs(colIdx) {
       case 9: valA = a.gain_pct; valB = b.gain_pct; break;
       case 10: valA = holdingXIRR(a, 'mf') ?? -Infinity; valB = holdingXIRR(b, 'mf') ?? -Infinity; break;
       case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
+      case 12: valA = _mfNavDateMs(a.navDate); valB = _mfNavDateMs(b.navDate); break;
     }
 
     if (typeof valA === 'string') {
@@ -5476,4 +5653,273 @@ function sortMfs(colIdx) {
   });
 
   renderMfsTable(filtered);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// MANAGE PORTFOLIO TAB — incremental transaction & balance entry
+// Backed by js/ledger.js (deriveHoldings, closeMonth) + js/export.js.
+// ════════════════════════════════════════════════════════════════════════
+
+function initManageTab() {
+  const today = new Date().toISOString().slice(0, 10);
+  ['txn-date', 'bal-date', 'close-date'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.value) el.value = today;
+  });
+  onTxnAssetClassChange();
+  renderLedger();
+}
+
+// Populate the instrument autocomplete from current holdings for the chosen class.
+function populateInstrumentDatalist() {
+  const dl = document.getElementById('txn-instrument-list');
+  if (!dl) return;
+  const cls = document.getElementById('txn-assetClass').value;
+  const names = cls === 'mf'
+    ? (latestMf || []).map(f => f.scheme)
+    : (latestEquity || []).map(s => s.instrument);
+  dl.innerHTML = names.sort().map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+}
+
+function onTxnAssetClassChange() {
+  const cls = document.getElementById('txn-assetClass').value;
+  document.getElementById('txn-category-wrap').style.display = cls === 'mf' ? '' : 'none';
+  populateInstrumentDatalist();
+}
+
+function onTxnAmountInputs() {
+  const qty = parseFloat(document.getElementById('txn-qty').value);
+  const price = parseFloat(document.getElementById('txn-price').value);
+  const amtEl = document.getElementById('txn-amount');
+  if (!amtEl.dataset.touched && isFinite(qty) && isFinite(price)) {
+    amtEl.value = +(qty * price).toFixed(2);
+  }
+}
+
+function handleTxnSubmit(e) {
+  e.preventDefault();
+  if (typeof addTransaction !== 'function') { alert('Ledger module not loaded.'); return false; }
+  const editId = document.getElementById('txn-edit-id').value;
+  const payload = {
+    assetClass: document.getElementById('txn-assetClass').value,
+    type: document.getElementById('txn-type').value,
+    instrument: document.getElementById('txn-instrument').value.trim(),
+    category: document.getElementById('txn-category').value.trim() || null,
+    date: document.getElementById('txn-date').value,
+    qty: parseFloat(document.getElementById('txn-qty').value),
+    price: parseFloat(document.getElementById('txn-price').value),
+    amount: document.getElementById('txn-amount').value ? parseFloat(document.getElementById('txn-amount').value) : null,
+    note: document.getElementById('txn-note').value.trim(),
+  };
+  if (!payload.instrument || !isFinite(payload.qty) || !isFinite(payload.price)) {
+    alert('Instrument, quantity and price are required.'); return false;
+  }
+  if (editId) updateTransaction(editId, payload);
+  else addTransaction(payload);
+  resetTxnForm();
+  refreshAfterLedgerChange();
+  renderLedger();
+  return false;
+}
+
+function resetTxnForm() {
+  const f = document.getElementById('txn-form');
+  if (f) f.reset();
+  document.getElementById('txn-edit-id').value = '';
+  document.getElementById('txn-amount').dataset.touched = '';
+  document.getElementById('txn-submit-btn').textContent = 'Add Transaction';
+  document.getElementById('txn-cancel-btn').style.display = 'none';
+  document.getElementById('txn-date').value = new Date().toISOString().slice(0, 10);
+  onTxnAssetClassChange();
+}
+
+function editTxn(id) {
+  const t = (transactions || []).find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('txn-edit-id').value = t.id;
+  document.getElementById('txn-assetClass').value = t.assetClass;
+  document.getElementById('txn-type').value = t.type;
+  document.getElementById('txn-instrument').value = t.instrument;
+  document.getElementById('txn-category').value = t.category || '';
+  document.getElementById('txn-date').value = t.date;
+  document.getElementById('txn-qty').value = t.qty;
+  document.getElementById('txn-price').value = t.price;
+  const amt = document.getElementById('txn-amount');
+  amt.value = t.amount; amt.dataset.touched = '1';
+  document.getElementById('txn-note').value = t.note || '';
+  document.getElementById('txn-submit-btn').textContent = 'Update Transaction';
+  document.getElementById('txn-cancel-btn').style.display = '';
+  onTxnAssetClassChange();
+  document.getElementById('txn-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeTxn(id) {
+  if (!confirm('Delete this transaction?')) return;
+  deleteTransaction(id);
+  refreshAfterLedgerChange();
+  renderLedger();
+}
+
+function handleBalSubmit(e) {
+  e.preventDefault();
+  const editId = document.getElementById('bal-edit-id').value;
+  const payload = {
+    component: document.getElementById('bal-component').value,
+    date: document.getElementById('bal-date').value,
+    value: parseFloat(document.getElementById('bal-value').value),
+    contribution: parseFloat(document.getElementById('bal-contribution').value) || 0,
+    note: document.getElementById('bal-note').value.trim(),
+  };
+  if (!isFinite(payload.value)) { alert('Current value is required.'); return false; }
+  if (editId) updateBalance(editId, payload);
+  else addBalance(payload);
+  resetBalForm();
+  renderLedger();
+  return false;
+}
+
+function resetBalForm() {
+  const f = document.getElementById('bal-form');
+  if (f) f.reset();
+  document.getElementById('bal-edit-id').value = '';
+  document.getElementById('bal-submit-btn').textContent = 'Save Balance';
+  document.getElementById('bal-cancel-btn').style.display = 'none';
+  document.getElementById('bal-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('bal-contribution').value = '0';
+}
+
+function editBal(id) {
+  const b = (balances || []).find(x => x.id === id);
+  if (!b) return;
+  document.getElementById('bal-edit-id').value = b.id;
+  document.getElementById('bal-component').value = b.component;
+  document.getElementById('bal-date').value = b.date;
+  document.getElementById('bal-value').value = b.value;
+  document.getElementById('bal-contribution').value = b.contribution;
+  document.getElementById('bal-note').value = b.note || '';
+  document.getElementById('bal-submit-btn').textContent = 'Update Balance';
+  document.getElementById('bal-cancel-btn').style.display = '';
+  document.getElementById('bal-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function removeBal(id) {
+  if (!confirm('Delete this balance entry?')) return;
+  deleteBalance(id);
+  renderLedger();
+}
+
+// Re-derive holdings from the ledger and re-render every analytics view,
+// including Periodic Performance.
+function refreshAfterLedgerChange() {
+  if (typeof applyLedgerToHoldings === 'function') applyLedgerToHoldings();
+  if (typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
+  try { updateKpis(); } catch (e) { console.error(e); }
+  try { renderDailyOverviewTable(); renderMonthlyOverviewTable(); } catch (e) {}
+  try { initStocksTab(); } catch (e) {}
+  try { initMfsTab(); } catch (e) {}
+  try { initGrowthTab(); } catch (e) {}
+  try { initFixedIncomeTab(); } catch (e) {}
+  try { initNpsTab(); } catch (e) {}
+  try { initMonthlyTab(); } catch (e) {}   // Periodic Performance
+  try { saveRefreshedPrices(latestEquity, latestMf); } catch (e) {}
+}
+
+function handleCloseMonth() {
+  const date = document.getElementById('close-date').value;
+  const preview = document.getElementById('close-preview');
+  if (!date) { preview.textContent = 'Pick a close date first.'; return; }
+  try {
+    const res = closeMonth(date);
+    refreshAfterLedgerChange();
+    renderLedger();
+    const xirr = res.portfolioXirr != null ? (res.portfolioXirr * 100).toFixed(2) + '%' : '—';
+    preview.innerHTML = `<span class="trend-up">✓ Period ${res.date} closed.</span><br>` +
+      `Net worth: <b>${formatLakhs(res.totalValue)}</b> · Change: <b>${formatLakhs(res.netChange)}</b> · ` +
+      `New investment: <b>${formatLakhs(res.newInvestment)}</b> · Portfolio XIRR: <b>${xirr}</b><br>` +
+      `<span style="color:var(--text-muted)">Click 🚀 Commit (top bar) to save permanently.</span>`;
+  } catch (err) {
+    preview.innerHTML = `<span class="trend-down">⚠️ ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function handleImportBackup(e) {
+  const file = e.target.files && e.target.files[0];
+  const status = document.getElementById('backup-status');
+  if (!file) return;
+  if (!confirm('Importing will REPLACE all current in-memory data. Continue?')) { e.target.value = ''; return; }
+  try {
+    const data = await importBackupJson(file);
+    portfolioSummary = data.portfolio_summary || portfolioSummary;
+    breakupSummary = data.breakup_summary || breakupSummary;
+    latestEquity = data.latest_equity || latestEquity;
+    latestMf = data.latest_mf || latestMf;
+    historicalHoldings = data.historical_holdings || historicalHoldings;
+    if (typeof stitchHistoryFragments === 'function') historicalHoldings = stitchHistoryFragments(historicalHoldings);
+    transactions = data.transactions || [];
+    balances = data.balances || [];
+    frozenBase = data.frozen_base || null;
+    saveLedger();
+    saveBreakupOverride();
+    initializeLiveBaseline();
+    refreshAfterLedgerChange();
+    renderLedger();
+    status.innerHTML = `<span class="trend-up">✓ Imported backup from ${escapeHtml((data._backup_meta || {}).exported_at || 'file')}. Commit to persist.</span>`;
+  } catch (err) {
+    status.innerHTML = `<span class="trend-down">⚠️ ${escapeHtml(err.message)}</span>`;
+  } finally {
+    e.target.value = '';
+  }
+}
+
+// Combined chronological ledger of transactions + balances with edit/delete.
+function renderLedger() {
+  const el = document.getElementById('ledger-content');
+  if (!el) return;
+  const txns = (transactions || []).map(t => ({ kind: 'txn', ...t }));
+  const bals = (balances || []).map(b => ({ kind: 'bal', ...b }));
+  const rows = [...txns, ...bals].sort((a, b) => b.date.localeCompare(a.date));
+
+  if (!rows.length) {
+    el.innerHTML = '<p class="manage-hint">No transactions or balance entries yet. Add some above, then “Close Period” to snapshot a new data point.</p>';
+    return;
+  }
+
+  const body = rows.map(r => {
+    if (r.kind === 'txn') {
+      const cls = r.type === 'buy' ? 'trend-up' : 'trend-down';
+      return `<tr>
+        <td>${r.date}</td>
+        <td><span class="ledger-tag">${r.assetClass === 'mf' ? 'MF' : 'Stock'}</span></td>
+        <td>${escapeHtml(r.instrument)}</td>
+        <td class="${cls}">${r.type.toUpperCase()}</td>
+        <td style="text-align:right;">${(+r.qty).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+        <td style="text-align:right;">${formatINR(r.price)}</td>
+        <td style="text-align:right;">${formatINR(r.amount)}</td>
+        <td>${escapeHtml(r.note || '')}</td>
+        <td style="white-space:nowrap;">
+          <button class="ledger-btn" onclick="editTxn('${r.id}')">✏️</button>
+          <button class="ledger-btn" onclick="removeTxn('${r.id}')">🗑️</button>
+        </td></tr>`;
+    }
+    return `<tr>
+      <td>${r.date}</td>
+      <td><span class="ledger-tag bal">Balance</span></td>
+      <td>${escapeHtml(r.component)}</td>
+      <td>UPDATE</td>
+      <td style="text-align:right;">—</td>
+      <td style="text-align:right;">—</td>
+      <td style="text-align:right;">${formatINR(r.value)}${r.contribution ? ` <span style="color:var(--text-muted)">(+${formatINR(r.contribution)})</span>` : ''}</td>
+      <td>${escapeHtml(r.note || '')}</td>
+      <td style="white-space:nowrap;">
+        <button class="ledger-btn" onclick="editBal('${r.id}')">✏️</button>
+        <button class="ledger-btn" onclick="removeBal('${r.id}')">🗑️</button>
+      </td></tr>`;
+  }).join('');
+
+  el.innerHTML = `<div class="table-wrapper"><table class="ledger-table">
+    <thead><tr>
+      <th>Date</th><th>Kind</th><th>Instrument / Component</th><th>Action</th>
+      <th style="text-align:right;">Qty</th><th style="text-align:right;">Price/NAV</th>
+      <th style="text-align:right;">Amount / Value</th><th>Note</th><th></th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
 }

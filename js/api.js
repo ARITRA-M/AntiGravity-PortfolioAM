@@ -111,7 +111,10 @@ function buildDirectUrl(endpointType, param) {
     case 'live-stock-price-yahoo':
     case 'stock-prev-close':
     case 'stock-prev-close-yahoo':
-      return `${yahooBase}${encodeURIComponent(param.replace(/-RR$/, ''))}.NS`;
+      // NOTE: keep the full symbol incl. any "-RR" suffix — for NSE REITs
+      // (EMBASSY-RR, MINDSPACE-RR, NXST-RR) the "-RR" is part of the real Yahoo
+      // ticker. Stripping it maps to dead symbols frozen since Jul 2024.
+      return `${yahooBase}${encodeURIComponent(param)}.NS`;
     case 'live-mf-nav':
       // mfapi.in has open CORS — call directly with NO proxy
       return { url: `https://api.mfapi.in/mf/${param}`, directCors: true };
@@ -122,13 +125,26 @@ function buildDirectUrl(endpointType, param) {
   }
 }
 
-// Parse Yahoo Finance /v8/finance/chart response into { price, prevClose }
+// YYYY-MM-DD for a Date in Asia/Kolkata (IST) — used to tell whether the last
+// traded price belongs to today's session or a prior one.
+function istDateString(d) {
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+// Parse Yahoo Finance /v8/finance/chart response into { price, prevClose, asOf }.
+// On the default 1-day range, meta.chartPreviousClose is the close of the
+// session immediately before the one the price belongs to — i.e. exactly the
+// "previous close" a broker shows (e.g. pre-open Tuesday: price = Monday's
+// close, prevClose = Friday's close → daily change = Monday's session move).
+// asOf = the market timestamp the price belongs to (NOT the refresh time).
 function parseYahooChart(data) {
   const r = data?.chart?.result?.[0];
   if (!r?.meta?.regularMarketPrice) return null;
+  const meta = r.meta;
   return {
-    price: r.meta.regularMarketPrice,
-    prevClose: r.meta.chartPreviousClose ?? r.meta.previousClose ?? null
+    price: meta.regularMarketPrice,
+    prevClose: meta.chartPreviousClose ?? meta.previousClose ?? null,
+    asOf: meta.regularMarketTime ? meta.regularMarketTime * 1000 : null,
   };
 }
 
@@ -210,11 +226,33 @@ async function fetchSparkQuotes(tickers) {
       for (const r of (raw?.spark?.result || [])) {
         const resp = r?.response?.[0];
         if (!resp) continue;
-        const closes = (resp.indicators?.quote?.[0]?.close || []).filter(c => c != null);
-        const price = resp.meta?.regularMarketPrice ?? closes[closes.length - 1] ?? null;
-        const prevClose = closes.length >= 2 ? closes[closes.length - 2]
-                        : (resp.meta?.chartPreviousClose ?? null);
-        if (price != null && price > 0) out.set(r.symbol, { price, prevClose });
+        // Pair each daily close with its date. (spark's meta.chartPreviousClose
+        // is the pre-range value, so it's unusable as the previous close here.)
+        const closeArr = resp.indicators?.quote?.[0]?.close || [];
+        const tsArr = resp.timestamp || [];
+        const bars = [];
+        for (let i = 0; i < closeArr.length; i++) {
+          if (closeArr[i] != null) bars.push({ t: tsArr[i], c: closeArr[i] });
+        }
+        if (!bars.length) continue;
+        const price = resp.meta?.regularMarketPrice ?? bars[bars.length - 1].c;
+        // Previous close = the close of the latest session STRICTLY BEFORE the
+        // session the current price belongs to. Using the price's own session
+        // date (regularMarketTime) — not "today" — means pre-open we still show
+        // the last completed session's move (e.g. Mon close vs Fri close), and
+        // it's robust if the latest daily bar hasn't appeared in the series yet
+        // (which previously made the baseline land a day too far back).
+        const rmt = resp.meta?.regularMarketTime;
+        const asOf = rmt ? rmt * 1000 : (bars[bars.length - 1].t * 1000);
+        const ltpSession = istDateString(new Date(asOf));
+        let prevClose = null;
+        for (let i = bars.length - 1; i >= 0; i--) {
+          if (istDateString(new Date(bars[i].t * 1000)) < ltpSession) { prevClose = bars[i].c; break; }
+        }
+        if (prevClose == null) {
+          prevClose = bars.length >= 2 ? bars[bars.length - 2].c : (resp.meta?.chartPreviousClose ?? null);
+        }
+        if (price != null && price > 0) out.set(r.symbol, { price, prevClose, asOf });
       }
     } catch (_) { /* a failed batch just means those stocks fall back to per-stock fetch */ }
   }));
@@ -311,8 +349,10 @@ async function refreshPrices(stocksOnly = false) {
     const STOCK_BATCH_SIZE = 8;
     const STOCK_BATCH_DELAY_MS = 250;
 
-    // Build the Yahoo ticker for an instrument (strip REIT suffix, add .NS).
-    const yahooTickerOf = (instr) => instr.replace(/-RR$/, '') + '.NS';
+    // Build the Yahoo ticker for an instrument. Keep the full symbol incl. any
+    // "-RR" suffix — for NSE REITs (EMBASSY-RR, MINDSPACE-RR, NXST-RR) the "-RR"
+    // is part of the real Yahoo ticker; stripping it hits dead symbols.
+    const yahooTickerOf = (instr) => instr + '.NS';
 
     // Bulk-prefetch all live-priced equities (excludes bonds and SGBs, which
     // are handled separately). Keyed by Yahoo ticker.
@@ -371,12 +411,12 @@ async function refreshPrices(stocksOnly = false) {
         // Fast path: serve from the bulk spark prefetch (no per-stock network).
         // Miss → fall back to the single-stock fetch (counts as a network call).
         const pre = sparkQuotes.get(yahooTickerOf(ticker));
-        let price, prevClose;
+        let price, prevClose, asOf = null;
         if (pre) {
-          ({ price, prevClose } = pre);
+          ({ price, prevClose, asOf = null } = pre);
         } else {
           netCallsInBatch++;
-          ({ price, prevClose } = await fetchStockQuote(ticker, source));
+          ({ price, prevClose, asOf = null } = await fetchStockQuote(ticker, source));
         }
 
         if (price && price > 0) {
@@ -385,10 +425,11 @@ async function refreshPrices(stocksOnly = false) {
           stock.pnl = stock.cur_val - stock.invested;
           stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
           stock.lastRefreshDate = refreshDateStr;
+          stock.priceAsOf = asOf; // market timestamp the price belongs to (not refresh time)
           stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
           if (prevClose && prevClose > 0) stock.yesterdayClose = prevClose;
           stockSuccess++;
-          stockDetails.push({ instrument: ticker, status: 'success', price, prevClose, error: null });
+          stockDetails.push({ instrument: ticker, status: 'success', price, prevClose, asOf, error: null });
           // Persist snapshot for fallback on future failures
           savePriceSnapshot(ticker, { price, prevClose, refreshDate: refreshDateStr });
         } else {
@@ -507,11 +548,12 @@ async function refreshPrices(stocksOnly = false) {
             const prev = raw.data.find((e, i) => i > 0 && Number(e.nav) > 0);
             data = {
               nav: parseFloat(latest.nav),
-              prevNav: prev ? parseFloat(prev.nav) : null
+              prevNav: prev ? parseFloat(prev.nav) : null,
+              navDate: latest.date || null // mfapi gives the NAV's own date (DD-MM-YYYY)
             };
           }
         } else {
-          // Local server returns already-parsed { nav, prevNav }
+          // Local server returns already-parsed { nav, prevNav, navDate? }
           data = await resp.json();
         }
 
@@ -521,10 +563,11 @@ async function refreshPrices(stocksOnly = false) {
           fund.pnl = fund.cur_val - fund.invested;
           fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
           fund.lastRefreshDate = refreshDateStr;
+          fund.navDate = data.navDate || null; // the date this NAV is for (not refresh time)
           fund.previousNav = data.prevNav || null;
           fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
           mfSuccess++;
-          mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, error: null });
+          mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, navDate: data.navDate || null, error: null });
           // Persist snapshot for fallback on future failures
           savePriceSnapshot(fund.scheme, { nav: data.nav, prevNav: data.prevNav, refreshDate: refreshDateStr });
         } else {

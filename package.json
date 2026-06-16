@@ -19,6 +19,7 @@
   "dependencies": {
     "chart.js": "^4.5.1",
     "express": "^5.2.1",
-    "read-excel-file": "^9.0.10"
+    "read-excel-file": "^9.0.10",
+    "xlsx": "^0.18.5"
   }
 }
