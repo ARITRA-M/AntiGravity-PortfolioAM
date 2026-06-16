@@ -111,7 +111,10 @@ function buildDirectUrl(endpointType, param) {
     case 'live-stock-price-yahoo':
     case 'stock-prev-close':
     case 'stock-prev-close-yahoo':
-      return `${yahooBase}${encodeURIComponent(param.replace(/-RR$/, ''))}.NS`;
+      // NOTE: keep the full symbol incl. any "-RR" suffix — for NSE REITs
+      // (EMBASSY-RR, MINDSPACE-RR, NXST-RR) the "-RR" is part of the real Yahoo
+      // ticker. Stripping it maps to dead symbols frozen since Jul 2024.
+      return `${yahooBase}${encodeURIComponent(param)}.NS`;
     case 'live-mf-nav':
       // mfapi.in has open CORS — call directly with NO proxy
       return { url: `https://api.mfapi.in/mf/${param}`, directCors: true };
@@ -346,8 +349,10 @@ async function refreshPrices(stocksOnly = false) {
     const STOCK_BATCH_SIZE = 8;
     const STOCK_BATCH_DELAY_MS = 250;
 
-    // Build the Yahoo ticker for an instrument (strip REIT suffix, add .NS).
-    const yahooTickerOf = (instr) => instr.replace(/-RR$/, '') + '.NS';
+    // Build the Yahoo ticker for an instrument. Keep the full symbol incl. any
+    // "-RR" suffix — for NSE REITs (EMBASSY-RR, MINDSPACE-RR, NXST-RR) the "-RR"
+    // is part of the real Yahoo ticker; stripping it hits dead symbols.
+    const yahooTickerOf = (instr) => instr + '.NS';
 
     // Bulk-prefetch all live-priced equities (excludes bonds and SGBs, which
     // are handled separately). Keyed by Yahoo ticker.
