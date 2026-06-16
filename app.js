@@ -1182,7 +1182,10 @@ function refreshAllTabs() {
     if (latestEquity) renderMonthlyOverviewTable();
   });
 
-  // Only initialize the currently visible tab (others load lazily on first visit)
+  // Re-render the currently visible tab so refreshed prices actually show.
+  // First visit → lazy-init. Already initialized → re-render its live-data view
+  // (previously this was skipped, so prices updated in memory but the on-screen
+  // table stayed stale until the user switched tabs).
   const activeTab = document.querySelector('.tab-content.active');
   if (activeTab) {
     const tabId = activeTab.id.replace('-tab', '');
@@ -1190,6 +1193,15 @@ function refreshAllTabs() {
       initializedTabs.add(tabId);
       const initFn = tabInitMap[tabId];
       if (initFn) initFn();
+    } else {
+      // Only the live-price tabs re-render here; chart/history tabs (growth,
+      // monthly, nps, fixed-income) don't show live-ticking prices and would
+      // just flicker — they re-render on tab switch.
+      try {
+        if (tabId === 'stocks') reapplyStocksView();
+        else if (tabId === 'mfs') reapplyMfsView();
+        else if (tabId === 'overview') { renderDailyOverviewTable(); renderMonthlyOverviewTable(); }
+      } catch (e) { console.error('refreshAllTabs re-render failed:', e); }
     }
   }
 
@@ -3606,6 +3618,38 @@ function filterStocksTable() {
   renderStocksTable(filtered);
 }
 
+// Re-render the stocks table with the CURRENT filter + sort, without touching
+// charts or resetting user state. Used after a live price refresh so the
+// visible numbers update even when the user is sitting on the Stocks tab.
+function reapplyStocksView() {
+  if (!latestEquity) return;
+  const query = (document.getElementById('stock-search')?.value || '').toLowerCase().trim();
+  const sector = document.getElementById('stock-sector-filter')?.value || 'ALL';
+  const filtered = latestEquity.filter(s => {
+    const mq = s.instrument.toLowerCase().includes(query) || s.sector.toLowerCase().includes(query);
+    const ms = (sector === 'ALL') || (s.sector === sector);
+    return mq && ms;
+  });
+  if (stockSortColumn >= 0) {
+    const val = (s) => {
+      switch (stockSortColumn) {
+        case 0: return s.instrument; case 1: return s.sector; case 2: return s.qty;
+        case 3: return s.ltp; case 4: return s.lastUploadedPrice ?? 0; case 5: return s.avg_cost;
+        case 6: return s.invested; case 7: return s.cur_val; case 8: return s.pnl;
+        case 9: return s.gain_pct; case 10: return holdingXIRR(s, 'stock') ?? -Infinity;
+        case 11: return s.thisMonthGain ?? 0; case 12: return s.priceAsOf ?? -Infinity;
+        default: return s.instrument;
+      }
+    };
+    filtered.sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (typeof va === 'string') return stockSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return stockSortAsc ? va - vb : vb - va;
+    });
+  }
+  renderStocksTable(filtered);
+}
+
 function sortStocks(colIdx) {
   if (stockSortColumn === colIdx) {
     stockSortAsc = !stockSortAsc;
@@ -5518,6 +5562,37 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
       </tr>
     `;
   }
+}
+
+// Re-render the MF table with the CURRENT filter + sort (no chart churn), used
+// after a live refresh so refreshed NAVs show while the user is on the MF tab.
+function reapplyMfsView() {
+  if (!latestMf) return;
+  const query = (document.getElementById('mf-search')?.value || '').toLowerCase().trim();
+  const cat = document.getElementById('mf-type-filter')?.value || 'ALL';
+  const filtered = latestMf.filter(f => {
+    const mq = f.scheme.toLowerCase().includes(query) || f.scheme_type.toLowerCase().includes(query);
+    const mc = (cat === 'ALL') || (f.scheme_type === cat);
+    return mq && mc;
+  });
+  if (mfSortColumn >= 0) {
+    const val = (f) => {
+      switch (mfSortColumn) {
+        case 0: return f.scheme; case 1: return f.scheme_type; case 2: return f.qty;
+        case 3: return f.price; case 4: return f.lastUploadedPrice ?? 0; case 5: return f.avg_nav;
+        case 6: return f.invested; case 7: return f.cur_val; case 8: return f.pnl;
+        case 9: return f.gain_pct; case 10: return holdingXIRR(f, 'mf') ?? -Infinity;
+        case 11: return f.thisMonthGain ?? 0; case 12: return _mfNavDateMs(f.navDate);
+        default: return f.scheme;
+      }
+    };
+    filtered.sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (typeof va === 'string') return mfSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return mfSortAsc ? va - vb : vb - va;
+    });
+  }
+  renderMfsTable(filtered);
 }
 
 function sortMfs(colIdx) {
