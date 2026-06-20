@@ -920,7 +920,7 @@ async function loadData() {
         updateDataFreshness(`Live refresh: ${window.lastRefreshReport.refreshedAt} (restored). Showing last refreshed prices.`);
       } else {
         document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
-        updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
+        updateDataFreshness(`Portfolio snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
       }
 
       try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
@@ -993,7 +993,7 @@ async function loadData() {
     const dates = breakupSummary.dates;
     const latestDate = dates[dates.length - 1];
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
-    updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
+    updateDataFreshness(`Portfolio snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
 
     // Initialize UI elements — each wrapped in try-catch to isolate failures
     try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
@@ -1046,9 +1046,9 @@ function recomputePortfolioFromLiveData() {
   if (!uploadedSnapshot) initializeLiveBaseline();
 
   // Recompute thisMonthGain for all stocks/MFs: (current price - uploaded price) * qty.
-  // For new holdings (added via ledger), lastUploadedPrice=0 so gain = full market value.
-  latestEquity.forEach(s => { s.thisMonthGain = (s.ltp - (s.lastUploadedPrice ?? 0)) * s.qty; });
-  latestMf.forEach(f => { f.thisMonthGain = (f.price - (f.lastUploadedPrice ?? 0)) * f.qty; });
+  // For new holdings (added via ledger), basePrice=0 so gain = full market value.
+  latestEquity.forEach(s => { s.thisMonthGain = (s.ltp   - (s.basePrice ?? 0)) * s.qty; });
+  latestMf.forEach(f =>    { f.thisMonthGain = (f.price - (f.basePrice ?? 0)) * f.qty; });
 
   // Net worth = Σ(qty × ltp) across ALL current holdings + a fixed reconciliation gap.
   // Gap = breakup-summary baseline − Σ(frozenQty × frozenPrice): a historical constant
@@ -1057,8 +1057,10 @@ function recomputePortfolioFromLiveData() {
   // this is identical to the old baseline + price-gain formula.
   let liveStockLakhs, liveMfLakhs;
   if (typeof frozenBase !== 'undefined' && frozenBase) {
-    const frozenStockVal = (frozenBase.equity || []).reduce((s, h) => s + h.qty * h.ltp, 0);
-    const frozenMfVal   = (frozenBase.mf || []).reduce((s, h) => s + h.qty * h.price, 0);
+    // basePrice is the freeze-date price; fall back to old ltp/price field for
+    // existing saved frozenBase data that predates the rename.
+    const frozenStockVal = (frozenBase.equity || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0);
+    const frozenMfVal   = (frozenBase.mf || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.price ?? 0), 0);
     const stockReconcGap = uploadedSnapshot.stockLakhs - frozenStockVal / 100000;
     const mfReconcGap    = uploadedSnapshot.mfLakhs   - frozenMfVal   / 100000;
     liveStockLakhs = latestEquity.reduce((s, h) => s + h.qty * h.ltp,   0) / 100000 + stockReconcGap;
@@ -1121,7 +1123,7 @@ async function loadWorkbookFile(file) {
 
     const latestDate = breakupSummary.dates[breakupSummary.dates.length - 1];
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
-    updateDataFreshness(`Uploaded snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
+    updateDataFreshness(`Portfolio snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
 
     // Show Commit button after successful upload
     if (status) status.textContent = `✅ ${file.name} — saved locally. Hit "Commit" to deploy permanently.`;
@@ -1175,27 +1177,39 @@ function resetDerivedState() {
 }
 
 function initializeLiveBaseline() {
+  // Build frozen-base price lookup (supports old saved data using ltp/price field names).
+  const fb = (typeof frozenBase !== 'undefined') ? frozenBase : null;
+  const frozenEqPriceMap = new Map((fb?.equity || []).map(s => [s.instrument, s.basePrice ?? s.ltp ?? 0]));
+  const frozenMfPriceMap = new Map((fb?.mf || []).map(f => [f.scheme, f.basePrice ?? f.price ?? 0]));
+
   latestEquity.forEach(s => {
-    // Preserve lastUploadedPrice if already set (restored from localStorage after a refresh)
-    if (s.lastUploadedPrice === undefined) s.lastUploadedPrice = s.ltp;
+    // basePrice = market price at the frozen base date (not purchase cost).
+    // For existing holdings use the frozen-base record; for new holdings ledger.js sets it to 0.
+    if (s.basePrice === undefined) {
+      s.basePrice = frozenEqPriceMap.has(s.instrument) ? frozenEqPriceMap.get(s.instrument) : s.ltp;
+    }
     s.lastRefreshedPrice = s.ltp;
     if (s.thisMonthGain === undefined) s.thisMonthGain = 0;
     if (s.yesterdayClose === undefined) s.yesterdayClose = null;
   });
   latestMf.forEach(f => {
-    if (f.lastUploadedPrice === undefined) f.lastUploadedPrice = f.price;
+    if (f.basePrice === undefined) {
+      f.basePrice = frozenMfPriceMap.has(f.scheme) ? frozenMfPriceMap.get(f.scheme) : f.price;
+    }
     f.lastRefreshedPrice = f.price;
     if (f.thisMonthGain === undefined) f.thisMonthGain = 0;
     if (f.previousNav === undefined) f.previousNav = null;
   });
-  // Only derive from breakupSummary on a fresh upload; on reload, uploadedSnapshot
-  // is restored from localStorage before this runs to preserve the true baseline.
+
+  // uploadedSnapshot anchors the net-worth computation to the frozen-base values.
+  // Prefer frozenBase.stockLakhs (captured at freeze time, stable across month closes)
+  // over re-reading the breakup summary (its latest column changes as months are closed).
   if (!uploadedSnapshot) {
     uploadedSnapshot = {
-      totalLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Total'),
-      stockLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)'),
-      mfLakhs: getLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)'),
-      npsELakhs: getLatestSectionValue(breakupSummary.net_worth, 'NPS E (Equity)')
+      stockLakhs: fb?.stockLakhs ?? getLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)'),
+      mfLakhs:    fb?.mfLakhs   ?? getLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)'),
+      npsELakhs:  fb?.npsELakhs ?? getLatestSectionValue(breakupSummary.net_worth, 'NPS E (Equity)'),
+      totalLakhs: fb?.totalLakhs ?? getLatestSectionValue(breakupSummary.net_worth, 'Total'),
     };
   }
 }
@@ -2125,52 +2139,52 @@ function renderMonthlyOverviewTable() {
   const combined = [];
   let totalStockMonthlyGain = 0;
   let totalMfMonthlyGain = 0;
-  let totalStockUploadedVal = 0;
-  let totalMfUploadedVal = 0;
+  let totalStockBaseVal = 0;
+  let totalMfBaseVal = 0;
 
   // Stocks: monthly gain = thisMonthGain
   latestEquity.forEach(s => {
     const gain = s.thisMonthGain || 0;
-    const gainPct = s.lastUploadedPrice > 0 ? (gain / (s.lastUploadedPrice * s.qty)) * 100 : 0;
-    const uploadedVal = (s.lastUploadedPrice ?? 0) * s.qty;
+    const gainPct = s.basePrice > 0 ? (gain / (s.basePrice * s.qty)) * 100 : 0;
+    const baseVal = (s.basePrice ?? 0) * s.qty;
     combined.push({
       name: s.instrument,
       type: 'Stock',
       qty: s.qty,
-      uploadedVal: uploadedVal,
+      baseVal: baseVal,
       currentVal: s.cur_val,
       gain: gain,
       gainPct: gainPct
     });
     totalStockMonthlyGain += gain;
-    totalStockUploadedVal += uploadedVal;
+    totalStockBaseVal += baseVal;
   });
 
   // MFs: monthly gain = thisMonthGain
   latestMf.forEach(f => {
     const gain = f.thisMonthGain || 0;
-    const gainPct = f.lastUploadedPrice > 0 ? (gain / (f.lastUploadedPrice * f.qty)) * 100 : 0;
-    const uploadedVal = (f.lastUploadedPrice ?? 0) * f.qty;
+    const gainPct = f.basePrice > 0 ? (gain / (f.basePrice * f.qty)) * 100 : 0;
+    const baseVal = (f.basePrice ?? 0) * f.qty;
     combined.push({
       name: f.scheme,
       type: 'MF',
       qty: f.qty,
-      uploadedVal: uploadedVal,
+      baseVal: baseVal,
       currentVal: f.cur_val,
       gain: gain,
       gainPct: gainPct
     });
     totalMfMonthlyGain += gain;
-    totalMfUploadedVal += uploadedVal;
+    totalMfBaseVal += baseVal;
   });
 
   const totalMonthlyGain = totalStockMonthlyGain + totalMfMonthlyGain;
 
   // ── Compute monthly % change denominators ──
-  const monthlyStockPct = totalStockUploadedVal > 0 ? (totalStockMonthlyGain / totalStockUploadedVal) * 100 : 0;
-  const monthlyMfPct = totalMfUploadedVal > 0 ? (totalMfMonthlyGain / totalMfUploadedVal) * 100 : 0;
-  const totalUploadedVal = totalStockUploadedVal + totalMfUploadedVal;
-  const monthlyTotalPct = totalUploadedVal > 0 ? (totalMonthlyGain / totalUploadedVal) * 100 : 0;
+  const monthlyStockPct = totalStockBaseVal > 0 ? (totalStockMonthlyGain / totalStockBaseVal) * 100 : 0;
+  const monthlyMfPct = totalMfBaseVal > 0 ? (totalMfMonthlyGain / totalMfBaseVal) * 100 : 0;
+  const totalBaseVal = totalStockBaseVal + totalMfBaseVal;
+  const monthlyTotalPct = totalBaseVal > 0 ? (totalMonthlyGain / totalBaseVal) * 100 : 0;
 
   // ── Real Sensex monthly change (falls back to 0 if not yet fetched) ──
   const niftyMonthlyPct = _niftyMonthlyPctReal ?? 0;
@@ -2224,7 +2238,7 @@ function renderMonthlyOverviewTable() {
   if (col === 1) {
     filteredCombined.sort((a, b) => sortNullableNumber(a.qty, b.qty, asc));
   } else if (col === 2) {
-    filteredCombined.sort((a, b) => asc ? a.uploadedVal - b.uploadedVal : b.uploadedVal - a.uploadedVal);
+    filteredCombined.sort((a, b) => asc ? a.baseVal - b.baseVal : b.baseVal - a.baseVal);
   } else if (col === 3) {
     filteredCombined.sort((a, b) => asc ? a.currentVal - b.currentVal : b.currentVal - a.currentVal);
   } else if (col === 4) {
@@ -2241,7 +2255,7 @@ function renderMonthlyOverviewTable() {
     <tr class="${item.gain >= 0 ? 'row-gain' : 'row-loss'}">
       <td class="instrument-cell">${escapeHtml(item.name)}</td>
       <td style="text-align: right;">${item.qty.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
-      <td style="text-align: right;">${formatINR(item.uploadedVal)}</td>
+      <td style="text-align: right;">${formatINR(item.baseVal)}</td>
       <td style="text-align: right;">${formatINR(item.currentVal)}</td>
       <td style="text-align: right;" class="${item.gain >= 0 ? 'trend-up' : 'trend-down'}">
         ${item.gain >= 0 ? '+' : ''}${formatINR(item.gain)}
@@ -2282,7 +2296,7 @@ function populateMonthlyOverviewSummary() {
   const nw = breakupSummary.net_worth;
   const cumInvHist = portfolioSummary.cumulative_investment_history;
 
-  // ── Since Last Upload: Calculate changes from uploaded prices to current refreshed prices ──
+  // ── Since Base Date: Calculate changes from base prices to current refreshed prices ──
 
   // Total portfolio value (in lakhs) from breakup_summary
   const totalCurrent = nw['Total']?.values?.slice(-1)?.[0] || 0;
@@ -2294,17 +2308,17 @@ function populateMonthlyOverviewSummary() {
 
   // ── Stocks: Calculate gain since last upload using thisMonthGain ──
   const totalStockGain = latestEquity.reduce((sum, s) => sum + (s.thisMonthGain || 0), 0);
-  const totalStockUploadedVal = latestEquity.reduce((sum, s) => sum + ((s.lastUploadedPrice ?? 0) * s.qty), 0);
+  const totalStockBaseVal = latestEquity.reduce((sum, s) => sum + ((s.basePrice ?? 0) * s.qty), 0);
   const totalStockCurrentVal = latestEquity.reduce((sum, s) => sum + s.cur_val, 0);
   const stockGainLakhs = totalStockGain / 100000;
-  const stockGainPct = totalStockUploadedVal > 0 ? (totalStockGain / totalStockUploadedVal) * 100 : 0;
+  const stockGainPct = totalStockBaseVal > 0 ? (totalStockGain / totalStockBaseVal) * 100 : 0;
 
   // ── MFs: Calculate gain since last upload using thisMonthGain ──
   const totalMfGain = latestMf.reduce((sum, f) => sum + (f.thisMonthGain || 0), 0);
-  const totalMfUploadedVal = latestMf.reduce((sum, f) => sum + ((f.lastUploadedPrice ?? 0) * f.qty), 0);
+  const totalMfBaseVal = latestMf.reduce((sum, f) => sum + ((f.basePrice ?? 0) * f.qty), 0);
   const totalMfCurrentVal = latestMf.reduce((sum, f) => sum + f.cur_val, 0);
   const mfGainLakhs = totalMfGain / 100000;
-  const mfGainPct = totalMfUploadedVal > 0 ? (totalMfGain / totalMfUploadedVal) * 100 : 0;
+  const mfGainPct = totalMfBaseVal > 0 ? (totalMfGain / totalMfBaseVal) * 100 : 0;
 
   // ── Debt (PF + PPF + Bonds): Use breakup_summary values (in lakhs) ──
   const pfVal = nw['PF (Debt)']?.values?.slice(-1)?.[0] || 0;
@@ -2320,12 +2334,12 @@ function populateMonthlyOverviewSummary() {
 
   // Total equity gain (stocks + MFs) in lakhs
   const totalEquityGainLakhs = stockGainLakhs + mfGainLakhs;
-  const totalEquityUploadedLakhs = (totalStockUploadedVal + totalMfUploadedVal) / 100000;
-  const totalEquityGainPct = totalEquityUploadedLakhs > 0 ? (totalEquityGainLakhs / totalEquityUploadedLakhs) * 100 : 0;
+  const totalEquityBaseLakhs = (totalStockBaseVal + totalMfBaseVal) / 100000;
+  const totalEquityGainPct = totalEquityBaseLakhs > 0 ? (totalEquityGainLakhs / totalEquityBaseLakhs) * 100 : 0;
 
   // Format uploaded values in lakhs for display
-  const stockUploadedLakhs = totalStockUploadedVal / 100000;
-  const mfUploadedLakhs = totalMfUploadedVal / 100000;
+  const stockBaseLakhs = totalStockBaseVal / 100000;
+  const mfBaseLakhs = totalMfBaseVal / 100000;
   const stockCurrentLakhs = totalStockCurrentVal / 100000;
   const mfCurrentLakhs = totalMfCurrentVal / 100000;
 
@@ -2339,17 +2353,17 @@ function populateMonthlyOverviewSummary() {
       </div>
     </div>
     <div class="monthly-kpi-card" style="--kpi-accent: #3b82f6;">
-      <div class="monthly-kpi-label">Stocks (Since Last Upload)</div>
+      <div class="monthly-kpi-label">Stocks (Since Base Date)</div>
       <div class="monthly-kpi-value">${formatLakhs(stockCurrentLakhs)}</div>
-      <div class="monthly-kpi-sub">Uploaded: ${formatLakhs(stockUploadedLakhs)}</div>
+      <div class="monthly-kpi-sub">At Base: ${formatLakhs(stockBaseLakhs)}</div>
       <div class="monthly-kpi-sub ${stockGainLakhs >= 0 ? 'trend-up' : 'trend-down'}">
         Gain: ${stockGainLakhs >= 0 ? '+' : ''}${stockGainLakhs.toFixed(2)} L (${stockGainPct >= 0 ? '+' : ''}${stockGainPct.toFixed(2)}%)
       </div>
     </div>
     <div class="monthly-kpi-card" style="--kpi-accent: #8b5cf6;">
-      <div class="monthly-kpi-label">Mutual Funds (Since Last Upload)</div>
+      <div class="monthly-kpi-label">Mutual Funds (Since Base Date)</div>
       <div class="monthly-kpi-value">${formatLakhs(mfCurrentLakhs)}</div>
-      <div class="monthly-kpi-sub">Uploaded: ${formatLakhs(mfUploadedLakhs)}</div>
+      <div class="monthly-kpi-sub">At Base: ${formatLakhs(mfBaseLakhs)}</div>
       <div class="monthly-kpi-sub ${mfGainLakhs >= 0 ? 'trend-up' : 'trend-down'}">
         Gain: ${mfGainLakhs >= 0 ? '+' : ''}${mfGainLakhs.toFixed(2)} L (${mfGainPct >= 0 ? '+' : ''}${mfGainPct.toFixed(2)}%)
       </div>
@@ -3609,7 +3623,7 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
 function renderStocksTable(data) {
   const body = document.getElementById('stocks-table-body');
   body.innerHTML = data.map(s => {
-    const uploadedPrice = s.lastUploadedPrice !== undefined ? `₹${s.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—';
+    const basePriceDisplay = s.basePrice !== undefined ? `₹${s.basePrice.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—';
     const gain = s.thisMonthGain || 0;
     const noLive = typeof hasLivePriceSource === 'function' && !hasLivePriceSource(s.instrument);
     const xirr = holdingXIRR(s, 'stock');
@@ -3623,7 +3637,7 @@ function renderStocksTable(data) {
       <td><span class="sector-tag">${escapeHtml(s.sector)}</span></td>
       <td style="text-align: right;">${s.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${s.ltp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
-      <td style="text-align: right;">${uploadedPrice}</td>
+      <td style="text-align: right;">${basePriceDisplay}</td>
       <td style="text-align: right;">₹${s.avg_cost.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatINR(s.invested)}</td>
       <td style="text-align: right;">${formatINR(s.cur_val)}</td>
@@ -3674,7 +3688,7 @@ function reapplyStocksView() {
     const val = (s) => {
       switch (stockSortColumn) {
         case 0: return s.instrument; case 1: return s.sector; case 2: return s.qty;
-        case 3: return s.ltp; case 4: return s.lastUploadedPrice ?? 0; case 5: return s.avg_cost;
+        case 3: return s.ltp; case 4: return s.basePrice ?? 0; case 5: return s.avg_cost;
         case 6: return s.invested; case 7: return s.cur_val; case 8: return s.pnl;
         case 9: return s.gain_pct; case 10: return holdingXIRR(s, 'stock') ?? -Infinity;
         case 11: return s.thisMonthGain ?? 0; case 12: return s.priceAsOf ?? -Infinity;
@@ -3723,7 +3737,7 @@ function sortStocks(colIdx) {
       case 1: valA = a.sector; valB = b.sector; break;
       case 2: valA = a.qty; valB = b.qty; break;
       case 3: valA = a.ltp; valB = b.ltp; break;
-      case 4: valA = a.lastUploadedPrice ?? 0; valB = b.lastUploadedPrice ?? 0; break;
+      case 4: valA = a.basePrice ?? 0; valB = b.basePrice ?? 0; break;
       case 5: valA = a.avg_cost; valB = b.avg_cost; break;
       case 6: valA = a.invested; valB = b.invested; break;
       case 7: valA = a.cur_val; valB = b.cur_val; break;
@@ -3938,7 +3952,7 @@ function _collapseMfHistory() {
 function renderMfsTable(data) {
   const body = document.getElementById('mfs-table-body');
   body.innerHTML = data.map(f => {
-    const uploadedPrice = f.lastUploadedPrice !== undefined ? `₹${f.lastUploadedPrice.toLocaleString(undefined, {maximumFractionDigits:4})}` : '—';
+    const basePriceDisplay = f.basePrice !== undefined ? `₹${f.basePrice.toLocaleString(undefined, {maximumFractionDigits:4})}` : '—';
     const gain = f.thisMonthGain || 0;
     const lastRefreshed = f.lastRefreshDate || '—';
     const xirr = holdingXIRR(f, 'mf');
@@ -3949,7 +3963,7 @@ function renderMfsTable(data) {
       <td><span class="category-tag">${escapeHtml(f.scheme_type.replace('Equity : ', ''))}</span></td>
       <td style="text-align: right;">${f.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${f.price.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
-      <td style="text-align: right;">${uploadedPrice}</td>
+      <td style="text-align: right;">${basePriceDisplay}</td>
       <td style="text-align: right;">₹${f.avg_nav.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
       <td style="text-align: right;">${formatINR(f.invested)}</td>
       <td style="text-align: right;">${formatINR(f.cur_val)}</td>
@@ -5621,7 +5635,7 @@ function reapplyMfsView() {
     const val = (f) => {
       switch (mfSortColumn) {
         case 0: return f.scheme; case 1: return f.scheme_type; case 2: return f.qty;
-        case 3: return f.price; case 4: return f.lastUploadedPrice ?? 0; case 5: return f.avg_nav;
+        case 3: return f.price; case 4: return f.basePrice ?? 0; case 5: return f.avg_nav;
         case 6: return f.invested; case 7: return f.cur_val; case 8: return f.pnl;
         case 9: return f.gain_pct; case 10: return holdingXIRR(f, 'mf') ?? -Infinity;
         case 11: return f.thisMonthGain ?? 0; case 12: return _mfNavDateMs(f.navDate);
@@ -5670,7 +5684,7 @@ function sortMfs(colIdx) {
       case 1: valA = a.scheme_type; valB = b.scheme_type; break;
       case 2: valA = a.qty; valB = b.qty; break;
       case 3: valA = a.price; valB = b.price; break;
-      case 4: valA = a.lastUploadedPrice ?? 0; valB = b.lastUploadedPrice ?? 0; break;
+      case 4: valA = a.basePrice ?? 0; valB = b.basePrice ?? 0; break;
       case 5: valA = a.avg_nav; valB = b.avg_nav; break;
       case 6: valA = a.invested; valB = b.invested; break;
       case 7: valA = a.cur_val; valB = b.cur_val; break;

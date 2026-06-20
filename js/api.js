@@ -380,7 +380,7 @@ async function refreshPrices(stocksOnly = false) {
 
       // SGBs — priced at current gold price per gram (GOLDBEES × 100 proxy)
       if (ticker.startsWith('SGB')) {
-        if (stock.lastUploadedPrice === undefined) stock.lastUploadedPrice = stock.ltp;
+        if (stock.basePrice === undefined) stock.basePrice = stock.ltp;
         const goldPrice = goldPricePerGram ?? loadPriceSnapshot(ticker)?.price ?? null;
         if (goldPrice && goldPrice > 0) {
           stock.ltp = goldPrice;
@@ -388,7 +388,7 @@ async function refreshPrices(stocksOnly = false) {
           stock.pnl = stock.cur_val - stock.invested;
           stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
           stock.lastRefreshDate = refreshDateStr;
-          stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
+          stock.thisMonthGain = (stock.ltp - stock.basePrice) * stock.qty;
           stockSuccess++;
           stockDetails.push({ instrument: ticker, status: 'success', price: goldPrice, prevClose: null, error: null });
           savePriceSnapshot(ticker, { price: goldPrice, prevClose: null, refreshDate: refreshDateStr });
@@ -401,8 +401,8 @@ async function refreshPrices(stocksOnly = false) {
       }
 
       // Snapshot the uploaded price on first refresh
-      if (stock.lastUploadedPrice === undefined) {
-        stock.lastUploadedPrice = stock.ltp;
+      if (stock.basePrice === undefined) {
+        stock.basePrice = stock.ltp;
       }
 
       const source = getPriceSource(ticker);
@@ -426,7 +426,7 @@ async function refreshPrices(stocksOnly = false) {
           stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
           stock.lastRefreshDate = refreshDateStr;
           stock.priceAsOf = asOf; // market timestamp the price belongs to (not refresh time)
-          stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
+          stock.thisMonthGain = (stock.ltp - stock.basePrice) * stock.qty;
           if (prevClose && prevClose > 0) stock.yesterdayClose = prevClose;
           stockSuccess++;
           stockDetails.push({ instrument: ticker, status: 'success', price, prevClose, asOf, error: null });
@@ -442,7 +442,7 @@ async function refreshPrices(stocksOnly = false) {
               stock.pnl = stock.cur_val - stock.invested;
               stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
               stock.lastRefreshDate = refreshDateStr;
-              stock.thisMonthGain = (stock.ltp - stock.lastUploadedPrice) * stock.qty;
+              stock.thisMonthGain = (stock.ltp - stock.basePrice) * stock.qty;
               if (fpc && fpc > 0) stock.yesterdayClose = fpc;
               stockSuccess++;
               stockDetails.push({ instrument: ticker, status: 'success', price: fp, prevClose: fpc, error: null });
@@ -534,7 +534,7 @@ async function refreshPrices(stocksOnly = false) {
 
       if (!schemeCode) { mfFail++; mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Scheme code not found' }); updateProgress(fund.scheme); return; }
 
-      if (fund.lastUploadedPrice === undefined) fund.lastUploadedPrice = fund.price;
+      if (fund.basePrice === undefined) fund.basePrice = fund.price;
 
       try {
         const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
@@ -565,7 +565,7 @@ async function refreshPrices(stocksOnly = false) {
           fund.lastRefreshDate = refreshDateStr;
           fund.navDate = data.navDate || null; // the date this NAV is for (not refresh time)
           fund.previousNav = data.prevNav || null;
-          fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
+          fund.thisMonthGain = (fund.price - fund.basePrice) * fund.qty;
           mfSuccess++;
           mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, navDate: data.navDate || null, error: null });
           // Persist snapshot for fallback on future failures
@@ -580,7 +580,7 @@ async function refreshPrices(stocksOnly = false) {
             fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
             fund.lastRefreshDate = snap.refreshDate + ' (stale)';
             fund.previousNav = snap.prevNav || null;
-            fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
+            fund.thisMonthGain = (fund.price - fund.basePrice) * fund.qty;
             mfSuccess++;
             mfDetails.push({ scheme: fund.scheme, status: 'stale', nav: snap.nav, prevNav: snap.prevNav, error: null });
           } else {
@@ -598,7 +598,7 @@ async function refreshPrices(stocksOnly = false) {
           fund.gain_pct = fund.invested > 0 ? (fund.pnl / fund.invested) * 100 : 0;
           fund.lastRefreshDate = snap.refreshDate + ' (stale)';
           fund.previousNav = snap.prevNav || null;
-          fund.thisMonthGain = (fund.price - fund.lastUploadedPrice) * fund.qty;
+          fund.thisMonthGain = (fund.price - fund.basePrice) * fund.qty;
           mfSuccess++;
           mfDetails.push({ scheme: fund.scheme, status: 'stale', nav: snap.nav, prevNav: snap.prevNav, error: null });
         } else {
