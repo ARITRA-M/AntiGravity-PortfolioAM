@@ -661,6 +661,10 @@ async function refreshPrices(stocksOnly = false) {
     // and saving that would corrupt the uploadedSnapshot baseline on next reload.
     saveRefreshedPrices(latestEquity, latestMf);
 
+    // Timestamp the last successful refresh so the visibility handler can decide
+    // whether a refocused/stale window needs to catch up.
+    window.__lastRefreshMs = Date.now();
+
     // 7. Re-render all tabs (initUpdateLogTab will now find lastRefreshReport)
     refreshAllTabs();
 
