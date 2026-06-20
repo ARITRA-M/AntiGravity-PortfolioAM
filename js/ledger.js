@@ -72,6 +72,21 @@ function loadLedger() {
 // One-time migration: capture the current Excel-era holdings as the immutable
 // opening snapshot. Called once when the ledger is first initialised (no
 // frozenBase yet) and live holdings exist. baseDate = latest breakup date.
+// Look up the closing price for an instrument at baseDate from historicalHoldings.
+// Returns null if not found (caller should fall back to current ltp).
+function _histBasePriceEq(instrument, baseDate) {
+  const h = (typeof historicalHoldings !== 'undefined') && historicalHoldings?.stocks?.[instrument];
+  if (!h?.history?.length) return null;
+  const entry = [...h.history].reverse().find(p => p.date <= baseDate);
+  return entry?.ltp ?? null;
+}
+function _histBasePriceMf(scheme, baseDate) {
+  const h = (typeof historicalHoldings !== 'undefined') && historicalHoldings?.mfs?.[scheme];
+  if (!h?.history?.length) return null;
+  const entry = [...h.history].reverse().find(p => p.date <= baseDate);
+  return entry?.ltp ?? null; // historicalHoldings.mfs stores price as .ltp
+}
+
 function initFrozenBaseFromCurrent() {
   if (frozenBase) return frozenBase; // already migrated
   if (!latestEquity || !latestMf || !breakupSummary) return null;
@@ -81,9 +96,6 @@ function initFrozenBaseFromCurrent() {
   const _last = (key) => { const v = nw[key]?.values || []; return v.length ? v[v.length-1] : 0; };
   frozenBase = {
     baseDate,
-    // Authoritative baseline from the historical breakup sheet at freeze time.
-    // Stored here so net-worth math never needs to re-read breakupSummary
-    // (which changes as months are closed going forward).
     stockLakhs: _last('Stocks (Equity)'),
     mfLakhs:    _last('Mutual Funds (Equity)'),
     npsELakhs:  _last('NPS E (Equity)'),
@@ -91,17 +103,46 @@ function initFrozenBaseFromCurrent() {
     equity: latestEquity.map(s => ({
       instrument: s.instrument, sector: s.sector, qty: s.qty,
       avg_cost: s.avg_cost, invested: s.invested,
-      // basePrice = market price at the freeze date, used as the per-period gain baseline.
-      basePrice: s.basePrice ?? s.lastUploadedPrice ?? s.ltp,
+      // Use historical month-end price at baseDate so the per-holding sum
+      // matches the breakup-sheet total. Falls back to current ltp.
+      basePrice: _histBasePriceEq(s.instrument, baseDate) ?? s.ltp,
     })),
     mf: latestMf.map(f => ({
       scheme: f.scheme, scheme_type: f.scheme_type, qty: f.qty,
       avg_nav: f.avg_nav, invested: f.invested,
-      basePrice: f.basePrice ?? f.lastUploadedPrice ?? f.price,
+      basePrice: _histBasePriceMf(f.scheme, baseDate) ?? f.price,
     })),
+    basePricesFromHistory: true,
   };
   saveLedger();
   return frozenBase;
+}
+
+// Repair a frozenBase that was created with live (non-base-date) prices.
+// Replaces each holding's basePrice with the historical month-end price at
+// baseDate, eliminating the artificial reconciliation gap.
+function repairFrozenBasePrices() {
+  if (!frozenBase || frozenBase.basePricesFromHistory) return; // nothing to do
+  if (!historicalHoldings) return;
+  const bd = frozenBase.baseDate;
+  let changed = false;
+  (frozenBase.equity || []).forEach(s => {
+    const hp = _histBasePriceEq(s.instrument, bd);
+    if (hp != null && Math.abs(hp - (s.basePrice ?? s.ltp ?? 0)) > 0.001) {
+      s.basePrice = hp; changed = true;
+    }
+  });
+  (frozenBase.mf || []).forEach(f => {
+    const hp = _histBasePriceMf(f.scheme, bd);
+    if (hp != null && Math.abs(hp - (f.basePrice ?? f.price ?? 0)) > 0.001) {
+      f.basePrice = hp; changed = true;
+    }
+  });
+  if (changed) {
+    frozenBase.basePricesFromHistory = true;
+    saveLedger();
+    console.log('[ledger] Repaired frozenBase basePrices from historical month-end data.');
+  }
 }
 
 // Wire the ledger into the load flow. Safe to call after latestEquity/latestMf/
@@ -122,6 +163,14 @@ function integrateLedger() {
     if (typeof buildPortfolioSummary === 'function') portfolioSummary = buildPortfolioSummary(breakupSummary);
   }
   if (!frozenBase) initFrozenBaseFromCurrent();
+  // One-time repair: replace live prices in frozenBase with historical month-end
+  // prices at baseDate so Σ(basePrice × qty) matches the breakup-sheet total.
+  // Reset uploadedSnapshot so initializeLiveBaseline re-reads from the corrected frozenBase.
+  const _wasRepaired = !frozenBase?.basePricesFromHistory;
+  repairFrozenBasePrices();
+  if (_wasRepaired && frozenBase?.basePricesFromHistory) {
+    if (typeof uploadedSnapshot !== 'undefined') uploadedSnapshot = null;
+  }
   if (frozenBase && transactions && transactions.length) {
     applyLedgerToHoldings();
     if (typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
