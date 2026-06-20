@@ -13,6 +13,7 @@ let latestEquity = null;
 let latestMf = null;
 let historicalHoldings = null;
 let uploadedSnapshot = null;
+let transactionHistory = null;
 // Use window.lastRefreshReport for cross-file consistency.
 // api.js sets window.lastRefreshReport after a live price refresh.
 // This let declaration ensures it's available in app.js's scope as well.
@@ -985,6 +986,16 @@ async function loadData() {
     initializeLiveBaseline();
     if (typeof integrateLedger === 'function') integrateLedger();
 
+    // Load transaction history non-critically (dividends + pre-base flows for XIRR)
+    fetch('data/transaction_history.json?' + _cb, { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        transactionHistory = data;
+        try { updateEquityXirrFromHistory(); } catch(e) { console.warn('updateEquityXirrFromHistory:', e); }
+      })
+      .catch(() => {});
+
     // Generate benchmark data (simulated immediately; real data fetched async below)
     generateBenchmarkData();
     fetchBenchmarkData(); // async; re-renders Growth tab benchmarks when resolved
@@ -1184,17 +1195,23 @@ function initializeLiveBaseline() {
 
   latestEquity.forEach(s => {
     // basePrice = market price at the frozen base date (not purchase cost).
-    // For existing holdings use the frozen-base record; for new holdings ledger.js sets it to 0.
-    if (s.basePrice === undefined) {
-      s.basePrice = frozenEqPriceMap.has(s.instrument) ? frozenEqPriceMap.get(s.instrument) : s.ltp;
+    // Always override from frozenBase for known instruments — this corrects the case
+    // where the first initializeLiveBaseline() call set basePrice=ltp because frozenBase
+    // was null (it gets loaded by integrateLedger → loadLedger(), which runs after us).
+    if (frozenEqPriceMap.has(s.instrument)) {
+      s.basePrice = frozenEqPriceMap.get(s.instrument);
+    } else if (s.basePrice === undefined) {
+      s.basePrice = s.ltp; // brand-new holding not yet in frozenBase
     }
     s.lastRefreshedPrice = s.ltp;
     if (s.thisMonthGain === undefined) s.thisMonthGain = 0;
     if (s.yesterdayClose === undefined) s.yesterdayClose = null;
   });
   latestMf.forEach(f => {
-    if (f.basePrice === undefined) {
-      f.basePrice = frozenMfPriceMap.has(f.scheme) ? frozenMfPriceMap.get(f.scheme) : f.price;
+    if (frozenMfPriceMap.has(f.scheme)) {
+      f.basePrice = frozenMfPriceMap.get(f.scheme);
+    } else if (f.basePrice === undefined) {
+      f.basePrice = f.price;
     }
     f.lastRefreshedPrice = f.price;
     if (f.thisMonthGain === undefined) f.thisMonthGain = 0;
@@ -2265,6 +2282,49 @@ function renderMonthlyOverviewTable() {
       </td>
     </tr>
   `).join('');
+}
+
+// ==================== TOTAL RETURN XIRR (using transaction_history.json) ====================
+
+function computeTotalReturnXirr() {
+  if (!transactionHistory?.xirr_flows?.length) return null;
+
+  // Pre-base flows: BUY = negative, SELL/DIVIDEND = positive (already signed)
+  const flows = transactionHistory.xirr_flows.map(f => ({ date: f.date, amount: f.amount }));
+
+  // Post-base ledger transactions
+  if (typeof transactions !== 'undefined' && transactions?.length) {
+    for (const t of transactions) {
+      if (!t.date || !t.amount) continue;
+      flows.push({ date: t.date, amount: t.type === 'buy' ? -(t.amount) : t.amount });
+    }
+  }
+
+  // Terminal value: current stocks + MF market value (in ₹)
+  const terminalValue = (latestEquity?.reduce((s, e) => s + (e.cur_val || 0), 0) || 0) +
+                        (latestMf?.reduce((s, f) => s + (f.cur_val || 0), 0) || 0);
+  if (terminalValue <= 0) return null;
+
+  flows.push({ date: new Date().toISOString().slice(0, 10), amount: terminalValue });
+  flows.sort((a, b) => a.date.localeCompare(b.date));
+
+  return typeof computeXirr === 'function' ? computeXirr(flows) : null;
+}
+
+function updateEquityXirrFromHistory() {
+  const xirr = computeTotalReturnXirr();
+  if (xirr == null || !isFinite(xirr)) return;
+
+  const el = document.getElementById('kpi-equity-xirr');
+  if (el) el.innerText = (xirr * 100).toFixed(1) + '% (incl. dividends)';
+
+  const divTotal = transactionHistory?.summary?.total_dividend_income || 0;
+  const divEl = document.getElementById('kpi-dividend-income');
+  if (divEl && divTotal > 0) {
+    divEl.innerText = '₹' + (divTotal / 100000).toFixed(2) + ' L';
+    const wrapper = divEl.closest('.kpi-slim-sub');
+    if (wrapper) wrapper.style.display = '';
+  }
 }
 
 // ==================== OVERVIEW TAB ====================

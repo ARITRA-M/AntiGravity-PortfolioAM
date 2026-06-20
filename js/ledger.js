@@ -173,8 +173,11 @@ function integrateLedger() {
   }
   if (frozenBase && transactions && transactions.length) {
     applyLedgerToHoldings();
-    if (typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
   }
+  // Always re-run baseline after frozenBase is set up. The first call in loadData()
+  // runs before loadLedger() populates frozenBase (it's null then), so basePrice
+  // falls back to current ltp → thisMonthGain = 0. This corrects that.
+  if (frozenBase && typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
 }
 
 // Persist / load the post-closeMonth breakup so appended periods survive reload
