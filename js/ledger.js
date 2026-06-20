@@ -77,16 +77,27 @@ function initFrozenBaseFromCurrent() {
   if (!latestEquity || !latestMf || !breakupSummary) return null;
   const dates = breakupSummary.dates || [];
   const baseDate = dates.length ? dates[dates.length - 1] : new Date().toISOString().slice(0, 10);
-  // Deep-clone opening positions, keeping only cost-basis fields (ltp is live).
+  const nw = breakupSummary.net_worth || {};
+  const _last = (key) => { const v = nw[key]?.values || []; return v.length ? v[v.length-1] : 0; };
   frozenBase = {
     baseDate,
+    // Authoritative baseline from the historical breakup sheet at freeze time.
+    // Stored here so net-worth math never needs to re-read breakupSummary
+    // (which changes as months are closed going forward).
+    stockLakhs: _last('Stocks (Equity)'),
+    mfLakhs:    _last('Mutual Funds (Equity)'),
+    npsELakhs:  _last('NPS E (Equity)'),
+    totalLakhs: _last('Total'),
     equity: latestEquity.map(s => ({
       instrument: s.instrument, sector: s.sector, qty: s.qty,
-      avg_cost: s.avg_cost, invested: s.invested, ltp: s.ltp,
+      avg_cost: s.avg_cost, invested: s.invested,
+      // basePrice = market price at the freeze date, used as the per-period gain baseline.
+      basePrice: s.basePrice ?? s.lastUploadedPrice ?? s.ltp,
     })),
     mf: latestMf.map(f => ({
       scheme: f.scheme, scheme_type: f.scheme_type, qty: f.qty,
-      avg_nav: f.avg_nav, invested: f.invested, price: f.price,
+      avg_nav: f.avg_nav, invested: f.invested,
+      basePrice: f.basePrice ?? f.lastUploadedPrice ?? f.price,
     })),
   };
   saveLedger();
@@ -259,7 +270,7 @@ function applyMfTxn(mf, t, qty, price, amount) {
 }
 
 // Rebuild the global latestEquity / latestMf from the ledger and refresh the
-// rest of derived state. Preserves live price fields (ltp, lastUploadedPrice,
+// rest of derived state. Preserves live price fields (ltp, basePrice,
 // thisMonthGain, yesterdayClose) for holdings that already exist in memory.
 function applyLedgerToHoldings() {
   if (!frozenBase) return false;
@@ -267,35 +278,43 @@ function applyLedgerToHoldings() {
   const prevMf = new Map((latestMf || []).map(f => [f.scheme, f]));
   const derived = deriveHoldings();
 
+  // Build lookup for frozen-base prices (basePrice field; fallback for old saved data using ltp/price).
+  const frozenEqPrice = new Map((frozenBase.equity || []).map(s => [s.instrument, s.basePrice ?? s.ltp ?? 0]));
+  const frozenMfPrice = new Map((frozenBase.mf || []).map(f => [f.scheme, f.basePrice ?? f.price ?? 0]));
+
   latestEquity = derived.equity.map(h => {
     const prev = prevEq.get(h.instrument);
     if (prev) {
       // keep live price + baseline fields; recompute value from refreshed ltp
-      h.ltp = prev.ltp; h.lastUploadedPrice = prev.lastUploadedPrice;
+      h.ltp = prev.ltp; h.basePrice = prev.basePrice;
       h.lastRefreshedPrice = prev.lastRefreshedPrice;
       h.thisMonthGain = prev.thisMonthGain; h.yesterdayClose = prev.yesterdayClose;
       h.lastRefreshDate = prev.lastRefreshDate;
       h.cur_val = h.qty * h.ltp; h.pnl = h.cur_val - h.invested;
       h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
     } else {
-      // New holding (not in frozen base): baseline price = 0 so its full market
-      // value is counted as gain relative to the frozen base in net-worth math.
-      h.lastUploadedPrice = 0;
+      // New holding (not in frozen base): basePrice = 0 so its full market value
+      // counts as gain relative to the frozen base in net-worth math.
+      h.basePrice = 0;
     }
+    // Ensure basePrice is set from frozenBase for holdings that existed at base date
+    // (guards against the first run where prev is missing due to cold start order).
+    if (h.basePrice === undefined) h.basePrice = frozenEqPrice.get(h.instrument) ?? 0;
     return h;
   });
   latestMf = derived.mf.map(h => {
     const prev = prevMf.get(h.scheme);
     if (prev) {
-      h.price = prev.price; h.lastUploadedPrice = prev.lastUploadedPrice;
+      h.price = prev.price; h.basePrice = prev.basePrice;
       h.lastRefreshedPrice = prev.lastRefreshedPrice;
       h.thisMonthGain = prev.thisMonthGain; h.previousNav = prev.previousNav;
       h.lastRefreshDate = prev.lastRefreshDate;
       h.cur_val = h.qty * h.price; h.pnl = h.cur_val - h.invested;
       h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
     } else {
-      h.lastUploadedPrice = 0;
+      h.basePrice = 0;
     }
+    if (h.basePrice === undefined) h.basePrice = frozenMfPrice.get(h.scheme) ?? 0;
     return h;
   });
   // Keep the per-holding history in sync so the inline transaction history,
@@ -688,8 +707,8 @@ function closeMonth(dateStr) {
 
   // Re-derive portfolio summary + re-baseline live prices for the next period.
   portfolioSummary = buildPortfolioSummary(breakupSummary);
-  latestEquity.forEach(h => { h.lastUploadedPrice = h.ltp; h.thisMonthGain = 0; });
-  latestMf.forEach(h => { h.lastUploadedPrice = h.price; h.thisMonthGain = 0; });
+  latestEquity.forEach(h => { h.basePrice = h.ltp; h.thisMonthGain = 0; });
+  latestMf.forEach(h => { h.basePrice = h.price; h.thisMonthGain = 0; });
   uploadedSnapshot = {
     totalLakhs: totalValue, stockLakhs: stockValue, mfLakhs: mfValue,
     npsELakhs: ctx.opaque['NPS-E'].value,
@@ -697,13 +716,17 @@ function closeMonth(dateStr) {
   // Advance the frozen base to this close so future derivations start here.
   frozenBase = {
     baseDate: D,
+    stockLakhs: stockValue,
+    mfLakhs: mfValue,
+    npsELakhs: ctx.opaque['NPS-E'].value,
+    totalLakhs: totalValue,
     equity: latestEquity.map(s => ({
       instrument: s.instrument, sector: s.sector, qty: s.qty,
-      avg_cost: s.avg_cost, invested: s.invested, ltp: s.ltp,
+      avg_cost: s.avg_cost, invested: s.invested, basePrice: s.ltp,
     })),
     mf: latestMf.map(f => ({
       scheme: f.scheme, scheme_type: f.scheme_type, qty: f.qty,
-      avg_nav: f.avg_nav, invested: f.invested, price: f.price,
+      avg_nav: f.avg_nav, invested: f.invested, basePrice: f.price,
     })),
   };
   saveLedger();
