@@ -1049,15 +1049,16 @@ function recomputePortfolioFromLiveData() {
   latestEquity.forEach(s => { s.thisMonthGain = (s.ltp - s.lastUploadedPrice) * s.qty; });
   latestMf.forEach(f => { f.thisMonthGain = (f.price - f.lastUploadedPrice) * f.qty; });
 
-  // Use exact per-instrument delta on top of the Excel summary baseline to avoid
-  // rounding discrepancies between the summary tab total and the per-row sum.
-  const exactStockGain = latestEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
-  const exactMfGain = latestMf.reduce((sum, f) => sum + f.thisMonthGain, 0);
-  const exactDeltaLakhs = (exactStockGain + exactMfGain) / 100000;
-
-  const liveStockLakhs = uploadedSnapshot.stockLakhs + (exactStockGain / 100000);
-  const liveMfLakhs = uploadedSnapshot.mfLakhs + (exactMfGain / 100000);
-  const liveTotalLakhs = uploadedSnapshot.totalLakhs + exactDeltaLakhs;
+  // Value stocks/MFs at their live MARKET value (qty × price). This inherently
+  // reflects buys/sells entered via the Manage tab — cash deployed into a buy
+  // raises net worth immediately (no cash balance is tracked, so a buy is new
+  // money entering the portfolio). The non-tradeable components (NPS, PF, PPF,
+  // gold, bonds, cash, crypto) stay at the frozen baseline until a Close Period.
+  // Backward-compatible: with no transactions, Σ cur_val == baseline + price gain.
+  const liveStockLakhs = latestEquity.reduce((sum, s) => sum + (s.cur_val ?? s.ltp * s.qty), 0) / 100000;
+  const liveMfLakhs = latestMf.reduce((sum, f) => sum + (f.cur_val ?? f.price * f.qty), 0) / 100000;
+  const baselineNonTradeable = uploadedSnapshot.totalLakhs - uploadedSnapshot.stockLakhs - uploadedSnapshot.mfLakhs;
+  const liveTotalLakhs = baselineNonTradeable + liveStockLakhs + liveMfLakhs;
 
   portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
@@ -5836,6 +5837,8 @@ function removeBal(id) {
 function refreshAfterLedgerChange() {
   if (typeof applyLedgerToHoldings === 'function') applyLedgerToHoldings();
   if (typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
+  // Recompute net worth from live holdings so buys/sells reflect immediately.
+  try { recomputePortfolioFromLiveData(); } catch (e) { console.error(e); }
   try { updateKpis(); } catch (e) { console.error(e); }
   try { renderDailyOverviewTable(); renderMonthlyOverviewTable(); } catch (e) {}
   try { initStocksTab(); } catch (e) {}
