@@ -1045,30 +1045,32 @@ let dynamicMfSchemeCodes = {};
 function recomputePortfolioFromLiveData() {
   if (!uploadedSnapshot) initializeLiveBaseline();
 
-  // Recompute thisMonthGain for all stocks/MFs: (current price - uploaded price) * qty
-  latestEquity.forEach(s => { s.thisMonthGain = (s.ltp - s.lastUploadedPrice) * s.qty; });
-  latestMf.forEach(f => { f.thisMonthGain = (f.price - f.lastUploadedPrice) * f.qty; });
+  // Recompute thisMonthGain for all stocks/MFs: (current price - uploaded price) * qty.
+  // For new holdings (added via ledger), lastUploadedPrice=0 so gain = full market value.
+  latestEquity.forEach(s => { s.thisMonthGain = (s.ltp - (s.lastUploadedPrice ?? 0)) * s.qty; });
+  latestMf.forEach(f => { f.thisMonthGain = (f.price - (f.lastUploadedPrice ?? 0)) * f.qty; });
 
-  // Live value = frozen baseline + price gains + net cash deployed via the ledger.
-  // Anchoring on the breakup baseline (NOT the per-row holdings sum) keeps the
-  // total reconciled with the rest of the app — switching to a raw Σ cur_val
-  // shifts net worth by the historical summary-vs-rows rounding gap. Net new
-  // investment (buys − sells since the frozen base) is added on top, so cash
-  // deployed into a buy raises net worth immediately and deleting the txn reverts
-  // it. With no transactions this equals the old baseline + price-gain formula.
-  const exactStockGain = latestEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
-  const exactMfGain = latestMf.reduce((sum, f) => sum + f.thisMonthGain, 0);
-  let stockNewInv = 0, mfNewInv = 0;
-  if (typeof frozenBase !== 'undefined' && frozenBase && typeof transactions !== 'undefined') {
-    transactions.forEach(t => {
-      if (frozenBase.baseDate && t.date <= frozenBase.baseDate) return; // already in the base
-      const amt = (t.type === 'sell' ? -1 : 1) * (t.amount != null ? Number(t.amount) : Number(t.qty) * Number(t.price));
-      if (t.assetClass === 'mf') mfNewInv += amt; else stockNewInv += amt;
-    });
+  // Net worth = Σ(qty × ltp) across ALL current holdings + a fixed reconciliation gap.
+  // Gap = breakup-summary baseline − Σ(frozenQty × frozenPrice): a historical constant
+  // that keeps the running total anchored to the uploaded breakup sheet while letting
+  // individual row sums add up correctly to the displayed total. With no transactions
+  // this is identical to the old baseline + price-gain formula.
+  let liveStockLakhs, liveMfLakhs;
+  if (typeof frozenBase !== 'undefined' && frozenBase) {
+    const frozenStockVal = (frozenBase.equity || []).reduce((s, h) => s + h.qty * h.ltp, 0);
+    const frozenMfVal   = (frozenBase.mf || []).reduce((s, h) => s + h.qty * h.price, 0);
+    const stockReconcGap = uploadedSnapshot.stockLakhs - frozenStockVal / 100000;
+    const mfReconcGap    = uploadedSnapshot.mfLakhs   - frozenMfVal   / 100000;
+    liveStockLakhs = latestEquity.reduce((s, h) => s + h.qty * h.ltp,   0) / 100000 + stockReconcGap;
+    liveMfLakhs    = latestMf.reduce(   (s, h) => s + h.qty * h.price,  0) / 100000 + mfReconcGap;
+  } else {
+    const exactStockGain = latestEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
+    const exactMfGain    = latestMf.reduce(   (sum, f) => sum + f.thisMonthGain, 0);
+    liveStockLakhs = uploadedSnapshot.stockLakhs + exactStockGain / 100000;
+    liveMfLakhs    = uploadedSnapshot.mfLakhs    + exactMfGain    / 100000;
   }
-  const liveStockLakhs = uploadedSnapshot.stockLakhs + (exactStockGain + stockNewInv) / 100000;
-  const liveMfLakhs = uploadedSnapshot.mfLakhs + (exactMfGain + mfNewInv) / 100000;
-  const liveTotalLakhs = uploadedSnapshot.totalLakhs + (exactStockGain + exactMfGain + stockNewInv + mfNewInv) / 100000;
+  const liveTotalLakhs = uploadedSnapshot.totalLakhs +
+    (liveStockLakhs - uploadedSnapshot.stockLakhs) + (liveMfLakhs - uploadedSnapshot.mfLakhs);
 
   portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;

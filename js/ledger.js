@@ -277,6 +277,10 @@ function applyLedgerToHoldings() {
       h.lastRefreshDate = prev.lastRefreshDate;
       h.cur_val = h.qty * h.ltp; h.pnl = h.cur_val - h.invested;
       h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+    } else {
+      // New holding (not in frozen base): baseline price = 0 so its full market
+      // value is counted as gain relative to the frozen base in net-worth math.
+      h.lastUploadedPrice = 0;
     }
     return h;
   });
@@ -289,6 +293,8 @@ function applyLedgerToHoldings() {
       h.lastRefreshDate = prev.lastRefreshDate;
       h.cur_val = h.qty * h.price; h.pnl = h.cur_val - h.invested;
       h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+    } else {
+      h.lastUploadedPrice = 0;
     }
     return h;
   });
