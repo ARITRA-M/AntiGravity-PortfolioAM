@@ -1049,16 +1049,26 @@ function recomputePortfolioFromLiveData() {
   latestEquity.forEach(s => { s.thisMonthGain = (s.ltp - s.lastUploadedPrice) * s.qty; });
   latestMf.forEach(f => { f.thisMonthGain = (f.price - f.lastUploadedPrice) * f.qty; });
 
-  // Value stocks/MFs at their live MARKET value (qty × price). This inherently
-  // reflects buys/sells entered via the Manage tab — cash deployed into a buy
-  // raises net worth immediately (no cash balance is tracked, so a buy is new
-  // money entering the portfolio). The non-tradeable components (NPS, PF, PPF,
-  // gold, bonds, cash, crypto) stay at the frozen baseline until a Close Period.
-  // Backward-compatible: with no transactions, Σ cur_val == baseline + price gain.
-  const liveStockLakhs = latestEquity.reduce((sum, s) => sum + (s.cur_val ?? s.ltp * s.qty), 0) / 100000;
-  const liveMfLakhs = latestMf.reduce((sum, f) => sum + (f.cur_val ?? f.price * f.qty), 0) / 100000;
-  const baselineNonTradeable = uploadedSnapshot.totalLakhs - uploadedSnapshot.stockLakhs - uploadedSnapshot.mfLakhs;
-  const liveTotalLakhs = baselineNonTradeable + liveStockLakhs + liveMfLakhs;
+  // Live value = frozen baseline + price gains + net cash deployed via the ledger.
+  // Anchoring on the breakup baseline (NOT the per-row holdings sum) keeps the
+  // total reconciled with the rest of the app — switching to a raw Σ cur_val
+  // shifts net worth by the historical summary-vs-rows rounding gap. Net new
+  // investment (buys − sells since the frozen base) is added on top, so cash
+  // deployed into a buy raises net worth immediately and deleting the txn reverts
+  // it. With no transactions this equals the old baseline + price-gain formula.
+  const exactStockGain = latestEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
+  const exactMfGain = latestMf.reduce((sum, f) => sum + f.thisMonthGain, 0);
+  let stockNewInv = 0, mfNewInv = 0;
+  if (typeof frozenBase !== 'undefined' && frozenBase && typeof transactions !== 'undefined') {
+    transactions.forEach(t => {
+      if (frozenBase.baseDate && t.date <= frozenBase.baseDate) return; // already in the base
+      const amt = (t.type === 'sell' ? -1 : 1) * (t.amount != null ? Number(t.amount) : Number(t.qty) * Number(t.price));
+      if (t.assetClass === 'mf') mfNewInv += amt; else stockNewInv += amt;
+    });
+  }
+  const liveStockLakhs = uploadedSnapshot.stockLakhs + (exactStockGain + stockNewInv) / 100000;
+  const liveMfLakhs = uploadedSnapshot.mfLakhs + (exactMfGain + mfNewInv) / 100000;
+  const liveTotalLakhs = uploadedSnapshot.totalLakhs + (exactStockGain + exactMfGain + stockNewInv + mfNewInv) / 100000;
 
   portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
