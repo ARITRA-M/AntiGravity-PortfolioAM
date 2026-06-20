@@ -907,13 +907,18 @@
     // When a new SW activates (detected by old cache deletion in sw.js), it
     // broadcasts RELOAD_APP to all open tabs — no banner, no user action needed.
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js')
+      // updateViaCache:'none' → the browser always fetches sw.js from the network
+      // when checking for updates, never from the HTTP cache. Without this, a
+      // CDN/browser-cached sw.js can keep a device pinned to an old version for
+      // hours (the recurring "mobile is stale" problem).
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
         .then(function(registration) {
           console.log('ServiceWorker registered. Scope:', registration.scope);
 
-          // Poll for updates every 10 minutes and on tab focus — ensures mobile
-          // browsers that keep the tab alive pick up new deploys promptly.
-          setInterval(function() { registration.update(); }, 10 * 60 * 1000);
+          // Check for a new SW immediately, then every 5 minutes and whenever the
+          // tab regains focus — so a backgrounded mobile tab picks up new deploys.
+          registration.update();
+          setInterval(function() { registration.update(); }, 5 * 60 * 1000);
           document.addEventListener('visibilitychange', function() {
             if (document.visibilityState === 'visible') registration.update();
           });
