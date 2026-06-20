@@ -657,6 +657,27 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     if (latestEquity) renderMonthlyOverviewTable();
   });
+
+  // Refresh-on-visibility — the single fix for "stale / windows disagree".
+  // Background tabs (especially mobile) freeze their timers, so the in-hours
+  // auto-refresh never fires while a window is hidden, and different windows end
+  // up showing data from whenever each last refreshed. Whenever a window becomes
+  // visible (or is restored from bfcache), pull fresh prices + Nifty if it's been
+  // more than 60s — so every window converges to current data the moment you look
+  // at it. refreshPrices() self-guards against concurrent runs.
+  const _refreshIfStale = () => {
+    if (document.visibilityState !== 'visible') return;
+    const since = Date.now() - (window.__lastRefreshMs || 0);
+    if (since < 60000) return;
+    if (typeof refreshPrices === 'function') {
+      refreshPrices(false).catch(e => console.warn('visibility refresh failed:', e));
+    } else if (typeof fetchNiftySeries === 'function') {
+      fetchNiftySeries();
+    }
+  };
+  document.addEventListener('visibilitychange', _refreshIfStale);
+  window.addEventListener('pageshow', _refreshIfStale);
+  window.addEventListener('focus', _refreshIfStale);
 });
 
 // ── localStorage persistence helpers ────────────────────────────────────
