@@ -292,7 +292,96 @@ function applyLedgerToHoldings() {
     }
     return h;
   });
+  // Keep the per-holding history in sync so the inline transaction history,
+  // Trading Activity log, and per-holding XIRR all reflect ledger edits.
+  rebuildHoldingHistoryFromLedger();
   return true;
+}
+
+// Reconstruct each holding's post-base history from the transaction ledger so
+// every history-derived view (inline transaction history, Trading Activity log,
+// per-holding XIRR/returns) reflects transactions immediately — not only after a
+// month close. Idempotent: truncates history to the immutable frozen base, then
+// replays post-base transactions, emitting one snapshot per (instrument, date).
+function rebuildHoldingHistoryFromLedger() {
+  if (!frozenBase || !historicalHoldings) return;
+  const baseDate = frozenBase.baseDate;
+
+  // 1. Drop any post-base history (rebuilt each call); keep the frozen base.
+  Object.values(historicalHoldings.stocks || {}).forEach(h => {
+    h.history = (h.history || []).filter(p => p.date <= baseDate);
+  });
+  Object.values(historicalHoldings.mfs || {}).forEach(h => {
+    h.history = (h.history || []).filter(p => p.date <= baseDate);
+  });
+
+  // 2. Seed running cost-basis state from the frozen base snapshot.
+  const stockState = {};
+  (frozenBase.equity || []).forEach(s => {
+    stockState[s.instrument] = { qty: s.qty, invested: s.invested, avg_cost: s.avg_cost, sector: s.sector };
+  });
+  const mfState = {};
+  (frozenBase.mf || []).forEach(f => {
+    mfState[f.scheme] = { qty: f.qty, invested: f.invested, avg_nav: f.avg_nav, scheme_type: f.scheme_type };
+  });
+
+  // Current prices for valuing the rebuilt snapshots.
+  const ltpOf = {}; (latestEquity || []).forEach(s => { ltpOf[s.instrument] = s.ltp; });
+  const navOf = {}; (latestMf || []).forEach(f => { navOf[f.scheme] = f.price; });
+
+  // 3. Replay post-base transactions grouped by date; snapshot affected holdings.
+  const byDate = {};
+  (transactions || [])
+    .filter(t => !baseDate || t.date > baseDate)
+    .forEach(t => { (byDate[t.date] = byDate[t.date] || []).push(t); });
+
+  Object.keys(byDate).sort().forEach(date => {
+    const affectedStocks = new Set();
+    const affectedMfs = new Set();
+    byDate[date].forEach(t => {
+      const qty = Number(t.qty) || 0, price = Number(t.price) || 0;
+      const amount = t.amount != null ? Number(t.amount) : qty * price;
+      if (t.assetClass === 'mf') {
+        const st = mfState[t.instrument] || (mfState[t.instrument] =
+          { qty: 0, invested: 0, avg_nav: price, scheme_type: t.category || 'Other' });
+        if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_nav * s; st.qty -= s; }
+        else { st.qty += qty; st.invested += amount; st.avg_nav = st.qty > 0 ? st.invested / st.qty : price; }
+        affectedMfs.add(t.instrument);
+      } else {
+        const st = stockState[t.instrument] || (stockState[t.instrument] =
+          { qty: 0, invested: 0, avg_cost: price, sector: (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[t.instrument]) || 'Other Equities' });
+        if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_cost * s; st.qty -= s; }
+        else { st.qty += qty; st.invested += amount; st.avg_cost = st.qty > 0 ? st.invested / st.qty : price; }
+        affectedStocks.add(t.instrument);
+      }
+    });
+    affectedStocks.forEach(inst => {
+      const st = stockState[inst];
+      const ltp = ltpOf[inst] ?? st.avg_cost;
+      const entry = historicalHoldings.stocks[inst] ||
+        (historicalHoldings.stocks[inst] = { instrument: inst, sector: st.sector, history: [] });
+      entry.history.push({
+        date, qty: st.qty, avg_cost: st.avg_cost, ltp,
+        invested: st.invested, cur_val: st.qty * ltp,
+        pnl: st.qty * ltp - st.invested, gain_pct: st.invested > 0 ? (st.qty * ltp - st.invested) / st.invested : 0,
+      });
+    });
+    affectedMfs.forEach(inst => {
+      const st = mfState[inst];
+      const nav = navOf[inst] ?? st.avg_nav;
+      const entry = historicalHoldings.mfs[inst] ||
+        (historicalHoldings.mfs[inst] = { instrument: inst, category: st.scheme_type, history: [] });
+      entry.history.push({
+        date, qty: st.qty, avg_cost: st.avg_nav, ltp: nav,
+        invested: st.invested, cur_val: st.qty * nav,
+        pnl: st.qty * nav - st.invested, gain_pct: st.invested > 0 ? (st.qty * nav - st.invested) / st.invested : 0,
+      });
+    });
+  });
+
+  // Invalidate cached per-holding XIRR so it recomputes from the new history.
+  (latestEquity || []).forEach(s => { delete s._xirr; });
+  (latestMf || []).forEach(f => { delete f._xirr; });
 }
 
 // ── Mutations (used by the Manage tab UI) ──────────────────────────────────

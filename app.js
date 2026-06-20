@@ -5558,9 +5558,11 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   // Sort by date (newest first)
   trades.sort((a, b) => new Date(b.date) - new Date(a.date));
   
-  // Filter by selected date range
+  // Filter by selected date range. When the latest period is in view, extend the
+  // upper bound past the last breakup date so transactions entered this period
+  // (not yet captured by a month close) still appear.
   const startDate = dates[startIndex];
-  const endDate = dates[endIndex];
+  const endDate = (endIndex >= dates.length - 1) ? '9999-12-31' : dates[endIndex];
   const filteredTrades = trades.filter(t => t.date >= startDate && t.date <= endDate);
   
   // Render table
