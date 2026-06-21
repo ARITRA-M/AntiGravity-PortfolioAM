@@ -459,12 +459,18 @@ function applyLedgerToHoldings() {
     return h;
   });
   // Purge phantom historicalHoldings.stocks keys created by previous misspelled
-  // instrument names (e.g. 'FMCGiETF' alongside 'FMCGIETF'). Only keep entries
-  // whose key matches a holding in the derived latestEquity.
+  // instrument names (e.g. 'FMCGiETF' alongside 'FMCGIETF'). Keep entries that are a
+  // current holding, a frozenBase instrument (pre-base history), OR referenced by any
+  // transaction under its canonical name. The last clause preserves the history of a
+  // position that was fully sold post-base (qty 0, dropped from latestEquity) so its
+  // realized cash flows still feed aggregate XIRR and the investment log. Phantoms
+  // survive none of these checks because their miscased key never matches the canonical.
   if (historicalHoldings?.stocks) {
     const validKeys = new Set(latestEquity.map(s => s.instrument));
-    // Also keep frozenBase instruments (they have pre-base history worth preserving).
     (frozenBase.equity || []).forEach(s => validKeys.add(s.instrument));
+    (transactions || []).forEach(t => {
+      if (t.assetClass !== 'mf') validKeys.add(canonicalInstrument(t.instrument, 'stock'));
+    });
     Object.keys(historicalHoldings.stocks).forEach(k => {
       if (!validKeys.has(k)) delete historicalHoldings.stocks[k];
     });
@@ -515,14 +521,24 @@ function rebuildHoldingHistoryFromLedger() {
   Object.keys(byDate).sort().forEach(date => {
     const affectedStocks = new Set();
     const affectedMfs = new Set();
+    // Actual signed cash flow per instrument for this date (buy → cash out (−amount),
+    // sell → cash in (+proceeds = price×qty)). Recorded on the snapshot as `cf` so
+    // per-holding XIRR uses real sale proceeds, not the cost-basis reduction (which
+    // would silently omit realized gains/losses from the return).
+    const cfStock = {}; const cfMf = {};
     byDate[date].forEach(t => {
       const qty = Number(t.qty) || 0, price = Number(t.price) || 0;
       const amount = t.amount != null ? Number(t.amount) : qty * price;
       if (t.assetClass === 'mf') {
         const st = mfState[t.instrument] || (mfState[t.instrument] =
           { qty: 0, invested: 0, avg_nav: price, scheme_type: t.category || 'Other' });
-        if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_nav * s; st.qty -= s; }
-        else { st.qty += qty; st.invested += amount; st.avg_nav = st.qty > 0 ? st.invested / st.qty : price; }
+        if (t.type === 'sell') {
+          const s = Math.min(qty, st.qty); st.invested -= st.avg_nav * s; st.qty -= s;
+          cfMf[t.instrument] = (cfMf[t.instrument] || 0) + price * s; // proceeds in
+        } else {
+          st.qty += qty; st.invested += amount; st.avg_nav = st.qty > 0 ? st.invested / st.qty : price;
+          cfMf[t.instrument] = (cfMf[t.instrument] || 0) - amount; // cash out
+        }
         affectedMfs.add(t.instrument);
       } else {
         // Canonicalize so history is keyed under the same name as the frozenBase holding.
@@ -531,9 +547,16 @@ function rebuildHoldingHistoryFromLedger() {
           { qty: 0, invested: 0, avg_cost: price, sector: (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[canon]) || 'Other Equities' });
         if (t.type === 'split' || t.type === 'bonus') {
           st.qty += qty; st.avg_cost = st.qty > 0 ? st.invested / st.qty : 0;
+          affectedStocks.add(canon); // no cash flow for corporate actions
+        } else if (t.type === 'sell') {
+          const s = Math.min(qty, st.qty); st.invested -= st.avg_cost * s; st.qty -= s;
+          cfStock[canon] = (cfStock[canon] || 0) + price * s; // proceeds in
           affectedStocks.add(canon);
-        } else if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_cost * s; st.qty -= s; affectedStocks.add(canon); }
-        else { st.qty += qty; st.invested += amount; st.avg_cost = st.qty > 0 ? st.invested / st.qty : price; affectedStocks.add(canon); }
+        } else {
+          st.qty += qty; st.invested += amount; st.avg_cost = st.qty > 0 ? st.invested / st.qty : price;
+          cfStock[canon] = (cfStock[canon] || 0) - amount; // cash out
+          affectedStocks.add(canon);
+        }
       }
     });
     affectedStocks.forEach(inst => {
@@ -545,6 +568,7 @@ function rebuildHoldingHistoryFromLedger() {
         date, qty: st.qty, avg_cost: st.avg_cost, ltp,
         invested: st.invested, cur_val: st.qty * ltp,
         pnl: st.qty * ltp - st.invested, gain_pct: st.invested > 0 ? (st.qty * ltp - st.invested) / st.invested : 0,
+        cf: cfStock[inst] || 0,
       });
     });
     affectedMfs.forEach(inst => {
@@ -556,6 +580,7 @@ function rebuildHoldingHistoryFromLedger() {
         date, qty: st.qty, avg_cost: st.avg_nav, ltp: nav,
         invested: st.invested, cur_val: st.qty * nav,
         pnl: st.qty * nav - st.invested, gain_pct: st.invested > 0 ? (st.qty * nav - st.invested) / st.invested : 0,
+        cf: cfMf[inst] || 0,
       });
     });
   });
