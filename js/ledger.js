@@ -44,10 +44,27 @@ const LEDGER_KEYS = {
   frozenBase: 'ledger_frozen_base',
 };
 
+// ── Dirty flag ─────────────────────────────────────────────────────────────
+// The ledger source of truth is the committed data/ledger_*.json files (so every
+// device agrees). localStorage is a cache. But uncommitted local edits must not be
+// clobbered by the committed copy on reload — so any mutation sets a "dirty" flag,
+// and loadLedger() only adopts the committed files when NOT dirty. commitData()
+// clears the flag on a successful push (local now == committed).
+function _ledgerPrefix() { return (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_'; }
+function markLedgerDirty() {
+  try { localStorage.setItem(_ledgerPrefix() + 'ledger_dirty', '1'); } catch (_) {}
+}
+function clearLedgerDirty() {
+  try { localStorage.removeItem(_ledgerPrefix() + 'ledger_dirty'); } catch (_) {}
+}
+function isLedgerDirty() {
+  try { return localStorage.getItem(_ledgerPrefix() + 'ledger_dirty') === '1'; } catch (_) { return false; }
+}
+
 // ── Persistence ──────────────────────────────────────────────────────────
 function saveLedger() {
   try {
-    const P = (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_';
+    const P = _ledgerPrefix();
     localStorage.setItem(P + LEDGER_KEYS.transactions, JSON.stringify(transactions));
     localStorage.setItem(P + LEDGER_KEYS.balances, JSON.stringify(balances));
     if (frozenBase) localStorage.setItem(P + LEDGER_KEYS.frozenBase, JSON.stringify(frozenBase));
@@ -58,7 +75,19 @@ function saveLedger() {
 
 function loadLedger() {
   try {
-    const P = (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_';
+    const P = _ledgerPrefix();
+    // Source of truth = committed ledger files (fetched into window._committedLedger
+    // before this runs), UNLESS there are uncommitted local edits (dirty flag). This
+    // keeps every device consistent: a fresh device, or one whose edits are all
+    // committed, computes net worth from the same base + transactions as the repo.
+    const committed = (typeof window !== 'undefined') ? window._committedLedger : null;
+    if (committed && !isLedgerDirty()) {
+      transactions = Array.isArray(committed.transactions) ? committed.transactions : [];
+      balances = Array.isArray(committed.balances) ? committed.balances : [];
+      frozenBase = committed.frozenBase || null;
+      saveLedger(); // refresh the localStorage cache to match committed
+      return;
+    }
     transactions = JSON.parse(localStorage.getItem(P + LEDGER_KEYS.transactions) || '[]');
     balances = JSON.parse(localStorage.getItem(P + LEDGER_KEYS.balances) || '[]');
     const fb = localStorage.getItem(P + LEDGER_KEYS.frozenBase);
@@ -551,7 +580,7 @@ function addTransaction(txn) {
     note: txn.note || '',
   };
   transactions.push(t);
-  saveLedger();
+  saveLedger(); markLedgerDirty();
   return t;
 }
 
@@ -562,13 +591,13 @@ function updateTransaction(id, patch) {
   if (patch.qty != null || patch.price != null) {
     t.amount = Number(t.qty) * Number(t.price);
   }
-  saveLedger();
+  saveLedger(); markLedgerDirty();
   return t;
 }
 
 function deleteTransaction(id) {
   transactions = transactions.filter(x => x.id !== id);
-  saveLedger();
+  saveLedger(); markLedgerDirty();
 }
 
 function addBalance(entry) {
@@ -581,7 +610,7 @@ function addBalance(entry) {
     note: entry.note || '',
   };
   balances.push(b);
-  saveLedger();
+  saveLedger(); markLedgerDirty();
   return b;
 }
 
@@ -589,13 +618,13 @@ function updateBalance(id, patch) {
   const b = balances.find(x => x.id === id);
   if (!b) return null;
   Object.assign(b, patch);
-  saveLedger();
+  saveLedger(); markLedgerDirty();
   return b;
 }
 
 function deleteBalance(id) {
   balances = balances.filter(x => x.id !== id);
-  saveLedger();
+  saveLedger(); markLedgerDirty();
 }
 
 // Latest entered balance/contribution for a component as of (≤) a date.
@@ -869,7 +898,7 @@ function closeMonth(dateStr) {
       avg_nav: f.avg_nav, invested: f.invested, basePrice: f.price,
     })),
   };
-  saveLedger();
+  saveLedger(); markLedgerDirty();
   saveBreakupOverride();
 
   return {

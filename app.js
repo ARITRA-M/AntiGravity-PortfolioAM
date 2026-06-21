@@ -827,6 +827,9 @@ async function commitData() {
       if (data.details) console.log('Commit details:', data.details.join(' | '));
       // Committed files now hold the appended periods — drop the local override.
       if (typeof clearBreakupOverride === 'function') clearBreakupOverride();
+      // Local ledger == committed now, so clear the dirty flag. The next reload will
+      // adopt the committed ledger files (keeping all devices in sync).
+      if (typeof clearLedgerDirty === 'function') clearLedgerDirty();
     } else if (res.status === 401) {
       if (status) status.textContent = '🔒 Session expired. Please unlock the portfolio first.';
     } else {
@@ -857,6 +860,29 @@ async function parsePortfolioJson(resp) {
     throw new Error('Data is encrypted and no valid key is available.');
   }
   return data;
+}
+
+// Fetch the committed ledger files (frozen base + transactions + balances) so the
+// ledger has a device-independent source of truth. Stored on window._committedLedger;
+// loadLedger() adopts it unless there are uncommitted local edits (dirty flag). This
+// fixes cross-device divergence where one device showed base-only net worth (empty
+// localStorage ledger) while another showed base + transactions.
+async function fetchCommittedLedger() {
+  const _cb = APP_VERSION;
+  const out = {};
+  const files = [
+    ['transactions', 'ledger_transactions'],
+    ['balances', 'ledger_balances'],
+    ['frozenBase', 'ledger_frozen_base'],
+  ];
+  for (const [key, file] of files) {
+    try {
+      const r = await fetch(`data/${file}.json?${_cb}`, { credentials: 'same-origin' });
+      if (r.ok) out[key] = await parsePortfolioJson(r);
+    } catch (_) { /* file may not exist yet — fall back to localStorage */ }
+  }
+  window._committedLedger = out;
+  return out;
 }
 
 async function loadData() {
@@ -891,6 +917,7 @@ async function loadData() {
       if (!breakupSummary) { /* fall through to full server load below */ }
       else {
       initializeLiveBaseline();
+      try { await fetchCommittedLedger(); } catch (e) { console.warn('fetchCommittedLedger failed:', e); }
       try { if (typeof integrateLedger === 'function') integrateLedger(); } catch (e) { console.error('integrateLedger failed:', e); }
 
       // Restore the persisted refresh report (Update Log + per-stock refresh
@@ -991,6 +1018,7 @@ async function loadData() {
     historicalHoldings = stitchHistoryFragments(await parsePortfolioJson(resHist));
 
     initializeLiveBaseline();
+    try { await fetchCommittedLedger(); } catch (e) { console.warn('fetchCommittedLedger failed:', e); }
     if (typeof integrateLedger === 'function') integrateLedger();
 
     // Recompute net worth from the re-derived live holdings + frozenBase baseline so
