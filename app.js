@@ -955,6 +955,7 @@ async function loadData() {
         document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
         updateDataFreshness(`Portfolio snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
       }
+      try { applyStaleDataFlag(); } catch (_) {}
 
       try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
       try { initOverviewTab(); } catch (e) { console.error('initOverviewTab failed:', e); }
@@ -1039,6 +1040,7 @@ async function loadData() {
     const latestDate = dates[dates.length - 1];
     document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
     updateDataFreshness(`Portfolio snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
+    try { applyStaleDataFlag(); } catch (_) {}
 
     // Initialize UI elements — each wrapped in try-catch to isolate failures
     try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
@@ -1340,6 +1342,37 @@ function refreshAllTabs() {
 function updateDataFreshness(message) {
   const el = document.getElementById('data-freshness');
   if (el) el.textContent = message;
+}
+
+// Flag prices that are more than STALE_HOURS old (e.g. mobile showing yesterday's
+// data because a refresh silently failed via a dead public proxy). Adds an amber
+// "⚠ stale" marker to the live badge and a note to the freshness line so the
+// numbers are never trusted blindly. Cleared automatically by a fresh refresh.
+const STALE_HOURS = 24;
+function applyStaleDataFlag() {
+  const badge = document.getElementById('live-time-badge');
+  if (!badge) return;
+  let lastMs = window.__lastRefreshMs || 0;
+  if (!lastMs) {
+    try {
+      const P = (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_';
+      lastMs = parseInt(localStorage.getItem(P + 'last_refresh_ms') || '0', 10) || 0;
+    } catch (_) { /* ignore */ }
+  }
+  // No refresh ever recorded → showing the committed snapshot, not "stale live data".
+  if (!lastMs) { badge.removeAttribute('data-stale'); return; }
+  const ageH = (Date.now() - lastMs) / 3600000;
+  const el = document.getElementById('data-freshness');
+  if (ageH > STALE_HOURS) {
+    badge.setAttribute('data-stale', '1');
+    badge.style.borderColor = 'rgba(245, 158, 11, 0.7)';
+    if (!/⚠/.test(badge.innerText)) badge.innerText = '⚠ ' + badge.innerText + ' · stale';
+    const days = Math.floor(ageH / 24);
+    const ageStr = days >= 1 ? `${days} day${days > 1 ? 's' : ''}` : `${Math.round(ageH)}h`;
+    if (el) el.textContent = `⚠ Prices are ${ageStr} old — last refresh failed or hasn't run. Tap "Update Prices" to refresh.`;
+  } else {
+    badge.removeAttribute('data-stale');
+  }
 }
 
 // Helpers
