@@ -37,7 +37,7 @@ let rollingReturnsChart = null;
 let stockPerfChart = null;
 let mfPerfChart = null;
 let periodicPerfChart = null;
-let _periodicGran = 'Q'; // Q | H | Y | MAT
+let _periodicGran = 'Q'; // M | Q | H | Y | MAT
 // Table sorting state
 let stockSortColumn = -1;
 let stockSortAsc = true;
@@ -933,6 +933,8 @@ async function loadData() {
       try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
       try { initMonthlyTab(); } catch (e) { console.error('initMonthlyTab failed:', e); }
       try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
+      try { autoCloseMonthIfNeeded(); } catch (e) { console.warn('autoCloseMonthIfNeeded:', e); }
+      loadTransactionHistory(); // portfolio XIRR + dividends (was missing on cached loads)
 
       document.getElementById('upload-status').textContent = 'Using locally saved data';
       if (typeof startAutoRefresh === 'function') startAutoRefresh();
@@ -987,14 +989,7 @@ async function loadData() {
     if (typeof integrateLedger === 'function') integrateLedger();
 
     // Load transaction history non-critically (dividends + pre-base flows for XIRR)
-    fetch('data/transaction_history.json?' + _cb, { credentials: 'same-origin' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data) return;
-        transactionHistory = data;
-        try { updateEquityXirrFromHistory(); } catch(e) { console.warn('updateEquityXirrFromHistory:', e); }
-      })
-      .catch(() => {});
+    loadTransactionHistory();
 
     // Generate benchmark data (simulated immediately; real data fetched async below)
     generateBenchmarkData();
@@ -1016,6 +1011,7 @@ async function loadData() {
     try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
     try { initMonthlyTab(); } catch (e) { console.error('initMonthlyTab failed:', e); }
     try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
+    try { autoCloseMonthIfNeeded(); } catch (e) { console.warn('autoCloseMonthIfNeeded:', e); }
     if (typeof startAutoRefresh === 'function') startAutoRefresh();
   } catch (error) {
     console.error("Error loading portfolio data:", error);
@@ -1094,6 +1090,10 @@ function recomputePortfolioFromLiveData() {
   setLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)', liveStockLakhs);
   setLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)', liveMfLakhs);
   setLatestSectionValue(breakupSummary.net_worth, 'Total', liveTotalLakhs);
+  // autoCloseMonthIfNeeded is intentionally NOT called here — recomputePortfolioFromLiveData
+  // is a pure computation function that runs multiple times per session. Side-effecting a
+  // month-close from inside it corrupts prevVal lookups and drops the reconciliation gap.
+  // Auto-close is triggered only once, in loadData(), after prices are settled.
 }
 
 function initPortfolioUpload() {
@@ -1380,6 +1380,15 @@ function formatDateString(dateStr) {
   if (!dateStr || dateStr.startsWith('Period')) return dateStr;
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+}
+
+// Full day-level date (e.g. "01 Jun 2026") — used where the exact date matters,
+// such as the Trading Activity Log.
+function formatFullDate(dateStr) {
+  if (!dateStr || dateStr.startsWith('Period')) return dateStr;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function escapeHtml(value) {
@@ -1845,11 +1854,23 @@ function updateKpis() {
     equityXirrEl.innerText = (equityXirr * 100).toFixed(1) + '%';
   }
 
+  // Portfolio (whole) XIRR — same source as the Performance Comparison table's
+  // "Portfolio (Overall)" row, so the two always agree.
+  const portfolioXirrEl = document.getElementById('kpi-portfolio-xirr');
+  const portfolioXirrVal = computePortfolioXirr();
+  if (portfolioXirrEl && portfolioXirrVal != null) {
+    portfolioXirrEl.innerText = (portfolioXirrVal * 100).toFixed(1) + '%';
+  }
+
   // Debt XIRR: from breakupSummary.xirr if a matching key exists
   const debtXirrVal = debtXirrKey ? lastNonZeroXirr(xirrSec[debtXirrKey].values) : null;
   const debtXirrEl = document.getElementById('kpi-debt-xirr');
   if (debtXirrEl && debtXirrVal != null) {
     debtXirrEl.innerText = (debtXirrVal * 100).toFixed(1) + '%';
+  }
+  const computedDebtXirr = computeDebtXirr();
+  if (debtXirrEl && computedDebtXirr != null && isFinite(computedDebtXirr)) {
+    debtXirrEl.innerText = (computedDebtXirr * 100).toFixed(1) + '%';
   }
 
   // Gold XIRR: merge cashflows across all SGB + Gold ETF holdings
@@ -2054,6 +2075,15 @@ function renderDailyOverviewTable() {
     : combined.filter(item => item.type.toLowerCase() === dailyTypeFilter);
 
   // Render Daily Summaries — click cards to filter the table below
+  // Recent new investments from the ledger (last 7 days) for the daily summary.
+  const _wkAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  let recentInv = 0, recentCount = 0;
+  (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
+    if (!t.date || t.date < _wkAgo) return;
+    if (t.type === 'buy') { recentInv += (t.amount || 0); recentCount++; }
+    else if (t.type === 'sell') { recentInv -= (t.amount || 0); recentCount++; }
+  });
+
   const dailySummaryEl = document.getElementById('daily-summary-kpis');
   if (dailySummaryEl) {
     const G = '#10b981', R = '#ef4444';
@@ -2079,6 +2109,11 @@ function renderDailyOverviewTable() {
           ${totalGain >= 0 ? '+' : ''}${formatINR(totalGain)} <span class="tab-kpi-inline-pct">(${dailyTotalPct >= 0 ? '+' : ''}${dailyTotalPct.toFixed(2)}%)</span>
         </div>
         <div class="tab-kpi-sub">Stocks + MFs</div>
+      </div>
+      <div class="tab-kpi-card" style="--card-accent:#6366f1;">
+        <div class="tab-kpi-label">New Investment (7d)</div>
+        <div class="tab-kpi-value">${recentCount ? (recentInv >= 0 ? '+' : '') + formatINR(recentInv) : '—'}</div>
+        <div class="tab-kpi-sub">${recentCount ? `${recentCount} ledger transaction${recentCount > 1 ? 's' : ''}` : 'no recent transactions'}</div>
       </div>
       <div class="tab-kpi-card" style="--card-accent:${niftyDailyPct >= 0 ? G : R};">
         <div class="tab-kpi-label">Nifty 50 (Ref)</div>
@@ -2159,42 +2194,54 @@ function renderMonthlyOverviewTable() {
   let totalStockBaseVal = 0;
   let totalMfBaseVal = 0;
 
-  // Stocks: monthly gain = thisMonthGain
+  // Period gain per holding:
+  //  • If live prices have been refreshed this session, use the month-to-date
+  //    movement (live ltp − base-date price) × qty.
+  //  • Otherwise fall back to the last COMPLETED period's change from the
+  //    per-holding history (so the cards/table aren't all zero before a refresh).
+  const hasLive = !!(window.lastRefreshReport);
+  // Only the immutable month-end snapshots (date ≤ frozen base date) define the
+  // last completed period. Post-base transaction snapshots appended by the ledger
+  // must be excluded, otherwise adding a transaction shifts a holding's "previous"
+  // snapshot from the prior month-end to the transaction date and corrupts the
+  // period gain (e.g. Edelweiss after a buy).
+  const _baseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+  const periodGain = (holding, type) => {
+    if (hasLive && holding.thisMonthGain) {
+      return { gain: holding.thisMonthGain, baseVal: (holding.basePrice ?? 0) * holding.qty };
+    }
+    const obj = type === 'stock'
+      ? ((typeof getStockHistoryKey === 'function' && getStockHistoryKey(holding.instrument)) || historicalHoldings.stocks?.[holding.instrument])
+      : historicalHoldings.mfs?.[holding.scheme];
+    let h = obj?.history;
+    if (h && _baseDate) h = h.filter(p => p.date <= _baseDate); // month-end snapshots only
+    if (h && h.length >= 2) {
+      const cur = h[h.length - 1].cur_val || 0;
+      const prev = h[h.length - 2].cur_val || 0;
+      return { gain: cur - prev, baseVal: prev };
+    }
+    return { gain: 0, baseVal: holding.cur_val || 0 };
+  };
+
   latestEquity.forEach(s => {
-    const gain = s.thisMonthGain || 0;
-    const gainPct = s.basePrice > 0 ? (gain / (s.basePrice * s.qty)) * 100 : 0;
-    const baseVal = (s.basePrice ?? 0) * s.qty;
-    combined.push({
-      name: s.instrument,
-      type: 'Stock',
-      qty: s.qty,
-      baseVal: baseVal,
-      currentVal: s.cur_val,
-      gain: gain,
-      gainPct: gainPct
-    });
+    const { gain, baseVal } = periodGain(s, 'stock');
+    const gainPct = baseVal > 0 ? (gain / baseVal) * 100 : 0;
+    combined.push({ name: s.instrument, type: 'Stock', qty: s.qty, baseVal, currentVal: s.cur_val, gain, gainPct });
     totalStockMonthlyGain += gain;
     totalStockBaseVal += baseVal;
   });
 
-  // MFs: monthly gain = thisMonthGain
   latestMf.forEach(f => {
-    const gain = f.thisMonthGain || 0;
-    const gainPct = f.basePrice > 0 ? (gain / (f.basePrice * f.qty)) * 100 : 0;
-    const baseVal = (f.basePrice ?? 0) * f.qty;
-    combined.push({
-      name: f.scheme,
-      type: 'MF',
-      qty: f.qty,
-      baseVal: baseVal,
-      currentVal: f.cur_val,
-      gain: gain,
-      gainPct: gainPct
-    });
+    const { gain, baseVal } = periodGain(f, 'mf');
+    const gainPct = baseVal > 0 ? (gain / baseVal) * 100 : 0;
+    combined.push({ name: f.scheme, type: 'MF', qty: f.qty, baseVal, currentVal: f.cur_val, gain, gainPct });
     totalMfMonthlyGain += gain;
     totalMfBaseVal += baseVal;
   });
 
+  // Card totals are the SUM of the per-holding period gains computed above, so the
+  // "Period Gain" cards always equal the sum of the rows in the Movers table below.
+  // (The 30-day perf chart is a live reference; small differences from it are expected.)
   const totalMonthlyGain = totalStockMonthlyGain + totalMfMonthlyGain;
 
   // ── Compute monthly % change denominators ──
@@ -2206,6 +2253,27 @@ function renderMonthlyOverviewTable() {
   // ── Real Sensex monthly change (falls back to 0 if not yet fetched) ──
   const niftyMonthlyPct = _niftyMonthlyPctReal ?? 0;
   const niftyMonthlyLabel = _niftyMonthlyPctReal != null ? 'Month-to-date change (Nifty 50)' : 'Monthly change (loading…)';
+
+  // Period label: live MTD (from refreshed prices or the 30-day perf series) vs the
+  // last completed period from history.
+  const _lastPeriodDate = (breakupSummary.dates || []).slice(-1)[0];
+  const periodLabel = hasLive
+    ? 'month to date (live)'
+    : `period to ${_lastPeriodDate ? formatDateString(_lastPeriodDate) : 'last close'}`;
+
+  // New investment summary: last completed month (from breakup) + any not-yet-closed
+  // ledger buys/sells after the base date (current month in progress).
+  // All in rupees to match formatINR (used by the other cards).
+  const _niTot = breakupSummary.new_investment?.['Total Investment']?.values;
+  const newInvClosed = (_niTot ? (_niTot[_niTot.length - 1] || 0) : 0) * 100000; // lakhs→₹
+  const _bd = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+  let ledgerNewInv = 0;
+  (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
+    if (_bd && t.date <= _bd) return;
+    if (t.type === 'buy') ledgerNewInv += (t.amount || 0);
+    else if (t.type === 'sell') ledgerNewInv -= (t.amount || 0);
+  });
+  const newInvTotal = newInvClosed + ledgerNewInv;
 
   // Apply monthly type filter (All / Stocks / MFs)
   const filteredCombined = monthlyTypeFilter === 'all'
@@ -2223,14 +2291,14 @@ function renderMonthlyOverviewTable() {
         <div class="tab-kpi-value ${totalStockMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalStockMonthlyGain >= 0 ? '+' : ''}${formatINR(totalStockMonthlyGain)} <span class="tab-kpi-inline-pct">(${monthlyStockPct >= 0 ? '+' : ''}${monthlyStockPct.toFixed(2)}%)</span>
         </div>
-        <div class="tab-kpi-sub">since last upload</div>
+        <div class="tab-kpi-sub">${periodLabel}</div>
       </div>
       <div class="tab-kpi-card${monthlyTypeFilter === 'mf' ? ' filter-active' : ''}" style="--card-accent:${totalMfMonthlyGain >= 0 ? G : R}; cursor:pointer;" onclick="setMonthlyTypeFilter('mf')">
         <div class="tab-kpi-label">Period Gain — MFs</div>
         <div class="tab-kpi-value ${totalMfMonthlyGain >= 0 ? 'trend-up' : 'trend-down'}">
           ${totalMfMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMfMonthlyGain)} <span class="tab-kpi-inline-pct">(${monthlyMfPct >= 0 ? '+' : ''}${monthlyMfPct.toFixed(2)}%)</span>
         </div>
-        <div class="tab-kpi-sub">since last upload</div>
+        <div class="tab-kpi-sub">${periodLabel}</div>
       </div>
       <div class="tab-kpi-card${monthlyTypeFilter === 'all' ? ' filter-active' : ''}" style="--card-accent:${totalMonthlyGain >= 0 ? G : R}; cursor:pointer;" onclick="setMonthlyTypeFilter('all')">
         <div class="tab-kpi-label">Combined Gain</div>
@@ -2238,6 +2306,11 @@ function renderMonthlyOverviewTable() {
           ${totalMonthlyGain >= 0 ? '+' : ''}${formatINR(totalMonthlyGain)} <span class="tab-kpi-inline-pct">(${monthlyTotalPct >= 0 ? '+' : ''}${monthlyTotalPct.toFixed(2)}%)</span>
         </div>
         <div class="tab-kpi-sub">Stocks + MFs</div>
+      </div>
+      <div class="tab-kpi-card" style="--card-accent:#6366f1;">
+        <div class="tab-kpi-label">New Investment</div>
+        <div class="tab-kpi-value">${newInvTotal >= 0 ? '+' : ''}${formatINR(newInvTotal)}</div>
+        <div class="tab-kpi-sub">${ledgerNewInv ? `${formatINR(newInvClosed)} closed · ${ledgerNewInv >= 0 ? '+' : ''}${formatINR(ledgerNewInv)} this month` : periodLabel}</div>
       </div>
       <div class="tab-kpi-card" style="--card-accent:${niftyMonthlyPct >= 0 ? G : R};">
         <div class="tab-kpi-label">Nifty 50 (Ref)</div>
@@ -2286,45 +2359,149 @@ function renderMonthlyOverviewTable() {
 
 // ==================== TOTAL RETURN XIRR (using transaction_history.json) ====================
 
-function computeTotalReturnXirr() {
-  if (!transactionHistory?.xirr_flows?.length) return null;
+function estimatePendingDividends() {
+  if (!transactionHistory?.summary?.dividend_by_company) return [];
+  const tickerMap = transactionHistory.ticker_map || {};
+  const tickerToCompany = {};
+  Object.entries(tickerMap).forEach(([company, ticker]) => { tickerToCompany[ticker] = company; });
 
-  // Pre-base flows: BUY = negative, SELL/DIVIDEND = positive (already signed)
-  const flows = transactionHistory.xirr_flows.map(f => ({ date: f.date, amount: f.amount }));
+  const held = new Set((latestEquity || []).filter(s => s.qty > 0).map(s => s.instrument));
+  const divSummary = transactionHistory.summary.dividend_by_company;
 
-  // Post-base ledger transactions
-  if (typeof transactions !== 'undefined' && transactions?.length) {
-    for (const t of transactions) {
-      if (!t.date || !t.amount) continue;
-      flows.push({ date: t.date, amount: t.type === 'buy' ? -(t.amount) : t.amount });
+  const divFlows = {};
+  (transactionHistory.xirr_flows || [])
+    .filter(f => f.type === 'dividend' && f.amount > 0)
+    .forEach(f => {
+      if (!divFlows[f.ticker]) divFlows[f.ticker] = [];
+      divFlows[f.ticker].push({ date: f.date, amount: f.amount });
+    });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const results = [];
+  held.forEach(ticker => {
+    const events = divFlows[ticker] || [];
+    if (!events.length) return;
+    events.sort((a, b) => a.date.localeCompare(b.date));
+    const last = events[events.length - 1];
+    if (events.length >= 2) {
+      const intervals = [];
+      for (let i = 1; i < events.length; i++) {
+        const ms = new Date(events[i].date) - new Date(events[i-1].date);
+        intervals.push(ms / (30 * 24 * 3600 * 1000));
+      }
+      const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+      const monthsSinceLast = (new Date(today) - new Date(last.date)) / (30 * 24 * 3600 * 1000);
+      if (monthsSinceLast >= avgInterval * 0.85) {
+        const company = tickerToCompany[ticker] || ticker;
+        const divData = divSummary[company];
+        const avgAmount = divData ? divData.total / divData.events : last.amount;
+        results.push({
+          ticker, company,
+          lastDate: last.date,
+          estimatedAmount: Math.round(avgAmount),
+          intervalMonths: Math.round(avgInterval),
+          overdue: monthsSinceLast > avgInterval * 1.1,
+        });
+      }
     }
-  }
-
-  // Terminal value: current stocks + MF market value (in ₹)
-  const terminalValue = (latestEquity?.reduce((s, e) => s + (e.cur_val || 0), 0) || 0) +
-                        (latestMf?.reduce((s, f) => s + (f.cur_val || 0), 0) || 0);
-  if (terminalValue <= 0) return null;
-
-  flows.push({ date: new Date().toISOString().slice(0, 10), amount: terminalValue });
-  flows.sort((a, b) => a.date.localeCompare(b.date));
-
-  return typeof computeXirr === 'function' ? computeXirr(flows) : null;
+  });
+  return results.sort((a, b) => b.estimatedAmount - a.estimatedAmount);
 }
 
-function updateEquityXirrFromHistory() {
-  const xirr = computeTotalReturnXirr();
-  if (xirr == null || !isFinite(xirr)) return;
+// Whole-portfolio money-weighted XIRR from the breakup Total series:
+// opening Total balance as the first outflow + each period's net new investment
+// as outflows + the final Total net worth as the terminal inflow. This is the
+// single source of truth used by BOTH the Net Worth KPI card and the
+// "Portfolio (Overall)" row of the Performance Comparison table, so they match.
+function computePortfolioXirr() {
+  if (!breakupSummary || typeof computeXirr !== 'function') return null;
+  const dates = breakupSummary.dates || [];
+  const nw = breakupSummary.net_worth || {};
+  const ni = breakupSummary.new_investment || {};
+  if (!dates.length) return null;
+  const nwTot = nw['Total']?.values || [];
+  const niTot = ni['Total Investment']?.values || [];
+  const opening = nwTot[0] || 0;
+  if (opening <= 0) return null;
+  const flows = [{ date: dates[0], amount: -opening * 100000 }];
+  dates.forEach((d, i) => {
+    if (i === 0) return;
+    const inv = niTot[i] || 0;
+    if (Math.abs(inv) > 1e-4) flows.push({ date: d, amount: -inv * 100000 });
+  });
+  const terminal = nwTot[nwTot.length - 1] || 0;
+  if (terminal <= 0) return null;
+  flows.push({ date: dates[dates.length - 1], amount: terminal * 100000 });
+  flows.sort((a, b) => a.date.localeCompare(b.date));
+  const x = computeXirr(flows, 0.12);
+  return (x != null && isFinite(x)) ? x : null;
+}
 
-  const el = document.getElementById('kpi-equity-xirr');
-  if (el) el.innerText = (xirr * 100).toFixed(1) + '% (incl. dividends)';
+function computeDebtXirr() {
+  if (!breakupSummary || typeof computeXirr !== 'function') return null;
+  const dates = breakupSummary.dates || [];
+  const nw = breakupSummary.net_worth || {};
+  const ni = breakupSummary.new_investment || {};
+  const debtKeys = ['PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)', 'NPS C (Debt)', 'NPS G (Debt)'];
+  if (!dates.length) return null;
 
-  const divTotal = transactionHistory?.summary?.total_dividend_income || 0;
-  const divEl = document.getElementById('kpi-dividend-income');
-  if (divEl && divTotal > 0) {
-    divEl.innerText = '₹' + (divTotal / 100000).toFixed(2) + ' L';
-    const wrapper = divEl.closest('.kpi-slim-sub');
-    if (wrapper) wrapper.style.display = '';
-  }
+  // Opening balance at the first date MUST be seeded as the initial cash outflow.
+  // Otherwise the XIRR sees only sporadic contributions producing a huge terminal
+  // balance → absurd return (the 44% bug). These are debt instruments whose first
+  // column is an existing balance, not a fresh investment.
+  let opening = 0;
+  debtKeys.forEach(k => { opening += (nw[k]?.values?.[0] || 0); });
+
+  const flows = [];
+  if (opening > 0) flows.push({ date: dates[0], amount: -opening * 100000 });
+
+  // Subsequent net contributions (skip index 0 — already captured in opening balance).
+  dates.forEach((d, i) => {
+    if (i === 0) return;
+    let inv = 0;
+    debtKeys.forEach(k => { inv += (ni[k]?.values?.[i] || 0); });
+    if (Math.abs(inv) > 0.0001) flows.push({ date: d, amount: -inv * 100000 });
+  });
+
+  let terminal = 0;
+  debtKeys.forEach(k => {
+    const vals = nw[k]?.values || [];
+    terminal += vals.length ? vals[vals.length - 1] : 0;
+  });
+  if (terminal <= 0 || flows.length < 1) return null;
+  flows.push({ date: dates[dates.length - 1], amount: terminal * 100000 });
+  flows.sort((a, b) => a.date.localeCompare(b.date));
+  const x = computeXirr(flows, 0.08);
+  // Sanity guard: debt XIRR outside [-20%, 60%] is almost certainly a data artifact.
+  if (x == null || !isFinite(x) || x < -0.2 || x > 0.6) return null;
+  return x;
+}
+
+// After transaction_history loads, refresh per-holding XIRR (now dividend-aware)
+// and the dividend-yield column. The portfolio/equity/debt XIRR KPI cards are set
+// synchronously in updateKpis() from breakup data and are NOT touched here, so the
+// cards stay consistent with the Performance Comparison table.
+function updateEquityXirrFromHistory() { /* dividends fold into holdingXIRR + div-yield on re-render */ }
+
+// Load the transaction history file (dividends + pre-base flows for portfolio XIRR).
+// Called from BOTH load paths (cached + server) — it was previously only in the
+// server path, so cached loads left transactionHistory null → blank portfolio XIRR.
+function loadTransactionHistory() {
+  if (transactionHistory) { try { updateEquityXirrFromHistory(); } catch (_) {} return; }
+  fetch('data/transaction_history.json?v=' + APP_VERSION, { credentials: 'same-origin' })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data) return;
+      transactionHistory = data;
+      // Invalidate dividend index + per-holding XIRR caches that were computed
+      // before dividends were available, then refresh the visible views.
+      _divIndex = null;
+      (latestEquity || []).forEach(s => { delete s._xirr; });
+      (latestMf || []).forEach(f => { delete f._xirr; });
+      try { updateEquityXirrFromHistory(); } catch (e) { console.warn('updateEquityXirrFromHistory:', e); }
+      try { if (typeof reapplyStocksView === 'function') reapplyStocksView(); } catch (_) {}
+    })
+    .catch(() => {});
 }
 
 // ==================== OVERVIEW TAB ====================
@@ -2366,42 +2543,42 @@ function populateMonthlyOverviewSummary() {
   const totalReturns = totalCurrent - totalInvested;
   const totalReturnsPct = totalInvested > 0 ? (totalReturns / totalInvested) * 100 : 0;
 
-  // ── Stocks: Calculate gain since last upload using thisMonthGain ──
-  const totalStockGain = latestEquity.reduce((sum, s) => sum + (s.thisMonthGain || 0), 0);
-  const totalStockBaseVal = latestEquity.reduce((sum, s) => sum + ((s.basePrice ?? 0) * s.qty), 0);
+  // Last closed month's change per component (from breakup net_change series).
+  const nc = breakupSummary.net_change || {};
+  const lastChange = (key) => { const v = nc[key]?.values; return v && v.length ? v[v.length - 1] : 0; };
+  const lastMonthLabel = (() => {
+    const d = breakupSummary.dates || [];
+    return d.length ? formatDateString(d[d.length - 1]) : '';
+  })();
+
+  // ── Stocks: total gain vs invested cost (P&L) ──
   const totalStockCurrentVal = latestEquity.reduce((sum, s) => sum + s.cur_val, 0);
-  const stockGainLakhs = totalStockGain / 100000;
-  const stockGainPct = totalStockBaseVal > 0 ? (totalStockGain / totalStockBaseVal) * 100 : 0;
+  const totalStockInvested   = latestEquity.reduce((sum, s) => sum + s.invested, 0);
+  const stockPnlLakhs = (totalStockCurrentVal - totalStockInvested) / 100000;
+  const stockPnlPct = totalStockInvested > 0 ? (stockPnlLakhs * 100000 / totalStockInvested) * 100 : 0;
+  const stockMonthChange = lastChange('Stocks (Equity)');
 
-  // ── MFs: Calculate gain since last upload using thisMonthGain ──
-  const totalMfGain = latestMf.reduce((sum, f) => sum + (f.thisMonthGain || 0), 0);
-  const totalMfBaseVal = latestMf.reduce((sum, f) => sum + ((f.basePrice ?? 0) * f.qty), 0);
+  // ── MFs: total gain vs invested cost (P&L) ──
   const totalMfCurrentVal = latestMf.reduce((sum, f) => sum + f.cur_val, 0);
-  const mfGainLakhs = totalMfGain / 100000;
-  const mfGainPct = totalMfBaseVal > 0 ? (totalMfGain / totalMfBaseVal) * 100 : 0;
+  const totalMfInvested   = latestMf.reduce((sum, f) => sum + f.invested, 0);
+  const mfPnlLakhs = (totalMfCurrentVal - totalMfInvested) / 100000;
+  const mfPnlPct = totalMfInvested > 0 ? (mfPnlLakhs * 100000 / totalMfInvested) * 100 : 0;
+  const mfMonthChange = lastChange('Mutual Funds (Equity)');
 
-  // ── Debt (PF + PPF + Bonds): Use breakup_summary values (in lakhs) ──
+  // ── Debt (PF + PPF + Bonds) ──
   const pfVal = nw['PF (Debt)']?.values?.slice(-1)?.[0] || 0;
   const ppfVal = nw['PPF (Debt)']?.values?.slice(-1)?.[0] || 0;
   const bondsVal = nw['Bonds (Debt)']?.values?.slice(-1)?.[0] || 0;
   const debtCurrent = pfVal + ppfVal + bondsVal;
+  const debtChange = lastChange('PF (Debt)') + lastChange('PPF (Debt)') + lastChange('Bonds (Debt)');
 
-  // Debt change since last upload: use net_change section from breakupSummary
-  const nc = breakupSummary.net_change;
-  const debtChange = ((nc['PF (Debt)']?.values?.slice(-1)?.[0] || 0) +
-                      (nc['PPF (Debt)']?.values?.slice(-1)?.[0] || 0) +
-                      (nc['Bonds (Debt)']?.values?.slice(-1)?.[0] || 0));
-
-  // Total equity gain (stocks + MFs) in lakhs
-  const totalEquityGainLakhs = stockGainLakhs + mfGainLakhs;
-  const totalEquityBaseLakhs = (totalStockBaseVal + totalMfBaseVal) / 100000;
-  const totalEquityGainPct = totalEquityBaseLakhs > 0 ? (totalEquityGainLakhs / totalEquityBaseLakhs) * 100 : 0;
-
-  // Format uploaded values in lakhs for display
-  const stockBaseLakhs = totalStockBaseVal / 100000;
-  const mfBaseLakhs = totalMfBaseVal / 100000;
   const stockCurrentLakhs = totalStockCurrentVal / 100000;
   const mfCurrentLakhs = totalMfCurrentVal / 100000;
+
+  const latestNI = breakupSummary.new_investment?.['Total Investment']?.values;
+  const newInvThisMonth = latestNI ? (latestNI[latestNI.length - 1] || 0) : 0;
+  const latestRet = breakupSummary.returns?.['Total']?.values;
+  const returnsThisMonth = latestRet ? (latestRet[latestRet.length - 1] || 0) : 0;
 
   container.innerHTML = `
     <div class="monthly-kpi-card" style="--kpi-accent: #10b981;">
@@ -2409,31 +2586,31 @@ function populateMonthlyOverviewSummary() {
       <div class="monthly-kpi-value">${formatLakhs(totalCurrent)}</div>
       <div class="monthly-kpi-sub">Invested: ${formatLakhs(totalInvested)}</div>
       <div class="monthly-kpi-sub ${totalReturns >= 0 ? 'trend-up' : 'trend-down'}">
-        Returns: ${totalReturns >= 0 ? '+' : ''}${totalReturns.toFixed(2)} L (${totalReturnsPct >= 0 ? '+' : ''}${totalReturnsPct.toFixed(2)}%)
+        Total returns: ${totalReturns >= 0 ? '+' : ''}${totalReturns.toFixed(2)} L (${totalReturnsPct >= 0 ? '+' : ''}${totalReturnsPct.toFixed(2)}%)
       </div>
+      <div class="monthly-kpi-sub">New investment (${lastMonthLabel}): <span class="${newInvThisMonth >= 0 ? 'trend-up' : 'trend-down'}">${newInvThisMonth >= 0 ? '+' : ''}${newInvThisMonth.toFixed(2)} L</span></div>
+      <div class="monthly-kpi-sub">Returns (${lastMonthLabel}): <span class="${returnsThisMonth >= 0 ? 'trend-up' : 'trend-down'}">${returnsThisMonth >= 0 ? '+' : ''}${returnsThisMonth.toFixed(2)} L</span></div>
     </div>
     <div class="monthly-kpi-card" style="--kpi-accent: #3b82f6;">
-      <div class="monthly-kpi-label">Stocks (Since Base Date)</div>
+      <div class="monthly-kpi-label">Stocks</div>
       <div class="monthly-kpi-value">${formatLakhs(stockCurrentLakhs)}</div>
-      <div class="monthly-kpi-sub">At Base: ${formatLakhs(stockBaseLakhs)}</div>
-      <div class="monthly-kpi-sub ${stockGainLakhs >= 0 ? 'trend-up' : 'trend-down'}">
-        Gain: ${stockGainLakhs >= 0 ? '+' : ''}${stockGainLakhs.toFixed(2)} L (${stockGainPct >= 0 ? '+' : ''}${stockGainPct.toFixed(2)}%)
+      <div class="monthly-kpi-sub ${stockPnlLakhs >= 0 ? 'trend-up' : 'trend-down'}">
+        Total gain: ${stockPnlLakhs >= 0 ? '+' : ''}${stockPnlLakhs.toFixed(2)} L (${stockPnlPct >= 0 ? '+' : ''}${stockPnlPct.toFixed(1)}%)
       </div>
+      <div class="monthly-kpi-sub">Change (${lastMonthLabel}): <span class="${stockMonthChange >= 0 ? 'trend-up' : 'trend-down'}">${stockMonthChange >= 0 ? '+' : ''}${stockMonthChange.toFixed(2)} L</span></div>
     </div>
     <div class="monthly-kpi-card" style="--kpi-accent: #8b5cf6;">
-      <div class="monthly-kpi-label">Mutual Funds (Since Base Date)</div>
+      <div class="monthly-kpi-label">Mutual Funds</div>
       <div class="monthly-kpi-value">${formatLakhs(mfCurrentLakhs)}</div>
-      <div class="monthly-kpi-sub">At Base: ${formatLakhs(mfBaseLakhs)}</div>
-      <div class="monthly-kpi-sub ${mfGainLakhs >= 0 ? 'trend-up' : 'trend-down'}">
-        Gain: ${mfGainLakhs >= 0 ? '+' : ''}${mfGainLakhs.toFixed(2)} L (${mfGainPct >= 0 ? '+' : ''}${mfGainPct.toFixed(2)}%)
+      <div class="monthly-kpi-sub ${mfPnlLakhs >= 0 ? 'trend-up' : 'trend-down'}">
+        Total gain: ${mfPnlLakhs >= 0 ? '+' : ''}${mfPnlLakhs.toFixed(2)} L (${mfPnlPct >= 0 ? '+' : ''}${mfPnlPct.toFixed(1)}%)
       </div>
+      <div class="monthly-kpi-sub">Change (${lastMonthLabel}): <span class="${mfMonthChange >= 0 ? 'trend-up' : 'trend-down'}">${mfMonthChange >= 0 ? '+' : ''}${mfMonthChange.toFixed(2)} L</span></div>
     </div>
     <div class="monthly-kpi-card" style="--kpi-accent: #f59e0b;">
       <div class="monthly-kpi-label">Debt (PF + PPF + Bonds)</div>
       <div class="monthly-kpi-value">${formatLakhs(debtCurrent)}</div>
-      <div class="monthly-kpi-sub ${debtChange >= 0 ? 'trend-up' : 'trend-down'}">
-        ${debtChange >= 0 ? '+' : ''}${debtChange.toFixed(2)} L since last upload
-      </div>
+      <div class="monthly-kpi-sub">Change (${lastMonthLabel}): <span class="${debtChange >= 0 ? 'trend-up' : 'trend-down'}">${debtChange >= 0 ? '+' : ''}${debtChange.toFixed(2)} L</span></div>
     </div>
   `;
 }
@@ -2743,8 +2920,10 @@ function filterGrowthChart() {
   const len = dates.length;
 
   let sliceIdx = 0;
-  if (filter === '3Y') sliceIdx = Math.max(0, len - 36);
+  if (filter === '5Y') sliceIdx = Math.max(0, len - 60);
+  else if (filter === '3Y') sliceIdx = Math.max(0, len - 36);
   else if (filter === '1Y') sliceIdx = Math.max(0, len - 12);
+  else if (filter === '6M') sliceIdx = Math.max(0, len - 6);
 
   const filteredLabels = dates.slice(sliceIdx).map(d => formatDateString(d));
 
@@ -3540,15 +3719,15 @@ function initStocksTab() {
   sectorDropdown.innerHTML = '<option value="ALL">All Sectors</option>' + 
     sectors.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
 
-  // Populate Table - default sort by This Month Gain (col 10) descending
-  stockSortColumn = 10;
+  // Populate Table - default sort by Valuation (col 6) descending
+  stockSortColumn = 6;
   stockSortAsc = false;
   const stockThs = document.querySelectorAll('#stocks-table th');
   stockThs.forEach((th, idx) => {
     th.classList.remove('sort-asc', 'sort-desc');
-    if (idx === 10) th.classList.add('sort-desc');
+    if (idx === 6) th.classList.add('sort-desc');
   });
-  const sortedStocks = [...latestEquity].sort((a, b) => (b.thisMonthGain ?? 0) - (a.thisMonthGain ?? 0));
+  const sortedStocks = [...latestEquity].sort((a, b) => (b.cur_val ?? 0) - (a.cur_val ?? 0));
   renderStocksTable(sortedStocks);
 }
 
@@ -3683,8 +3862,7 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
 function renderStocksTable(data) {
   const body = document.getElementById('stocks-table-body');
   body.innerHTML = data.map(s => {
-    const basePriceDisplay = s.basePrice !== undefined ? `₹${s.basePrice.toLocaleString(undefined, {maximumFractionDigits:2})}` : '—';
-    const gain = s.thisMonthGain || 0;
+    const divYield = dividendYieldPct(s);
     const noLive = typeof hasLivePriceSource === 'function' && !hasLivePriceSource(s.instrument);
     const xirr = holdingXIRR(s, 'stock');
     const hasHistory = !!(getStockHistoryKey(s.instrument) || historicalHoldings.stocks?.[s.instrument]);
@@ -3697,7 +3875,6 @@ function renderStocksTable(data) {
       <td><span class="sector-tag">${escapeHtml(s.sector)}</span></td>
       <td style="text-align: right;">${s.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${s.ltp.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
-      <td style="text-align: right;">${basePriceDisplay}</td>
       <td style="text-align: right;">₹${s.avg_cost.toLocaleString(undefined, {maximumFractionDigits:2})}</td>
       <td style="text-align: right;">${formatINR(s.invested)}</td>
       <td style="text-align: right;">${formatINR(s.cur_val)}</td>
@@ -3710,9 +3887,7 @@ function renderStocksTable(data) {
       <td style="text-align: right;" class="${xirr == null ? '' : (xirr >= 0 ? 'trend-up' : 'trend-down')}">
         ${xirr == null ? '—' : (xirr >= 0 ? '+' : '') + (xirr * 100).toFixed(2) + '%'}
       </td>
-      <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
-        ${gain >= 0 ? '+' : ''}${formatINR(gain)}
-      </td>
+      <td style="text-align: right;">${divYield == null ? '—' : divYield.toFixed(2) + '%'}</td>
       <td style="text-align: right;">${escapeHtml(formatPriceAsOf(s.priceAsOf))}</td>
     </tr>
   `}).join('');
@@ -3748,10 +3923,10 @@ function reapplyStocksView() {
     const val = (s) => {
       switch (stockSortColumn) {
         case 0: return s.instrument; case 1: return s.sector; case 2: return s.qty;
-        case 3: return s.ltp; case 4: return s.basePrice ?? 0; case 5: return s.avg_cost;
-        case 6: return s.invested; case 7: return s.cur_val; case 8: return s.pnl;
-        case 9: return s.gain_pct; case 10: return holdingXIRR(s, 'stock') ?? -Infinity;
-        case 11: return s.thisMonthGain ?? 0; case 12: return s.priceAsOf ?? -Infinity;
+        case 3: return s.ltp; case 4: return s.avg_cost;
+        case 5: return s.invested; case 6: return s.cur_val; case 7: return s.pnl;
+        case 8: return s.gain_pct; case 9: return holdingXIRR(s, 'stock') ?? -Infinity;
+        case 10: return dividendYieldPct(s) ?? -Infinity; case 11: return s.priceAsOf ?? -Infinity;
         default: return s.instrument;
       }
     };
@@ -3797,15 +3972,14 @@ function sortStocks(colIdx) {
       case 1: valA = a.sector; valB = b.sector; break;
       case 2: valA = a.qty; valB = b.qty; break;
       case 3: valA = a.ltp; valB = b.ltp; break;
-      case 4: valA = a.basePrice ?? 0; valB = b.basePrice ?? 0; break;
-      case 5: valA = a.avg_cost; valB = b.avg_cost; break;
-      case 6: valA = a.invested; valB = b.invested; break;
-      case 7: valA = a.cur_val; valB = b.cur_val; break;
-      case 8: valA = a.pnl; valB = b.pnl; break;
-      case 9: valA = a.gain_pct; valB = b.gain_pct; break;
-      case 10: valA = holdingXIRR(a, 'stock') ?? -Infinity; valB = holdingXIRR(b, 'stock') ?? -Infinity; break;
-      case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
-      case 12: valA = a.priceAsOf ?? -Infinity; valB = b.priceAsOf ?? -Infinity; break;
+      case 4: valA = a.avg_cost; valB = b.avg_cost; break;
+      case 5: valA = a.invested; valB = b.invested; break;
+      case 6: valA = a.cur_val; valB = b.cur_val; break;
+      case 7: valA = a.pnl; valB = b.pnl; break;
+      case 8: valA = a.gain_pct; valB = b.gain_pct; break;
+      case 9: valA = holdingXIRR(a, 'stock') ?? -Infinity; valB = holdingXIRR(b, 'stock') ?? -Infinity; break;
+      case 10: valA = dividendYieldPct(a) ?? -Infinity; valB = dividendYieldPct(b) ?? -Infinity; break;
+      case 11: valA = a.priceAsOf ?? -Infinity; valB = b.priceAsOf ?? -Infinity; break;
     }
 
     if (typeof valA === 'string') {
@@ -3949,15 +4123,15 @@ function initMfsTab() {
   typeDropdown.innerHTML = '<option value="ALL">All Categories</option>' + 
     categories.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
 
-  // Populate table - default sort by This Month Gain (col 10) descending
-  mfSortColumn = 10;
+  // Populate table - default sort by Valuation (col 6) descending
+  mfSortColumn = 6;
   mfSortAsc = false;
   const mfThs = document.querySelectorAll('#mfs-table th');
   mfThs.forEach((th, idx) => {
     th.classList.remove('sort-asc', 'sort-desc');
-    if (idx === 10) th.classList.add('sort-desc');
+    if (idx === 6) th.classList.add('sort-desc');
   });
-  const sortedMfs = [...latestMf].sort((a, b) => (b.thisMonthGain ?? 0) - (a.thisMonthGain ?? 0));
+  const sortedMfs = [...latestMf].sort((a, b) => (b.cur_val ?? 0) - (a.cur_val ?? 0));
   renderMfsTable(sortedMfs);
 }
 
@@ -4012,9 +4186,6 @@ function _collapseMfHistory() {
 function renderMfsTable(data) {
   const body = document.getElementById('mfs-table-body');
   body.innerHTML = data.map(f => {
-    const basePriceDisplay = f.basePrice !== undefined ? `₹${f.basePrice.toLocaleString(undefined, {maximumFractionDigits:4})}` : '—';
-    const gain = f.thisMonthGain || 0;
-    const lastRefreshed = f.lastRefreshDate || '—';
     const xirr = holdingXIRR(f, 'mf');
     const hasHistory = !!historicalHoldings.mfs?.[f.scheme];
     return `
@@ -4023,7 +4194,6 @@ function renderMfsTable(data) {
       <td><span class="category-tag">${escapeHtml(f.scheme_type.replace('Equity : ', ''))}</span></td>
       <td style="text-align: right;">${f.qty.toLocaleString()}</td>
       <td style="text-align: right;">₹${f.price.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
-      <td style="text-align: right;">${basePriceDisplay}</td>
       <td style="text-align: right;">₹${f.avg_nav.toLocaleString(undefined, {maximumFractionDigits:4})}</td>
       <td style="text-align: right;">${formatINR(f.invested)}</td>
       <td style="text-align: right;">${formatINR(f.cur_val)}</td>
@@ -4035,9 +4205,6 @@ function renderMfsTable(data) {
       </td>
       <td style="text-align: right;" class="${xirr == null ? '' : (xirr >= 0 ? 'trend-up' : 'trend-down')}">
         ${xirr == null ? '—' : (xirr >= 0 ? '+' : '') + (xirr * 100).toFixed(2) + '%'}
-      </td>
-      <td style="text-align: right;" class="${gain >= 0 ? 'trend-up' : 'trend-down'}">
-        ${gain >= 0 ? '+' : ''}${formatINR(gain)}
       </td>
       <td style="text-align: right;">${f.navDate ? escapeHtml(f.navDate) : '—'}</td>
     </tr>
@@ -4159,7 +4326,7 @@ function computeXIRR(cashflows, dates, guess = 0.1) {
 // a sell (cash in, valued at cost basis); the final `cur_val` is the terminal
 // liquidation value. Consistent with the portfolio/benchmark XIRR table.
 // Returns a decimal fraction (e.g. 0.18 = 18%) or null if not computable.
-function computeHoldingXIRR(history) {
+function computeHoldingXIRR(history, divFlows) {
   if (!history || history.length < 1) return null;
   const cf = [], dt = [];
   let prevInv = 0;
@@ -4172,6 +4339,12 @@ function computeHoldingXIRR(history) {
     }
     prevInv = inv;
   }
+  // Dividend receipts are positive cash inflows at their pay dates (total return).
+  if (divFlows && divFlows.length) {
+    for (const d of divFlows) {
+      if (d.amount > 0) { cf.push(d.amount); dt.push(new Date(d.date)); }
+    }
+  }
   const last = history[history.length - 1];
   const terminal = last.cur_val || 0;
   if (terminal !== 0) {
@@ -4179,6 +4352,40 @@ function computeHoldingXIRR(history) {
     dt.push(new Date(last.date));
   }
   return computeXIRR(cf, dt);
+}
+
+// ── Dividend index (from transaction_history.json) ──────────────────────────
+// { ticker: { flows:[{date,amount}], total, ttm } }. TTM = trailing 12 months
+// of available dividend data (the source ends ~2026-05, so we anchor the window
+// to each ticker's last dividend date rather than "today").
+let _divIndex = null;
+function _buildDividendIndex() {
+  if (_divIndex) return _divIndex;
+  _divIndex = {};
+  const flows = (typeof transactionHistory !== 'undefined' && transactionHistory?.xirr_flows) || [];
+  for (const f of flows) {
+    if (f.type !== 'dividend' || !(f.amount > 0)) continue;
+    const e = _divIndex[f.ticker] || (_divIndex[f.ticker] = { flows: [], total: 0, ttm: 0 });
+    e.flows.push({ date: f.date, amount: f.amount });
+    e.total += f.amount;
+  }
+  // Compute TTM per ticker anchored to its latest dividend date.
+  Object.values(_divIndex).forEach(e => {
+    e.flows.sort((a, b) => a.date.localeCompare(b.date));
+    const last = e.flows[e.flows.length - 1].date;
+    const cut = new Date(last); cut.setFullYear(cut.getFullYear() - 1);
+    const cutStr = cut.toISOString().slice(0, 10);
+    e.ttm = e.flows.filter(f => f.date >= cutStr).reduce((s, f) => s + f.amount, 0);
+  });
+  return _divIndex;
+}
+
+// Trailing-12-month dividend yield % for a stock holding, or null if unknown.
+function dividendYieldPct(s) {
+  if (!s || !s.cur_val) return null;
+  const e = _buildDividendIndex()[s.instrument];
+  if (!e || e.ttm <= 0) return null;
+  return (e.ttm / s.cur_val) * 100;
 }
 
 // Resolve a holding's history and cache its XIRR on the object so render and
@@ -4194,7 +4401,8 @@ function holdingXIRR(obj, type) {
     const h = historicalHoldings.mfs[obj.scheme];
     history = h && h.history;
   }
-  obj._xirr = computeHoldingXIRR(history);
+  const divFlows = (type === 'stock') ? (_buildDividendIndex()[obj.instrument]?.flows || null) : null;
+  obj._xirr = computeHoldingXIRR(history, divFlows);
   return obj._xirr;
 }
 
@@ -4322,7 +4530,7 @@ function renderXirrComparisonTable() {
 
   const rows = [
     { label: 'Portfolio (Overall)', type: 'portfolio', emphasis: true,
-      xirr:     totalXirrKey ? lastNonZero(xirrSec[totalXirrKey].values) : null,
+      xirr:     computePortfolioXirr() ?? (totalXirrKey ? lastNonZero(xirrSec[totalXirrKey].values) : null),
       ann:      (totalNwKey && totalInvKey) ? twrAnnualized(nwSec[totalNwKey].values, newSec[totalInvKey].values) : null,
       invested: totalInvKey  ? sumVals(newSec[totalInvKey].values)       : null,
       value:    totalNwKey   ? lastVal(nwSec[totalNwKey].values)         : null },
@@ -4645,6 +4853,7 @@ function _buildPeriodBuckets(gran) {
   function bucketOf(d) {
     const yr = +d.slice(0, 4);
     const mo = +d.slice(5, 7);   // 1-12
+    if (gran === 'M')   return d.slice(0, 7); // YYYY-MM (one bucket per month)
     if (gran === 'Q')   return `${yr} Q${Math.ceil(mo / 3)}`;
     if (gran === 'H')   return `${yr} H${mo <= 6 ? 1 : 2}`;
     if (gran === 'Y')   return `${yr}`;
@@ -4741,11 +4950,21 @@ function _buildComparisons(buckets, gran) {
   const cur = buckets[n - 1];
   const pairs = [];
 
-  // Current vs Previous period (CQ vs LQ / CH vs LH / CY vs LY)
-  const prevLabels = { Q: 'LQ', H: 'LH', Y: 'LY', MAT: 'Prev MAT' };
-  const curLabels  = { Q: 'CQ', H: 'CH', Y: 'CYTD', MAT: 'MAT' };
+  // Current vs Previous period (CM vs LM / CQ vs LQ / CH vs LH / CY vs LY)
+  const prevLabels = { M: 'LM', Q: 'LQ', H: 'LH', Y: 'LY', MAT: 'Prev MAT' };
+  const curLabels  = { M: 'CM', Q: 'CQ', H: 'CH', Y: 'CYTD', MAT: 'MAT' };
   if (n >= 2) {
     pairs.push({ label: `${curLabels[gran]} vs ${prevLabels[gran]}`, a: cur, aLbl: curLabels[gran], b: buckets[n - 2], bLbl: prevLabels[gran] });
+  }
+
+  // Monthly: current month vs same month last year (labels are YYYY-MM).
+  if (gran === 'M') {
+    const curMonth = cur.label.slice(5, 7);
+    const lyMatch = buckets.slice(0, n - 1).filter(b => b.label.slice(5, 7) === curMonth);
+    if (lyMatch.length) {
+      const lyc = lyMatch[lyMatch.length - 1];
+      pairs.push({ label: 'CM vs LYCM', a: cur, aLbl: 'CM', b: lyc, bLbl: 'LYCM' });
+    }
   }
 
   // Current period vs same period last year
@@ -4843,34 +5062,43 @@ function renderPeriodicPerformance(gran) {
 
   const ctx = document.getElementById('periodic-perf-chart').getContext('2d');
   if (periodicPerfChart) periodicPerfChart.destroy();
+  // Stacked bars: each period's bar is composed of New Investment (capital added)
+  // + Returns (market gain/loss). Positive returns stack green above the New
+  // Investment; negative returns drop below the zero line in red so loss periods
+  // stand out at a glance. A thin line traces the net NW change.
   periodicPerfChart = new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
       labels,
       datasets: [
-        { label: 'NW Change (₹ L)', data: nwChange,
-          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)',
-          fill: true, borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#6366f1', tension: 0.3 },
-        { label: 'Market Return (₹ L)', data: mktRet,
-          borderColor: '#10b981', backgroundColor: 'transparent',
-          fill: false, borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#10b981',
-          borderDash: [5, 3], tension: 0.3 },
-        { label: 'New Investment (₹ L)', data: newInvL,
-          borderColor: '#f59e0b', backgroundColor: 'transparent',
-          fill: false, borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#f59e0b',
-          borderDash: [2, 3], tension: 0.3 },
+        { label: 'New Investment (₹ L)', data: newInvL, stack: 'nw',
+          backgroundColor: 'rgba(99,102,241,0.75)', borderColor: '#6366f1', borderWidth: 1,
+          categoryPercentage: 0.7, barPercentage: 0.9, order: 2 },
+        { label: 'Returns (₹ L)', data: mktRet, stack: 'nw',
+          backgroundColor: (c) => (c.raw >= 0 ? 'rgba(16,185,129,0.8)' : 'rgba(239,68,68,0.9)'),
+          borderColor: (c) => (c.raw >= 0 ? '#10b981' : '#ef4444'), borderWidth: 1,
+          categoryPercentage: 0.7, barPercentage: 0.9, order: 2 },
+        { label: 'Net NW Change (₹ L)', data: nwChange, type: 'line',
+          borderColor: '#e5e7eb', backgroundColor: '#e5e7eb', borderWidth: 1.5,
+          pointRadius: 2.5, pointBackgroundColor: '#e5e7eb', tension: 0.2, order: 1 },
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'top', labels: { color: '#9ca3af', boxWidth: 20, usePointStyle: true, font: { size: 11 } } },
-        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ₹${c.parsed.y.toFixed(2)} L` } }
+        legend: { position: 'top', labels: { color: '#9ca3af', boxWidth: 14, usePointStyle: true, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: c => ` ${c.dataset.label}: ${c.parsed.y >= 0 ? '+' : '−'}₹${Math.abs(c.parsed.y).toFixed(2)} L`,
+          }
+        }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxRotation: 45 } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' },
+        x: { stacked: true, grid: { display: false }, ticks: { color: '#9ca3af', maxRotation: 45 } },
+        y: { stacked: true, grid: { color: 'rgba(255,255,255,0.04)' },
+             // emphasise the zero line so negative bars are unmistakable
+             border: { color: 'rgba(255,255,255,0.25)' },
              ticks: { color: '#9ca3af', callback: v => '₹' + v.toFixed(1) + 'L' } }
       }
     }
@@ -5215,6 +5443,8 @@ function renderMonthlySummary(count = 12, startIndex = 0, endIndex = null) {
 }
 
 function renderMonthlyChangeChart(count = 12, startIndex = 0, endIndex = null) {
+  // Chart removed — superseded by the Monthly tab in Periodic Performance.
+  if (!document.getElementById('monthly-change-chart')) return;
   const dates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
   
@@ -5487,6 +5717,8 @@ function renderMonthlyHeatmap() {
 }
 
 function renderMonthlyActivityChart(count = 12, startIndex = 0, endIndex = null) {
+  // Chart removed — superseded by the Monthly tab in Periodic Performance.
+  if (!document.getElementById('monthly-activity-chart')) return;
   const dates = breakupSummary.dates;
   const newInvSection = breakupSummary.new_investment;
   const newInvTotal = newInvSection["Total Investment"].values;
@@ -5543,12 +5775,25 @@ function renderMonthlyActivityChart(count = 12, startIndex = 0, endIndex = null)
   });
 }
 
+// Trading Activity Log filter state (type + coarse asset category) and the last
+// rendered date range, so a filter change re-renders without losing the range.
+let _tradingTypeFilter = 'ALL';
+let _tradingCatFilter = 'ALL';
+let _tradingLastStart = 0, _tradingLastEnd = null;
+
+function setTradingFilter() {
+  _tradingTypeFilter = document.getElementById('trading-type-filter')?.value || 'ALL';
+  _tradingCatFilter = document.getElementById('trading-cat-filter')?.value || 'ALL';
+  renderTradingActivityLog(0, _tradingLastStart, _tradingLastEnd);
+}
+
 // Generate Trading Activity Log
 function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   const dates = breakupSummary.dates;
-  
+
   // If endIndex not provided, use the last available index
   if (endIndex === null) endIndex = dates.length - 1;
+  _tradingLastStart = startIndex; _tradingLastEnd = endIndex;
   
   const trades = [];
   
@@ -5642,6 +5887,59 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     }
   });
   
+  // ── Contributions for non-tradeable components (Gold, NPS, PF, PPF, Bonds,
+  // Cash, Crypto) from the breakup new_investment series + the ledger balances. ──
+  const COMP_META = {
+    'Gold (Gold)':        { label: 'Gold',   category: 'Gold',      assetCategory: 'Gold' },
+    'NPS E (Equity)':     { label: 'NPS E',  category: 'Equity',    assetCategory: 'NPS' },
+    'NPS C (Debt)':       { label: 'NPS C',  category: 'Debt',      assetCategory: 'NPS' },
+    'NPS G (Debt)':       { label: 'NPS G',  category: 'Debt',      assetCategory: 'NPS' },
+    'PF (Debt)':          { label: 'PF',     category: 'Debt',      assetCategory: 'PF' },
+    'PPF (Debt)':         { label: 'PPF',    category: 'Debt',      assetCategory: 'PPF' },
+    'Bonds (Debt)':       { label: 'Bonds',  category: 'Debt',      assetCategory: 'Bonds' },
+    'Cash (Liquid)':      { label: 'Cash',   category: 'Liquid',    assetCategory: 'Cash' },
+    'Crypto (Alternate)': { label: 'Crypto', category: 'Alternate', assetCategory: 'Crypto' },
+  };
+  const niSec = breakupSummary.new_investment || {};
+  Object.entries(COMP_META).forEach(([key, meta]) => {
+    const vals = niSec[key]?.values;
+    if (!vals) return;
+    vals.forEach((v, i) => {
+      if (!v) return; // only periods with an actual contribution/withdrawal
+      trades.push({
+        date: dates[i], instrument: meta.label,
+        type: v >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
+        quantity: null, price: null, total: Math.abs(v) * 100000,
+        category: meta.category, assetCategory: meta.assetCategory,
+      });
+    });
+  });
+  // Post-base balance contributions entered via the ledger (not yet month-closed).
+  const _bd2 = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+  (typeof balances !== 'undefined' ? balances : []).forEach(b => {
+    if (!b.contribution) return;
+    if (_bd2 && b.date <= _bd2) return; // pre-base already in the breakup series
+    const code = `${b.component}`;
+    const lbl = code.replace('-', ' ');
+    const cat = /Debt|PF|PPF|Bonds|NPS-C|NPS-G/.test(code) ? 'Debt'
+              : /Gold/.test(code) ? 'Gold' : /Cash/.test(code) ? 'Liquid'
+              : /Crypto/.test(code) ? 'Alternate' : 'Equity';
+    const ac = /NPS/.test(code) ? 'NPS' : /PPF/.test(code) ? 'PPF' : /PF/.test(code) ? 'PF'
+             : /Bonds/.test(code) ? 'Bonds' : /Gold/.test(code) ? 'Gold'
+             : /Cash/.test(code) ? 'Cash' : /Crypto/.test(code) ? 'Crypto' : 'NPS';
+    trades.push({
+      date: b.date, instrument: lbl,
+      type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
+      quantity: null, price: null, total: Math.abs(b.contribution),
+      category: cat, assetCategory: ac,
+    });
+  });
+
+  // Tag existing stock/MF trades with a coarse asset category for filtering.
+  trades.forEach(t => {
+    if (!t.assetCategory) t.assetCategory = (t.category === 'Mutual Fund') ? 'Mutual Funds' : 'Stocks';
+  });
+
   // Sort by date (newest first)
   trades.sort((a, b) => new Date(b.date) - new Date(a.date));
   
@@ -5650,24 +5948,38 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   // (not yet captured by a month close) still appear.
   const startDate = dates[startIndex];
   const endDate = (endIndex >= dates.length - 1) ? '9999-12-31' : dates[endIndex];
-  const filteredTrades = trades.filter(t => t.date >= startDate && t.date <= endDate);
-  
+  let filteredTrades = trades.filter(t => t.date >= startDate && t.date <= endDate);
+
+  // Populate the category filter dropdown from the categories actually present.
+  const catSel = document.getElementById('trading-cat-filter');
+  if (catSel) {
+    const cats = [...new Set(trades.map(t => t.assetCategory))].sort();
+    const cur = catSel.value || 'ALL';
+    catSel.innerHTML = '<option value="ALL">All Categories</option>' +
+      cats.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+    catSel.value = cats.includes(cur) ? cur : 'ALL';
+  }
+
+  // Apply type + category filters.
+  if (_tradingTypeFilter !== 'ALL') filteredTrades = filteredTrades.filter(t => t.type === _tradingTypeFilter);
+  if (_tradingCatFilter !== 'ALL')  filteredTrades = filteredTrades.filter(t => t.assetCategory === _tradingCatFilter);
+
   // Render table
   const tbody = document.getElementById('trading-activity-body');
   tbody.innerHTML = filteredTrades.map(trade => `
     <tr>
-      <td>${formatDateString(trade.date)}</td>
+      <td>${formatFullDate(trade.date)}</td>
       <td style="font-weight: 600;">${escapeHtml(trade.instrument)}</td>
       <td>
-        <span class="trade-type ${trade.type.toLowerCase()}">${trade.type}</span>
+        <span class="trade-type ${trade.type === 'CONTRIBUTION' ? 'buy' : trade.type === 'WITHDRAWAL' ? 'sell' : trade.type.toLowerCase()}">${trade.type}</span>
       </td>
-      <td style="text-align: right;">${trade.quantity.toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
-      <td style="text-align: right;">₹${trade.price.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+      <td style="text-align: right;">${trade.quantity == null ? '—' : trade.quantity.toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
+      <td style="text-align: right;">${trade.price == null ? '—' : '₹' + trade.price.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
       <td style="text-align: right; font-weight: 600;">${formatINR(trade.total)}</td>
       <td><span class="sector-tag">${escapeHtml(trade.category)}</span></td>
     </tr>
   `).join('');
-  
+
   // Show message if no trades
   if (filteredTrades.length === 0) {
     tbody.innerHTML = `
@@ -5695,10 +6007,10 @@ function reapplyMfsView() {
     const val = (f) => {
       switch (mfSortColumn) {
         case 0: return f.scheme; case 1: return f.scheme_type; case 2: return f.qty;
-        case 3: return f.price; case 4: return f.basePrice ?? 0; case 5: return f.avg_nav;
-        case 6: return f.invested; case 7: return f.cur_val; case 8: return f.pnl;
-        case 9: return f.gain_pct; case 10: return holdingXIRR(f, 'mf') ?? -Infinity;
-        case 11: return f.thisMonthGain ?? 0; case 12: return _mfNavDateMs(f.navDate);
+        case 3: return f.price; case 4: return f.avg_nav;
+        case 5: return f.invested; case 6: return f.cur_val; case 7: return f.pnl;
+        case 8: return f.gain_pct; case 9: return holdingXIRR(f, 'mf') ?? -Infinity;
+        case 10: return _mfNavDateMs(f.navDate);
         default: return f.scheme;
       }
     };
@@ -5744,15 +6056,13 @@ function sortMfs(colIdx) {
       case 1: valA = a.scheme_type; valB = b.scheme_type; break;
       case 2: valA = a.qty; valB = b.qty; break;
       case 3: valA = a.price; valB = b.price; break;
-      case 4: valA = a.basePrice ?? 0; valB = b.basePrice ?? 0; break;
-      case 5: valA = a.avg_nav; valB = b.avg_nav; break;
-      case 6: valA = a.invested; valB = b.invested; break;
-      case 7: valA = a.cur_val; valB = b.cur_val; break;
-      case 8: valA = a.pnl; valB = b.pnl; break;
-      case 9: valA = a.gain_pct; valB = b.gain_pct; break;
-      case 10: valA = holdingXIRR(a, 'mf') ?? -Infinity; valB = holdingXIRR(b, 'mf') ?? -Infinity; break;
-      case 11: valA = a.thisMonthGain ?? 0; valB = b.thisMonthGain ?? 0; break;
-      case 12: valA = _mfNavDateMs(a.navDate); valB = _mfNavDateMs(b.navDate); break;
+      case 4: valA = a.avg_nav; valB = b.avg_nav; break;
+      case 5: valA = a.invested; valB = b.invested; break;
+      case 6: valA = a.cur_val; valB = b.cur_val; break;
+      case 7: valA = a.pnl; valB = b.pnl; break;
+      case 8: valA = a.gain_pct; valB = b.gain_pct; break;
+      case 9: valA = holdingXIRR(a, 'mf') ?? -Infinity; valB = holdingXIRR(b, 'mf') ?? -Infinity; break;
+      case 10: valA = _mfNavDateMs(a.navDate); valB = _mfNavDateMs(b.navDate); break;
     }
 
     if (typeof valA === 'string') {
@@ -5791,10 +6101,35 @@ function populateInstrumentDatalist() {
   dl.innerHTML = names.sort().map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
 }
 
+function onTxnTypeChange() {
+  const type = document.getElementById('txn-type').value;
+  const hint = document.getElementById('txn-corporate-hint');
+  if (hint) hint.style.display = (type === 'split' || type === 'bonus') ? '' : 'none';
+  if (type === 'split' || type === 'bonus') {
+    document.getElementById('txn-price').value = '0';
+    document.getElementById('txn-amount').value = '0';
+  }
+}
+
 function onTxnAssetClassChange() {
   const cls = document.getElementById('txn-assetClass').value;
   document.getElementById('txn-category-wrap').style.display = cls === 'mf' ? '' : 'none';
   populateInstrumentDatalist();
+  onTxnInstrumentChange();
+}
+
+// Auto-derive the MF category from the matched scheme (read-only display) — the
+// user never types it. For an existing scheme it comes from the holding's
+// scheme_type; for a brand-new scheme it's left blank and resolved later from
+// the MF price source.
+function onTxnInstrumentChange() {
+  const cls = document.getElementById('txn-assetClass').value;
+  const catEl = document.getElementById('txn-category');
+  if (!catEl) return;
+  if (cls !== 'mf') { catEl.value = ''; return; }
+  const name = (document.getElementById('txn-instrument').value || '').trim().toLowerCase();
+  const match = (latestMf || []).find(f => f.scheme.toLowerCase() === name);
+  catEl.value = match ? (match.scheme_type || '') : '';
 }
 
 function onTxnAmountInputs() {
@@ -5821,9 +6156,11 @@ function handleTxnSubmit(e) {
     amount: document.getElementById('txn-amount').value ? parseFloat(document.getElementById('txn-amount').value) : null,
     note: document.getElementById('txn-note').value.trim(),
   };
-  if (!payload.instrument || !isFinite(payload.qty) || !isFinite(payload.price)) {
-    alert('Instrument, quantity and price are required.'); return false;
+  const isCorporateAction = payload.type === 'split' || payload.type === 'bonus';
+  if (!payload.instrument || !isFinite(payload.qty) || (!isCorporateAction && !isFinite(payload.price))) {
+    alert('Instrument and quantity are required.'); return false;
   }
+  if (isCorporateAction) { payload.price = 0; payload.amount = 0; }
   if (editId) updateTransaction(editId, payload);
   else addTransaction(payload);
   resetTxnForm();
@@ -5920,6 +6257,36 @@ function removeBal(id) {
 
 // Re-derive holdings from the ledger and re-render every analytics view,
 // including Periodic Performance.
+function autoCloseMonthIfNeeded() {
+  if (!breakupSummary || typeof closeMonth !== 'function') return false;
+  const dates = breakupSummary.dates || [];
+  if (!dates.length) return false;
+  const lastDate = dates[dates.length - 1];
+  const now = new Date();
+  // Last day of the previous calendar month
+  const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const prevMonthEndStr = prevMonthEnd.toISOString().slice(0, 10);
+  // Compare year-month only (first 7 chars) so "2026-05-31" and "2026-05-01"
+  // are treated as the same closed period — prevents a spurious close when the
+  // breakup dates use month-start format while we compute month-end dates.
+  if (prevMonthEndStr.slice(0, 7) <= lastDate.slice(0, 7)) return false;
+  try {
+    const res = closeMonth(prevMonthEndStr);
+    refreshAfterLedgerChange();
+    console.log('[auto-close] Closed month:', prevMonthEndStr, '— NW:', res?.totalValue?.toFixed(2), 'L');
+    const badge = document.getElementById('live-time-badge');
+    if (badge) {
+      const prev = badge.innerText;
+      badge.innerText = `✓ Auto-closed ${prevMonthEndStr}`;
+      setTimeout(() => { badge.innerText = prev; }, 4000);
+    }
+    return true;
+  } catch (e) {
+    console.warn('[auto-close] Failed:', e.message);
+    return false;
+  }
+}
+
 function refreshAfterLedgerChange() {
   if (typeof applyLedgerToHoldings === 'function') applyLedgerToHoldings();
   if (typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
