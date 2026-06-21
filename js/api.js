@@ -83,16 +83,38 @@ const CORS_PROXIES = [
   (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
   (u) => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
 ];
+
+// Your own Cloudflare Worker proxy (cloudflare-worker/worker.js) — a reliable,
+// self-owned replacement for the flaky public proxies above. When set it is tried
+// FIRST, with the public proxies kept as automatic fallback. Configure it either by
+// pasting your Worker URL into WORKER_PROXY_URL below (applies to all devices once
+// committed), or per-device via localStorage 'ag_portfolio_worker_proxy'. Empty =
+// public proxies only (original behaviour, no regression).
+let WORKER_PROXY_URL = '';
+try {
+  WORKER_PROXY_URL = (localStorage.getItem('ag_portfolio_worker_proxy') || WORKER_PROXY_URL || '').trim();
+} catch (_) { /* localStorage unavailable */ }
+
+// Effective proxy list = [your Worker (if set), ...public proxies].
+function _proxyList() {
+  if (WORKER_PROXY_URL) {
+    const sep = WORKER_PROXY_URL.includes('?') ? '&' : '?';
+    return [(u) => WORKER_PROXY_URL + sep + 'url=' + encodeURIComponent(u), ...CORS_PROXIES];
+  }
+  return CORS_PROXIES;
+}
+
 // Sticky index of the last proxy that worked, so one outage costs a single
 // failed request per session instead of one per stock.
 let _workingProxyIdx = 0;
 
 async function fetchViaCorsProxy(targetUrl, options = {}, timeoutMs = 8000) {
+  const proxies = _proxyList();
   let lastErr = null;
-  for (let i = 0; i < CORS_PROXIES.length; i++) {
-    const idx = (_workingProxyIdx + i) % CORS_PROXIES.length;
+  for (let i = 0; i < proxies.length; i++) {
+    const idx = (_workingProxyIdx + i) % proxies.length;
     try {
-      const resp = await fetch(CORS_PROXIES[idx](targetUrl), { ...options, signal: AbortSignal.timeout(timeoutMs) });
+      const resp = await fetch(proxies[idx](targetUrl), { ...options, signal: AbortSignal.timeout(timeoutMs) });
       if (resp.ok) {
         _workingProxyIdx = idx;
         return resp;
@@ -336,13 +358,18 @@ async function refreshPrices(stocksOnly = false) {
       status.textContent = `${label} (${done}/${totalItems + latestMf.length})…`;
     };
 
-    // Fetch GOLDBEES.NS once for all SGB refreshes (1 gram gold proxy = GOLDBEES × 100)
+    // Fetch GOLDBEES.NS once for all SGB refreshes (1 gram gold proxy = GOLDBEES × 100).
+    // Capture prevClose too so SGBs get a daily change in the overview (gold's daily
+    // move), instead of showing blank — they were updated to a current value but had
+    // no yesterdayClose, so the daily-change column was empty.
     let goldPricePerGram = null;
+    let goldPrevPerGram = null;
     const sgbInstruments = latestEquity.filter(s => s.instrument.startsWith('SGB'));
     if (sgbInstruments.length > 0) {
       try {
-        const { price } = await fetchStockQuote('GOLDBEES', 'yahoo');
+        const { price, prevClose } = await fetchStockQuote('GOLDBEES', 'yahoo');
         if (price && price > 0) goldPricePerGram = price * 100;
+        if (prevClose && prevClose > 0) goldPrevPerGram = prevClose * 100;
       } catch (_) { /* use snapshot fallback per SGB below */ }
     }
 
@@ -389,15 +416,19 @@ async function refreshPrices(stocksOnly = false) {
         if (stock.basePrice === undefined) stock.basePrice = stock.ltp;
         const goldPrice = goldPricePerGram ?? loadPriceSnapshot(ticker)?.price ?? null;
         if (goldPrice && goldPrice > 0) {
+          // Daily change uses gold's previous close (proxy). Snapshot fallback keeps
+          // yesterdayClose stable when only the prevClose lookup fails.
+          const goldPrev = goldPrevPerGram ?? loadPriceSnapshot(ticker)?.prevClose ?? null;
           stock.ltp = goldPrice;
+          stock.yesterdayClose = goldPrev;
           stock.cur_val = stock.qty * goldPrice;
           stock.pnl = stock.cur_val - stock.invested;
           stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
           stock.lastRefreshDate = refreshDateStr;
           stock.thisMonthGain = (stock.ltp - stock.basePrice) * stock.qty;
           stockSuccess++;
-          stockDetails.push({ instrument: ticker, status: 'success', price: goldPrice, prevClose: null, error: null });
-          savePriceSnapshot(ticker, { price: goldPrice, prevClose: null, refreshDate: refreshDateStr });
+          stockDetails.push({ instrument: ticker, status: 'success', price: goldPrice, prevClose: goldPrev, error: null });
+          savePriceSnapshot(ticker, { price: goldPrice, prevClose: goldPrev, refreshDate: refreshDateStr });
         } else {
           stockFail++;
           stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'Gold price unavailable' });
@@ -668,8 +699,14 @@ async function refreshPrices(stocksOnly = false) {
     saveRefreshedPrices(latestEquity, latestMf);
 
     // Timestamp the last successful refresh so the visibility handler can decide
-    // whether a refocused/stale window needs to catch up.
+    // whether a refocused/stale window needs to catch up. Persist it too so the
+    // stale-data flag survives reloads (mobile often shows hours-old prices).
     window.__lastRefreshMs = Date.now();
+    try {
+      const P = (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_';
+      localStorage.setItem(P + 'last_refresh_ms', String(window.__lastRefreshMs));
+    } catch (_) { /* ignore */ }
+    if (typeof applyStaleDataFlag === 'function') applyStaleDataFlag();
 
     // 7. Re-render all tabs (initUpdateLogTab will now find lastRefreshReport)
     refreshAllTabs();
