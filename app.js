@@ -907,9 +907,14 @@ async function loadData() {
           hadRefresh = true;
         }
       } catch (_) { /* ignore a corrupt report */ }
-      if (hadRefresh) {
-        recomputePortfolioFromLiveData();
-      }
+      // Always recompute net worth from the freshly re-derived live holdings +
+      // frozenBase baseline. The persisted portfolio_summary.total_net_worth_lakhs
+      // can be stale (e.g. inflated by a previous buggy session that wrote a phantom
+      // total to localStorage/disk). Recomputing here makes the displayed total a
+      // pure function of the current ledger + prices, regardless of refresh state.
+      // With no live fetch, holdings sit at base-date prices so this reproduces the
+      // breakup baseline plus the ledger's new-investment deltas.
+      recomputePortfolioFromLiveData();
 
       generateBenchmarkData();
       fetchBenchmarkData(); // async; re-renders Growth tab benchmarks when resolved
@@ -987,6 +992,12 @@ async function loadData() {
 
     initializeLiveBaseline();
     if (typeof integrateLedger === 'function') integrateLedger();
+
+    // Recompute net worth from the re-derived live holdings + frozenBase baseline so
+    // the displayed total reflects the current ledger rather than a possibly-stale
+    // portfolio_summary.total_net_worth_lakhs loaded from disk (which a prior buggy
+    // session may have inflated with a phantom holding).
+    try { recomputePortfolioFromLiveData(); } catch (e) { console.error('recompute on load failed:', e); }
 
     // Load transaction history non-critically (dividends + pre-base flows for XIRR)
     loadTransactionHistory();
@@ -1085,11 +1096,20 @@ function recomputePortfolioFromLiveData() {
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
   portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
 
-  // Update latest breakupSummary data points for Growth tab chart display only —
-  // this mutation is intentionally NOT saved to localStorage (see saveRefreshedPrices)
-  setLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)', liveStockLakhs);
-  setLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)', liveMfLakhs);
-  setLatestSectionValue(breakupSummary.net_worth, 'Total', liveTotalLakhs);
+  // Update latest breakupSummary data points for Growth tab chart display only.
+  // GUARD: never overwrite the immutable frozen-base column. When no month has been
+  // closed since the base date, the LAST breakup column IS the opening snapshot —
+  // writing live values there corrupts the base (Stocks/MF/Total), and a subsequent
+  // commit persists that corruption, desyncing breakup from frozenBase. Only mutate
+  // a genuine post-base (closed-period) column. The live net worth is always shown
+  // via portfolioSummary.total_net_worth_lakhs (set above), independent of this.
+  const _lastBreakupDate = (breakupSummary.dates || []).slice(-1)[0] || '';
+  const _fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : '';
+  if (!_fbBaseDate || _lastBreakupDate > _fbBaseDate) {
+    setLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)', liveStockLakhs);
+    setLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)', liveMfLakhs);
+    setLatestSectionValue(breakupSummary.net_worth, 'Total', liveTotalLakhs);
+  }
   // autoCloseMonthIfNeeded is intentionally NOT called here — recomputePortfolioFromLiveData
   // is a pure computation function that runs multiple times per session. Side-effecting a
   // month-close from inside it corrupts prevVal lookups and drops the reconciliation gap.

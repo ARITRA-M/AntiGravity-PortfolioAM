@@ -207,9 +207,15 @@ function integrateLedger() {
   // the frozenBase is a clean snapshot base. repairFrozenBasePrices() resets
   // uploadedSnapshot itself when it changes anything.
   repairFrozenBasePrices();
-  if (frozenBase && transactions && transactions.length) {
-    applyLedgerToHoldings();
-  }
+  // Always re-derive holdings from the immutable frozen base + ledger — even with
+  // zero transactions. deriveHoldings() with an empty ledger simply reproduces the
+  // frozen base, so this is safe, and it GUARANTEES latestEquity/latestMf and
+  // historicalHoldings are rebuilt cleanly on every load. This purges any phantom
+  // holdings a previous buggy session may have persisted to the localStorage cache
+  // (e.g. a miscased 'FMCGiETF' duplicate sitting alongside the real 'FMCGIETF').
+  // Previously this ran only when transactions existed, so deleting the last
+  // transaction left stale phantoms in the cache uncorrected.
+  if (frozenBase) applyLedgerToHoldings();
   // Always re-run baseline after frozenBase is set up. The first call in loadData()
   // runs before loadLedger() populates frozenBase (it's null then), so basePrice
   // falls back to current ltp → thisMonthGain = 0. This corrects that.
@@ -243,13 +249,19 @@ function newId() {
   return 't_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
 }
 
-// Resolve a transaction's instrument name to an existing holding key, folding
-// renamed tickers via the app's canonical lookup when available.
+// Resolve a transaction's instrument name to the canonical frozenBase key.
+// Uses frozenBase.equity (ground truth) rather than historicalHoldings, which
+// can contain phantom entries created by misspelled/miscased instrument names.
 function canonicalInstrument(name, assetClass) {
-  if (assetClass === 'stock' && typeof getStockHistoryKey === 'function') {
-    return getStockHistoryKey(name) || name;
-  }
-  return name;
+  if (assetClass !== 'stock') return name;
+  const fb = (typeof frozenBase !== 'undefined') ? frozenBase : null;
+  if (!fb?.equity) return name;
+  // Direct match
+  if (fb.equity.some(s => s.instrument === name)) return name;
+  // Case-insensitive / alphanumeric-cleaned match (handles 'FMCGiETF' → 'FMCGIETF')
+  const clean = name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const match = fb.equity.find(s => s.instrument.toUpperCase().replace(/[^A-Z0-9]/g, '') === clean);
+  return match ? match.instrument : name;
 }
 
 // ── Holdings derivation ────────────────────────────────────────────────────
@@ -265,20 +277,24 @@ function deriveHoldings(base, txns) {
   const eq = new Map();   // instrument -> holding
   const mf = new Map();   // scheme -> holding
   (base.equity || []).forEach(s => {
+    // frozenBase stores basePrice (freeze-date price), not ltp — seed from it so a
+    // cold derivation (no prevEq to restore live prices) still values correctly.
+    const px = s.ltp ?? s.basePrice ?? 0;
     eq.set(s.instrument, {
       instrument: s.instrument, sector: s.sector, qty: s.qty,
-      avg_cost: s.avg_cost, ltp: s.ltp, invested: s.invested,
-      cur_val: s.qty * s.ltp, pnl: s.qty * s.ltp - s.invested,
-      gain_pct: s.invested > 0 ? (s.qty * s.ltp - s.invested) / s.invested : 0,
+      avg_cost: s.avg_cost, ltp: px, invested: s.invested,
+      cur_val: s.qty * px, pnl: s.qty * px - s.invested,
+      gain_pct: s.invested > 0 ? (s.qty * px - s.invested) / s.invested : 0,
       realized_pnl: 0,
     });
   });
   (base.mf || []).forEach(f => {
+    const px = f.price ?? f.basePrice ?? 0;
     mf.set(f.scheme, {
       scheme: f.scheme, scheme_type: f.scheme_type, qty: f.qty,
-      avg_nav: f.avg_nav, price: f.price, invested: f.invested,
-      cur_val: f.qty * f.price, pnl: f.qty * f.price - f.invested,
-      gain_pct: f.invested > 0 ? (f.qty * f.price - f.invested) / f.invested : 0,
+      avg_nav: f.avg_nav, price: px, invested: f.invested,
+      cur_val: f.qty * px, pnl: f.qty * px - f.invested,
+      gain_pct: f.invested > 0 ? (f.qty * px - f.invested) / f.invested : 0,
       realized_pnl: 0,
     });
   });
@@ -413,6 +429,17 @@ function applyLedgerToHoldings() {
     if (h.basePrice === undefined) h.basePrice = frozenMfPrice.get(h.scheme) ?? 0;
     return h;
   });
+  // Purge phantom historicalHoldings.stocks keys created by previous misspelled
+  // instrument names (e.g. 'FMCGiETF' alongside 'FMCGIETF'). Only keep entries
+  // whose key matches a holding in the derived latestEquity.
+  if (historicalHoldings?.stocks) {
+    const validKeys = new Set(latestEquity.map(s => s.instrument));
+    // Also keep frozenBase instruments (they have pre-base history worth preserving).
+    (frozenBase.equity || []).forEach(s => validKeys.add(s.instrument));
+    Object.keys(historicalHoldings.stocks).forEach(k => {
+      if (!validKeys.has(k)) delete historicalHoldings.stocks[k];
+    });
+  }
   // Keep the per-holding history in sync so the inline transaction history,
   // Trading Activity log, and per-holding XIRR all reflect ledger edits.
   rebuildHoldingHistoryFromLedger();
@@ -469,13 +496,15 @@ function rebuildHoldingHistoryFromLedger() {
         else { st.qty += qty; st.invested += amount; st.avg_nav = st.qty > 0 ? st.invested / st.qty : price; }
         affectedMfs.add(t.instrument);
       } else {
-        const st = stockState[t.instrument] || (stockState[t.instrument] =
-          { qty: 0, invested: 0, avg_cost: price, sector: (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[t.instrument]) || 'Other Equities' });
+        // Canonicalize so history is keyed under the same name as the frozenBase holding.
+        const canon = canonicalInstrument(t.instrument, 'stock');
+        const st = stockState[canon] || (stockState[canon] =
+          { qty: 0, invested: 0, avg_cost: price, sector: (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[canon]) || 'Other Equities' });
         if (t.type === 'split' || t.type === 'bonus') {
-          if (stockState[t.instrument]) { st.qty += qty; st.avg_cost = st.qty > 0 ? st.invested / st.qty : 0; }
-          affectedStocks.add(t.instrument);
-        } else if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_cost * s; st.qty -= s; affectedStocks.add(t.instrument); }
-        else { st.qty += qty; st.invested += amount; st.avg_cost = st.qty > 0 ? st.invested / st.qty : price; affectedStocks.add(t.instrument); }
+          st.qty += qty; st.avg_cost = st.qty > 0 ? st.invested / st.qty : 0;
+          affectedStocks.add(canon);
+        } else if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_cost * s; st.qty -= s; affectedStocks.add(canon); }
+        else { st.qty += qty; st.invested += amount; st.avg_cost = st.qty > 0 ? st.invested / st.qty : price; affectedStocks.add(canon); }
       }
     });
     affectedStocks.forEach(inst => {

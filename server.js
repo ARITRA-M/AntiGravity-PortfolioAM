@@ -554,9 +554,28 @@ app.post('/api/commit-data', (req, res) => {
     execSync(`git commit -m "${commitMsg}"`, execOpts);
     results.push(`git commit: "${commitMsg}"`);
 
-    // 4c. git push
-    const pushOutput = execSync('git push origin main', execOpts).trim();
-    results.push(`git push: ${pushOutput.split('\n').pop()}`);
+    // 4c. git push — push the CURRENT branch (not a hardcoded 'main'). Previously
+    // this always did `git push origin main`, so when committing on any other
+    // branch the new commit landed on that branch while a stale `main` was pushed,
+    // leaving the live site permanently out of sync.
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', execOpts).trim();
+    const pushOutput = execSync(`git push origin ${branch}`, execOpts).trim();
+    results.push(`git push: ${branch} (${pushOutput.split('\n').pop() || 'ok'})`);
+
+    // 4d. GitHub Pages deploys from `main` (static.yml: on push to main). If we
+    // committed on a different branch, fast-forward `main` to this commit so the
+    // live site actually updates. This is a fast-forward because main tracks the
+    // working branch tip via this same path; a non-FF push errors loudly instead
+    // of silently leaving the site stale.
+    if (branch !== 'main') {
+      try {
+        execSync(`git push origin ${branch}:main`, execOpts);
+        results.push(`git push: ${branch} → main (Pages deploy)`);
+      } catch (e) {
+        results.push(`⚠️ could not fast-forward main: ${(e.stderr || e.message || '').split('\n').pop()}`);
+        throw e;
+      }
+    }
 
     console.log(`✅ ${results.join(' | ')}`);
     res.json({ success: true, message: `✅ Committed & pushed! Mobile will sync within 10 min.`, details: results });
