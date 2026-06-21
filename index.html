@@ -100,6 +100,7 @@
           <div class="kpi-slim-label">Net Worth</div>
           <div class="kpi-slim-value" id="kpi-net-worth">₹0.00 L</div>
           <div class="kpi-slim-sub">Total portfolio</div>
+          <div class="kpi-slim-sub">XIRR: <span id="kpi-portfolio-xirr" class="kpi-slim-pct">—</span></div>
         </div>
       </div>
       <div class="kpi-slim-card" style="--card-accent: #3b82f6;">
@@ -107,9 +108,8 @@
         <div class="kpi-slim-body">
           <div class="kpi-slim-label">Equity</div>
           <div class="kpi-slim-value" id="kpi-equity-val">₹0.00 L</div>
-          <div class="kpi-slim-sub">Stocks, MFs, NPS E · <span id="kpi-equity-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
+          <div class="kpi-slim-sub"><span id="kpi-equity-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-equity-xirr" class="kpi-slim-pct">—</span></div>
-          <div class="kpi-slim-sub" style="display:none;">Dividends: <span id="kpi-dividend-income" class="kpi-slim-pct">—</span></div>
         </div>
       </div>
       <div class="kpi-slim-card" style="--card-accent: #8b5cf6;">
@@ -117,7 +117,7 @@
         <div class="kpi-slim-body">
           <div class="kpi-slim-label">Debt</div>
           <div class="kpi-slim-value" id="kpi-debt-val">₹0.00 L</div>
-          <div class="kpi-slim-sub">Bonds, NPS, PF, PPF · <span id="kpi-debt-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
+          <div class="kpi-slim-sub"><span id="kpi-debt-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-debt-xirr" class="kpi-slim-pct">—</span></div>
         </div>
       </div>
@@ -126,7 +126,7 @@
         <div class="kpi-slim-body">
           <div class="kpi-slim-label">Gold</div>
           <div class="kpi-slim-value" id="kpi-gold-val">₹0.00 L</div>
-          <div class="kpi-slim-sub">SGBs, Gold ETF · <span id="kpi-gold-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
+          <div class="kpi-slim-sub"><span id="kpi-gold-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-gold-xirr" class="kpi-slim-pct">—</span></div>
         </div>
       </div>
@@ -245,8 +245,10 @@
             <div class="time-filters">
               <select id="growth-time-filter" class="select-filter" onchange="filterGrowthChart()">
                 <option value="ALL">All Time</option>
+                <option value="5Y">Past 5 Years</option>
                 <option value="3Y">Past 3 Years</option>
                 <option value="1Y">Past 1 Year</option>
+                <option value="6M">Past 6 Months</option>
               </select>
             </div>
           </div>
@@ -395,15 +397,14 @@
                   <th onclick="sortStocks(1)">Sector</th>
                   <th onclick="sortStocks(2)" style="text-align: right;">Qty.</th>
                   <th onclick="sortStocks(3)" style="text-align: right;">Current LTP (₹)</th>
-                  <th onclick="sortStocks(4)" style="text-align: right;">Base Price (₹)</th>
-                  <th onclick="sortStocks(5)" style="text-align: right;">Purchase Price (₹)</th>
-                  <th onclick="sortStocks(6)" style="text-align: right;">Invested (₹)</th>
-                  <th onclick="sortStocks(7)" style="text-align: right;">Valuation (₹)</th>
-                  <th onclick="sortStocks(8)" style="text-align: right;">P&L (₹)</th>
-                  <th onclick="sortStocks(9)" style="text-align: right;">Gain %</th>
-                  <th onclick="sortStocks(10)" style="text-align: right;" title="Money-weighted annualized return from this holding's contribution history">XIRR</th>
-                  <th onclick="sortStocks(11)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
-                  <th onclick="sortStocks(12)" style="text-align: right;" title="Market timestamp the price belongs to (not the refresh time)">Price As Of</th>
+                  <th onclick="sortStocks(4)" style="text-align: right;">Purchase Price (₹)</th>
+                  <th onclick="sortStocks(5)" style="text-align: right;">Invested (₹)</th>
+                  <th onclick="sortStocks(6)" style="text-align: right;">Valuation (₹)</th>
+                  <th onclick="sortStocks(7)" style="text-align: right;">P&L (₹)</th>
+                  <th onclick="sortStocks(8)" style="text-align: right;">Gain %</th>
+                  <th onclick="sortStocks(9)" style="text-align: right;" title="Money-weighted annualized return including dividends received">XIRR</th>
+                  <th onclick="sortStocks(10)" style="text-align: right;" title="Trailing 12-month dividends ÷ current value">Div Yield %</th>
+                  <th onclick="sortStocks(11)" style="text-align: right;" title="Market timestamp the price belongs to (not the refresh time)">Price As Of</th>
                 </tr>
               </thead>
               <tbody id="stocks-table-body">
@@ -478,15 +479,13 @@
                   <th onclick="sortMfs(1)">Category</th>
                   <th onclick="sortMfs(2)" style="text-align: right;">Quantity</th>
                   <th onclick="sortMfs(3)" style="text-align: right;">Current NAV (₹)</th>
-                  <th onclick="sortMfs(4)" style="text-align: right;">Base NAV (₹)</th>
-                  <th onclick="sortMfs(5)" style="text-align: right;">Purchase NAV (₹)</th>
-                  <th onclick="sortMfs(6)" style="text-align: right;">Invested (₹)</th>
-                  <th onclick="sortMfs(7)" style="text-align: right;">Valuation (₹)</th>
-                  <th onclick="sortMfs(8)" style="text-align: right;">P&L (₹)</th>
-                  <th onclick="sortMfs(9)" style="text-align: right;">Gain %</th>
-                  <th onclick="sortMfs(10)" style="text-align: right;" title="Money-weighted annualized return from this holding's contribution history">XIRR</th>
-                  <th onclick="sortMfs(11)" style="text-align: right;" class="sort-desc">This Month Gain (₹)</th>
-                  <th onclick="sortMfs(12)" style="text-align: right;" title="The date this NAV is for (not the refresh time)">NAV Date</th>
+                  <th onclick="sortMfs(4)" style="text-align: right;">Purchase NAV (₹)</th>
+                  <th onclick="sortMfs(5)" style="text-align: right;">Invested (₹)</th>
+                  <th onclick="sortMfs(6)" style="text-align: right;">Valuation (₹)</th>
+                  <th onclick="sortMfs(7)" style="text-align: right;">P&L (₹)</th>
+                  <th onclick="sortMfs(8)" style="text-align: right;">Gain %</th>
+                  <th onclick="sortMfs(9)" style="text-align: right;" title="Money-weighted annualized return from this holding's contribution history">XIRR</th>
+                  <th onclick="sortMfs(10)" style="text-align: right;" title="The date this NAV is for (not the refresh time)">NAV Date</th>
                 </tr>
               </thead>
               <tbody id="mfs-table-body">
@@ -641,6 +640,7 @@
         <div class="chart-header">
           <h3>📊 Periodic Performance</h3>
           <div class="time-filters">
+            <button class="periodic-gran-btn subtab-btn" data-gran="M" onclick="renderPeriodicPerformance('M')">Monthly</button>
             <button class="periodic-gran-btn subtab-btn active" data-gran="Q" onclick="renderPeriodicPerformance('Q')">Quarterly</button>
             <button class="periodic-gran-btn subtab-btn" data-gran="H" onclick="renderPeriodicPerformance('H')">Half-Yearly</button>
             <button class="periodic-gran-btn subtab-btn" data-gran="Y" onclick="renderPeriodicPerformance('Y')">Yearly</button>
@@ -687,16 +687,6 @@
           </div>
         </div>
 
-        <!-- Monthly Net Worth Change Chart -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Monthly Net Worth Change</h3>
-          </div>
-          <div class="chart-container">
-            <canvas id="monthly-change-chart"></canvas>
-          </div>
-        </div>
-
         <!-- Top Winners & Losers — toggle between % return and absolute ₹ -->
         <div class="chart-card full-width-card movers-section">
           <div class="chart-header">
@@ -718,20 +708,23 @@
           </div>
         </div>
 
-        <!-- Monthly Transaction Summary -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Monthly Investment Activity</h3>
-          </div>
-          <div class="chart-container">
-            <canvas id="monthly-activity-chart"></canvas>
-          </div>
-        </div>
 
         <!-- Trading Activity Log -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Trading Activity Log (Derived)</h3>
+            <h3>Investment Log</h3>
+            <div class="table-header-controls">
+              <select id="trading-type-filter" class="select-filter" onchange="setTradingFilter()">
+                <option value="ALL">All Types</option>
+                <option value="BUY">Buy</option>
+                <option value="SELL">Sell</option>
+                <option value="CONTRIBUTION">Contribution</option>
+                <option value="WITHDRAWAL">Withdrawal</option>
+              </select>
+              <select id="trading-cat-filter" class="select-filter" onchange="setTradingFilter()">
+                <option value="ALL">All Categories</option>
+              </select>
+            </div>
           </div>
           <div class="table-wrapper">
             <table id="trading-activity-table">
@@ -787,19 +780,24 @@
                 </select>
               </label>
               <label>Type
-                <select id="txn-type">
+                <select id="txn-type" onchange="onTxnTypeChange()">
                   <option value="buy">Buy</option>
                   <option value="sell">Sell</option>
+                  <option value="split">Stock Split</option>
+                  <option value="bonus">Bonus Issue</option>
                 </select>
               </label>
             </div>
+            <p id="txn-corporate-hint" class="manage-hint" style="display:none;margin:0.25rem 0 0.5rem;">
+              Enter the <strong>additional shares</strong> received (e.g. for a 1:1 bonus on 100 shares, enter 100). Price = 0, Amount = 0.
+            </p>
             <div class="manage-row">
               <label>Instrument
-                <input id="txn-instrument" list="txn-instrument-list" autocomplete="off" placeholder="e.g. SIEMENS" required>
+                <input id="txn-instrument" list="txn-instrument-list" autocomplete="off" placeholder="e.g. SIEMENS" oninput="onTxnInstrumentChange()" required>
                 <datalist id="txn-instrument-list"></datalist>
               </label>
-              <label id="txn-category-wrap" style="display:none;">MF category
-                <input id="txn-category" placeholder="e.g. Equity : Mid Cap">
+              <label id="txn-category-wrap" style="display:none;">MF category (auto)
+                <input id="txn-category" readonly placeholder="derived from scheme" style="opacity:0.7;cursor:not-allowed;">
               </label>
             </div>
             <div class="manage-row">

@@ -103,46 +103,64 @@ function initFrozenBaseFromCurrent() {
     equity: latestEquity.map(s => ({
       instrument: s.instrument, sector: s.sector, qty: s.qty,
       avg_cost: s.avg_cost, invested: s.invested,
-      // Use historical month-end price at baseDate so the per-holding sum
-      // matches the breakup-sheet total. Falls back to current ltp.
-      basePrice: _histBasePriceEq(s.instrument, baseDate) ?? s.ltp,
+      // basePrice MUST equal the snapshot price (current ltp) at baseDate. Then on a
+      // fresh load Σ(qty×basePrice) == Σ(qty×ltp), and the reconciliation gap bridges
+      // exactly to the breakup baseline (stockLakhs). Using a historical-lookup price
+      // here instead introduced mismatches (bonds→0, stale SGB prices) that leaked a
+      // phantom gain into net worth.
+      basePrice: s.ltp,
     })),
     mf: latestMf.map(f => ({
       scheme: f.scheme, scheme_type: f.scheme_type, qty: f.qty,
       avg_nav: f.avg_nav, invested: f.invested,
-      basePrice: _histBasePriceMf(f.scheme, baseDate) ?? f.price,
+      basePrice: f.price,
     })),
-    basePricesFromHistory: true,
+    _snapshotBase: true,
   };
   saveLedger();
   return frozenBase;
 }
 
-// Repair a frozenBase that was created with live (non-base-date) prices.
-// Replaces each holding's basePrice with the historical month-end price at
-// baseDate, eliminating the artificial reconciliation gap.
+// Repair a frozenBase that was created with the old historical-lookup basePrices
+// (basePricesFromHistory) or with null baseline lakhs. Rebuilds each holding's
+// basePrice from the current snapshot price (latestEquity/latestMf, which on a
+// fresh load are the base-date prices) and populates the baseline lakhs from the
+// breakup last column. This is the fix for the phantom +2L net-worth gain caused
+// when Σ(qty×basePrice) didn't equal Σ(qty×ltp) at the base date.
+//
+// Safe because integrateLedger() runs this at load time, BEFORE any price refresh,
+// so latestEquity[].ltp still holds the committed base-date snapshot prices.
 function repairFrozenBasePrices() {
-  if (!frozenBase || frozenBase.basePricesFromHistory) return; // nothing to do
-  if (!historicalHoldings) return;
-  const bd = frozenBase.baseDate;
-  let changed = false;
+  if (!frozenBase || !latestEquity || !latestMf) return;
+  // Already a clean snapshot base with populated lakhs → nothing to do.
+  if (frozenBase._snapshotBase && frozenBase.totalLakhs != null) return;
+
+  const eqLtp = new Map(latestEquity.map(s => [s.instrument, s.ltp]));
+  const mfPx  = new Map(latestMf.map(f => [f.scheme, f.price]));
   (frozenBase.equity || []).forEach(s => {
-    const hp = _histBasePriceEq(s.instrument, bd);
-    if (hp != null && Math.abs(hp - (s.basePrice ?? s.ltp ?? 0)) > 0.001) {
-      s.basePrice = hp; changed = true;
-    }
+    const p = eqLtp.get(s.instrument);
+    if (p != null) s.basePrice = p;
   });
   (frozenBase.mf || []).forEach(f => {
-    const hp = _histBasePriceMf(f.scheme, bd);
-    if (hp != null && Math.abs(hp - (f.basePrice ?? f.price ?? 0)) > 0.001) {
-      f.basePrice = hp; changed = true;
-    }
+    const p = mfPx.get(f.scheme);
+    if (p != null) f.basePrice = p;
   });
-  if (changed) {
-    frozenBase.basePricesFromHistory = true;
-    saveLedger();
-    console.log('[ledger] Repaired frozenBase basePrices from historical month-end data.');
+
+  // Populate / correct baseline lakhs from the breakup last column.
+  if (breakupSummary) {
+    const nw = breakupSummary.net_worth || {};
+    const _last = k => { const v = nw[k]?.values || []; return v.length ? v[v.length - 1] : 0; };
+    frozenBase.stockLakhs = _last('Stocks (Equity)');
+    frozenBase.mfLakhs    = _last('Mutual Funds (Equity)');
+    frozenBase.npsELakhs  = _last('NPS E (Equity)');
+    frozenBase.totalLakhs = _last('Total');
   }
+
+  delete frozenBase.basePricesFromHistory;
+  frozenBase._snapshotBase = true;
+  saveLedger();
+  if (typeof uploadedSnapshot !== 'undefined') uploadedSnapshot = null;
+  console.log('[ledger] Rebuilt frozenBase basePrices from snapshot + baseline lakhs from breakup.');
 }
 
 // Wire the ledger into the load flow. Safe to call after latestEquity/latestMf/
@@ -153,24 +171,42 @@ function repairFrozenBasePrices() {
 // Until the user records their first transaction, holdings are unchanged.
 function integrateLedger() {
   loadLedger();
+
+  const serverLastDate = (breakupSummary?.dates || []).slice(-1)[0] || '';
+
+  // Discard a frozenBase whose baseDate lies beyond the last server breakup date.
+  // This happens when a spurious auto-close (e.g. triggered before the year-month
+  // guard was in place) wrote a stale frozenBase to localStorage, causing net worth
+  // to be computed from gap-free raw sums instead of the Excel-anchored total.
+  if (frozenBase && frozenBase.baseDate > serverLastDate) {
+    console.warn('[ledger] Discarding stale frozenBase (baseDate', frozenBase.baseDate,
+      '> server last', serverLastDate, '). Will rebuild from current state.');
+    frozenBase = null;
+    try {
+      const P = (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_';
+      localStorage.removeItem(P + LEDGER_KEYS.frozenBase);
+    } catch (_) {}
+  }
+
   // Apply any locally-closed periods (closeMonth appends clean columns the
-  // server copy doesn't have yet). Safe vs the old drift bug: closeMonth never
-  // writes live-price-contaminated values into historical columns.
+  // server copy doesn't have yet). Only accept override periods that represent
+  // a genuinely NEW calendar month — not just a different day in the same month
+  // (which could arise from month-start vs month-end date format mismatches).
   const override = loadBreakupOverride();
-  if (override && breakupSummary && override.dates &&
-      override.dates[override.dates.length - 1] > breakupSummary.dates[breakupSummary.dates.length - 1]) {
-    breakupSummary = override;
-    if (typeof buildPortfolioSummary === 'function') portfolioSummary = buildPortfolioSummary(breakupSummary);
+  if (override && breakupSummary && override.dates) {
+    const overrideLast = override.dates[override.dates.length - 1] || '';
+    if (overrideLast.slice(0, 7) > serverLastDate.slice(0, 7)) {
+      breakupSummary = override;
+      if (typeof buildPortfolioSummary === 'function') portfolioSummary = buildPortfolioSummary(breakupSummary);
+    }
   }
+
   if (!frozenBase) initFrozenBaseFromCurrent();
-  // One-time repair: replace live prices in frozenBase with historical month-end
-  // prices at baseDate so Σ(basePrice × qty) matches the breakup-sheet total.
-  // Reset uploadedSnapshot so initializeLiveBaseline re-reads from the corrected frozenBase.
-  const _wasRepaired = !frozenBase?.basePricesFromHistory;
+  // Repair a contaminated frozenBase (history-lookup basePrices and/or null
+  // baseline lakhs) so net worth reconciles to the breakup baseline. No-op once
+  // the frozenBase is a clean snapshot base. repairFrozenBasePrices() resets
+  // uploadedSnapshot itself when it changes anything.
   repairFrozenBasePrices();
-  if (_wasRepaired && frozenBase?.basePricesFromHistory) {
-    if (typeof uploadedSnapshot !== 'undefined') uploadedSnapshot = null;
-  }
   if (frozenBase && transactions && transactions.length) {
     applyLedgerToHoldings();
   }
@@ -276,6 +312,14 @@ function applyStockTxn(eq, t, qty, price, amount) {
     h.invested -= h.avg_cost * sellQty;               // reduce cost basis proportionally
     h.qty -= sellQty;
     if (h.qty <= 1e-9) { h.qty = 0; }
+  } else if (t.type === 'split' || t.type === 'bonus') {
+    if (!h) return; // nothing held — ignore
+    h.qty += qty;   // qty = additional shares granted
+    h.avg_cost = h.qty > 0 ? h.invested / h.qty : 0;
+    h.cur_val  = h.qty * h.ltp;
+    h.pnl      = h.cur_val - h.invested;
+    h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+    return;
   } else { // buy
     if (!h) {
       h = {
@@ -427,9 +471,11 @@ function rebuildHoldingHistoryFromLedger() {
       } else {
         const st = stockState[t.instrument] || (stockState[t.instrument] =
           { qty: 0, invested: 0, avg_cost: price, sector: (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[t.instrument]) || 'Other Equities' });
-        if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_cost * s; st.qty -= s; }
-        else { st.qty += qty; st.invested += amount; st.avg_cost = st.qty > 0 ? st.invested / st.qty : price; }
-        affectedStocks.add(t.instrument);
+        if (t.type === 'split' || t.type === 'bonus') {
+          if (stockState[t.instrument]) { st.qty += qty; st.avg_cost = st.qty > 0 ? st.invested / st.qty : 0; }
+          affectedStocks.add(t.instrument);
+        } else if (t.type === 'sell') { const s = Math.min(qty, st.qty); st.invested -= st.avg_cost * s; st.qty -= s; affectedStocks.add(t.instrument); }
+        else { st.qty += qty; st.invested += amount; st.avg_cost = st.qty > 0 ? st.invested / st.qty : price; affectedStocks.add(t.instrument); }
       }
     });
     affectedStocks.forEach(inst => {
@@ -613,9 +659,22 @@ function closeMonth(dateStr) {
 
   const L = 1e5; // rupees → lakhs
 
-  // Live values for tradeables (lakhs)
-  const stockValue = latestEquity.reduce((s, h) => s + h.cur_val, 0) / L;
-  const mfValue = latestMf.reduce((s, h) => s + h.price * h.qty, 0) / L;
+  // Live values for tradeables (lakhs) — use the reconciliation-gap-corrected values so
+  // that closing a month doesn't silently drop the gap and cause a net-worth jump.
+  // The gap = (uploadedSnapshot baseline) − Σ(frozenQty × frozenPrice).  If we stored
+  // a raw per-holding sum here instead, the gap would vanish and every subsequent
+  // recomputePortfolioFromLiveData() call would show a different (wrong) total.
+  const rawStockVal = latestEquity.reduce((s, h) => s + h.cur_val, 0) / L;
+  const rawMfVal    = latestMf.reduce((s, h) => s + h.price * h.qty, 0) / L;
+  let stockValue = rawStockVal;
+  let mfValue    = rawMfVal;
+  if ((typeof uploadedSnapshot !== 'undefined') && uploadedSnapshot &&
+      (typeof frozenBase !== 'undefined') && frozenBase) {
+    const frozenStkVal = (frozenBase.equity || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0) / L;
+    const frozenMfVal  = (frozenBase.mf   || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.price ?? 0), 0) / L;
+    stockValue = rawStockVal + (uploadedSnapshot.stockLakhs - frozenStkVal);
+    mfValue    = rawMfVal   + (uploadedSnapshot.mfLakhs    - frozenMfVal);
+  }
 
   // New investment this period for tradeables (lakhs): buys − sells in (prev, D]
   const inWindow = t => t.date > prevDate && t.date <= D;
