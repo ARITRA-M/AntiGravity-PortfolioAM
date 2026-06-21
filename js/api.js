@@ -180,17 +180,23 @@ const MAX_RETRIES = 2;
 const BACKOFF_BASE_MS = 1000;
 
 async function fetchWithFallback(url, options = {}, retryCount = 0) {
-  // First try the URL directly (works on local server with proxy)
-  try {
-    const resp = await fetch(url, { ...options, signal: AbortSignal.timeout(8000) });
-    if (resp.ok) return resp;
-    // Retry on 429 (rate limited) with exponential backoff
-    if (resp.status === 429 && retryCount < MAX_RETRIES) {
-      const delay = BACKOFF_BASE_MS * Math.pow(2, retryCount);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return fetchWithFallback(url, options, retryCount + 1);
-    }
-  } catch (_) { /* fall through */ }
+  // First try the local /api/ proxy (works on `npm run dev`). On the deployed site
+  // there is NO backend, so this attempt is guaranteed to fail — skip it and go
+  // straight to the direct upstream (mfapi.in / Yahoo). Previously every MF NAV and
+  // every scheme search paid a wasted round-trip (up to an 8s timeout) here before
+  // falling through, which made the MF phase of a refresh noticeably slow on mobile.
+  if (!(typeof window !== 'undefined' && window.__staticMode)) {
+    try {
+      const resp = await fetch(url, { ...options, signal: AbortSignal.timeout(8000) });
+      if (resp.ok) return resp;
+      // Retry on 429 (rate limited) with exponential backoff
+      if (resp.status === 429 && retryCount < MAX_RETRIES) {
+        const delay = BACKOFF_BASE_MS * Math.pow(2, retryCount);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return fetchWithFallback(url, options, retryCount + 1);
+      }
+    } catch (_) { /* fall through */ }
+  }
 
   // Build the direct URL for the GitHub Pages fallback
   // Parse both path-segment style (/api/type/param) and query-string style (/api/type?q=param)

@@ -72,6 +72,20 @@ function handleCommitData(req, res) {
       const pushOut = execSync(`git push origin ${branch}`, execOpts).trim();
       results.push(`git push (${branch}): ${pushOut.split('\n').pop() || 'ok'}`);
 
+      // 4b. GitHub Pages deploys from `main`. If committing on another branch,
+      // fast-forward `main` to this commit so the live site actually updates —
+      // otherwise the push above lands only on the feature branch and the cloud
+      // stays stale. Errors loudly instead of silently leaving the site behind.
+      if (branch !== 'main') {
+        try {
+          execSync(`git push origin ${branch}:main`, execOpts);
+          results.push(`git push (${branch} → main): Pages deploy`);
+        } catch (e) {
+          results.push(`⚠️ could not fast-forward main: ${((e && (e.stderr || e.message)) || '').split('\n').pop()}`);
+          throw e;
+        }
+      }
+
       console.log(`✅ ${results.join(' | ')}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, message: '✅ Committed & pushed! Mobile will sync within 10 min.', details: results }));
