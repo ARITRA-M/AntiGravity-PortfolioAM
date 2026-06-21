@@ -3580,6 +3580,28 @@ function initStocksTab() {
     });
   });
 
+  // ── Continuity scaling ──────────────────────────────────────────────────
+  // The per-stock history under-covers early months: pre-Aug-2022 workbook
+  // fragments only captured ~45% of the true equity value, jumping to ~76%+
+  // afterwards. Rendered raw, the stacked bars jump at Aug 2022 even though the
+  // real portfolio grew smoothly. Scale each date's per-stock sums so the stacked
+  // total matches the authoritative breakup "Stocks (Equity)" value, preserving the
+  // sector/cap PROPORTIONS from whatever holdings are tracked. dateScale[d] is
+  // reused by the Market Cap chart below so both stay consistent.
+  const _bsStockVals = (breakupSummary.net_worth?.['Stocks (Equity)']?.values) || [];
+  const breakupStockRs = {};
+  (breakupSummary.dates || []).forEach((d, i) => { breakupStockRs[d] = (_bsStockVals[i] || 0) * 100000; });
+  const dateScale = {};
+  sortedStockDates.forEach(date => {
+    const rawTotal = Object.values(dateSectorMap[date]).reduce((s, v) => s + v, 0);
+    const target = breakupStockRs[date];
+    // Only scale when we have both a positive raw total and an authoritative target.
+    dateScale[date] = (rawTotal > 0 && target > 0) ? target / rawTotal : 1;
+    if (dateScale[date] !== 1) {
+      Object.keys(dateSectorMap[date]).forEach(sec => { dateSectorMap[date][sec] *= dateScale[date]; });
+    }
+  });
+
   // Collect all sectors across all dates, sorted by latest total value desc
   const latestStockDate = sortedStockDates[sortedStockDates.length - 1];
   const allSectorsSet = new Set();
@@ -3695,7 +3717,11 @@ function initStocksTab() {
       const entry = stock.history.find(h => h.date === date);
       if (!entry) return;
       const cap = MARKET_CAP_MAP[ticker] || 'Other/ETF';
-      dateCapMap[date][cap].value += entry.cur_val;
+      // Scale value to the authoritative breakup total (same factor as the sector
+      // chart) so the rawValue tooltips are continuous across the Aug-2022 coverage
+      // change. Percentages are unaffected (a per-date constant cancels in the ratio);
+      // count stays the real number of tracked stocks.
+      dateCapMap[date][cap].value += entry.cur_val * (dateScale[date] || 1);
       dateCapMap[date][cap].count += 1;
     });
   });
