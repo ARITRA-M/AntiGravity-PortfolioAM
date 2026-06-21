@@ -4387,10 +4387,21 @@ function computeHoldingXIRR(history, divFlows) {
   let prevInv = 0;
   for (let i = 0; i < history.length; i++) {
     const inv = history[i].invested || 0;
-    const delta = inv - prevInv;
-    if (Math.abs(delta) > 1) {           // ignore sub-₹1 rounding noise
-      cf.push(-delta);
-      dt.push(new Date(history[i].date));
+    // Post-base ledger snapshots carry `cf` — the ACTUAL signed cash flow (buy =
+    // −amount, sell = +proceeds). Use it directly so realized gains/losses on sells
+    // are captured. Pre-base (Excel-era) snapshots have no `cf`, so fall back to the
+    // invested-delta approximation (cost-basis), which is the best available there.
+    if (typeof history[i].cf === 'number') {
+      if (Math.abs(history[i].cf) > 1) {
+        cf.push(history[i].cf);
+        dt.push(new Date(history[i].date));
+      }
+    } else {
+      const delta = inv - prevInv;
+      if (Math.abs(delta) > 1) {           // ignore sub-₹1 rounding noise
+        cf.push(-delta);
+        dt.push(new Date(history[i].date));
+      }
     }
     prevInv = inv;
   }

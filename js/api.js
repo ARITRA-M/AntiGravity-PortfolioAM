@@ -73,9 +73,15 @@ function setCachedPrice(key, data) {
 // blocks direct browser requests due to CORS policy.
 // Multiple proxies are tried in rotation — any one of them can go down for
 // hours at a time (allorigins outage 2026-06-11 hung every refresh on mobile).
+// Multiple proxies tried in rotation — any one can go down for hours (both
+// corsproxy.io and allorigins have had multi-hour 403/522 outages). codetabs is
+// a third independent fallback so a simultaneous outage of the first two doesn't
+// leave the app stuck on stale prices. The sticky index keeps a working proxy
+// once found, so the rotation cost is one failed request per session, not per stock.
 const CORS_PROXIES = [
   (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
-  (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)
+  (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+  (u) => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
 ];
 // Sticky index of the last proxy that worked, so one outage costs a single
 // failed request per session instead of one per stock.
