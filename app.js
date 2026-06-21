@@ -3507,10 +3507,14 @@ function initStocksTab() {
   // Collect all unique dates from all stock histories. Floor lowered to
   // inception now that legacy/exited holdings are stitched + sector-tagged
   // (pre-Aug-2022 fragments resolve instead of falling into "Other Equities").
+  // Only canonical month-end snapshots (breakup dates) drive this time series.
+  // Post-base transaction snapshots appended by the ledger must be excluded,
+  // otherwise adding a transaction injects a spurious intra-month bar.
+  const _monthEnds = new Set(breakupSummary.dates || []);
   const allStockDates = new Set();
   Object.values(stockHistory).forEach(stock => {
     stock.history.forEach(h => {
-      if (h.date >= '2020-01-01') allStockDates.add(h.date);
+      if (h.date >= '2020-01-01' && _monthEnds.has(h.date)) allStockDates.add(h.date);
     });
   });
   const sortedStockDates = [...allStockDates].sort();
@@ -4006,10 +4010,13 @@ function initMfsTab() {
   const mfHistory = historicalHoldings.mfs;
   const dateCategoryMap = {};
 
-  // Collect all unique dates from all MF histories
+  // Only canonical month-end snapshots (breakup dates) drive this time series —
+  // exclude post-base transaction snapshots so a new transaction doesn't inject a
+  // spurious intra-month bar.
+  const _mfMonthEnds = new Set(breakupSummary.dates || []);
   const allMfDates = new Set();
   Object.values(mfHistory).forEach(mf => {
-    mf.history.forEach(h => allMfDates.add(h.date));
+    mf.history.forEach(h => { if (_mfMonthEnds.has(h.date)) allMfDates.add(h.date); });
   });
   const sortedDates = [...allMfDates].sort();
 
