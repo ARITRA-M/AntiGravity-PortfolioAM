@@ -90,7 +90,7 @@ const CORS_PROXIES = [
 // pasting your Worker URL into WORKER_PROXY_URL below (applies to all devices once
 // committed), or per-device via localStorage 'ag_portfolio_worker_proxy'. Empty =
 // public proxies only (original behaviour, no regression).
-let WORKER_PROXY_URL = '';
+let WORKER_PROXY_URL = 'https://portfolio-proxy.aritra2k7.workers.dev/';
 try {
   WORKER_PROXY_URL = (localStorage.getItem('ag_portfolio_worker_proxy') || WORKER_PROXY_URL || '').trim();
 } catch (_) { /* localStorage unavailable */ }
