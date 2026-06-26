@@ -4883,11 +4883,34 @@ function computeTWRIndex(nwArr, newMoneyArr) {
   return idx;
 }
 
+// Index of the first data point to show for a period (days). 0/Max → 0. For a finite
+// window, anchor at the last monthly point on/before the cutoff so the window has a
+// proper baseline to re-index from. Dates are 'YYYY-MM-DD', sorted ascending.
+function _benchmarkStartIndex(dates, periodDays) {
+  if (!periodDays || periodDays <= 0 || !dates.length) return 0; // Max
+  const last = new Date(dates[dates.length - 1] + 'T00:00:00');
+  last.setDate(last.getDate() - periodDays);
+  const cutoffStr = last.toISOString().slice(0, 10);
+  let idx = 0;
+  for (let i = 0; i < dates.length; i++) {
+    if (dates[i] <= cutoffStr) idx = i; else break;
+  }
+  return idx;
+}
+
 function renderBenchmarkComparisonChart(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
-  const dates = breakupSummary.dates;
+  const allDates = breakupSummary.dates;
   const nwTotal = breakupSummary.net_worth["Total"].values;
   const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
+
+  // Selected period (days; 0 = Max). Both portfolio and benchmark are sliced to this
+  // window and RE-INDEXED to 100 at the window start, so the comparison reflects the
+  // chosen period rather than always since inception.
+  const periodSel = document.getElementById('benchmark-period');
+  const periodDays = periodSel ? parseInt(periodSel.value, 10) || 0 : 0;
+  const startIdx = _benchmarkStartIndex(allDates, periodDays);
+  const dates = allDates.slice(startIdx);
 
   // Update heading to reflect real vs simulated data source.
   const isSimulated = benchmark.name.includes('(simulated)');
@@ -4905,14 +4928,18 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
   }
 
   // ── Time-Weighted Return (TWR) Index for Portfolio ──
-  // Uses computeTWRIndex() so fresh cash inflows don't distort the line.
-  // Normalised to 100 for direct side-by-side comparison with benchmark.
-  const twrIdx = computeTWRIndex(nwTotal, newMoneyTotal);
+  // Uses computeTWRIndex() so fresh cash inflows don't distort the line. Computed over
+  // the full series (TWR is cumulative), then sliced + re-normalised to 100 at the
+  // window start for the selected period.
+  const twrIdxFull = computeTWRIndex(nwTotal, newMoneyTotal);
+  const twrIdx = twrIdxFull.slice(startIdx);
   const portfolioNormalized = twrIdx.map(v => (v / twrIdx[0]) * 100);
 
-  // Normalise benchmark to start at 100 at the same date as the portfolio.
-  const benchmarkNormalized = benchmark.history.map(h => (h.value / benchmark.history[0].value) * 100);
-  
+  // Slice + re-normalise benchmark to start at 100 at the window start.
+  const benchHist = (benchmark.history || []).slice(startIdx);
+  const benchBase = benchHist.length ? benchHist[0].value : 1;
+  const benchmarkNormalized = benchHist.map(h => (h.value / benchBase) * 100);
+
   benchmarkComparisonChart = new Chart(ctx, {
     type: 'line',
     data: {
