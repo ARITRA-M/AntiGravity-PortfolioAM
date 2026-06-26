@@ -2096,11 +2096,37 @@ function priceNavDateStr(holding, type) {
   return null;
 }
 
+// "01 Jun 2026" style date for headline copy.
+function _fmtDMY(d) {
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+// Parse a 'YYYY-MM-DD' string to a local Date (no UTC off-by-one).
+function _parseYMD(s) {
+  const [y, m, d] = String(s).split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+// The trading day immediately before `date` (skips Sat/Sun; holidays not modelled).
+function _prevTradingDay(date) {
+  const x = new Date(date);
+  do { x.setDate(x.getDate() - 1); } while (x.getDay() === 0 || x.getDay() === 6);
+  return x;
+}
+
 // ── Daily Overview Table (top gainers across stocks & MFs by daily value) ──
 function renderDailyOverviewTable() {
   const combined = [];
   let totalStockGain = 0;
   let totalMfGain = 0;
+
+  // Headline: "Daily Performance (since <previous trading day>)". The daily change
+  // compares the current price/NAV against the previous close, so reference the
+  // trading day before the latest price session among holdings.
+  const _titleEl = document.getElementById('daily-overview-title');
+  if (_titleEl) {
+    const latestMs = (latestEquity || []).reduce((m, s) => Math.max(m, s.priceAsOf || 0), 0);
+    const ref = latestMs ? new Date(latestMs) : new Date();
+    _titleEl.textContent = `Daily Performance (since ${_fmtDMY(_prevTradingDay(ref))})`;
+  }
 
   // Stocks: daily change = (current LTP - yesterday's close) * qty
   // On weekends ltp = Friday's close and yesterdayClose = Thursday's close → shows last working day's change.
@@ -2292,6 +2318,16 @@ function renderMonthlyOverviewTable() {
   let totalMfMonthlyGain = 0;
   let totalStockBaseVal = 0;
   let totalMfBaseVal = 0;
+
+  // Headline: "MTD Performance (since <base date>)" — the frozen opening snapshot
+  // (month start) the period gain is measured from.
+  const _mTitleEl = document.getElementById('monthly-overview-title');
+  if (_mTitleEl) {
+    const baseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+    _mTitleEl.textContent = baseDate
+      ? `🏆 MTD Performance (since ${_fmtDMY(_parseYMD(baseDate))})`
+      : '🏆 MTD Performance';
+  }
 
   // Period gain per holding:
   //  • If live prices have been refreshed this session, use the month-to-date

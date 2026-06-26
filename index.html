@@ -149,7 +149,7 @@
           <!-- Daily Top Gainers (across Stocks & MFs by value) -->
           <div class="chart-card full-width-card">
             <div class="chart-header">
-              <h3>Daily Movers (Value Change)</h3>
+              <h3 id="daily-overview-title">Daily Performance</h3>
             </div>
             <div class="table-wrapper">
               <table id="daily-overview-table">
@@ -157,11 +157,11 @@
                   <tr>
                     <th onclick="sortDailyOverview(0)">Instrument</th>
                     <th onclick="sortDailyOverview(1)" style="text-align: right;">Quantity</th>
-                    <th onclick="sortDailyOverview(2)" style="text-align: right;">Previous Price/NAV (₹)</th>
-                    <th onclick="sortDailyOverview(3)" style="text-align: right;">Current Price/NAV (₹)</th>
+                    <th onclick="sortDailyOverview(2)" style="text-align: right;">Previous Rate (₹)</th>
+                    <th onclick="sortDailyOverview(3)" style="text-align: right;">Current Rate (₹)</th>
                     <th onclick="sortDailyOverview(4)" style="text-align: right;">Change (₹)</th>
                     <th onclick="sortDailyOverview(5)" style="text-align: right;">Change %</th>
-                    <th onclick="sortDailyOverview(6)" style="text-align: right;" title="The date this price/NAV is for (not the refresh time)">Price/NAV Date</th>
+                    <th onclick="sortDailyOverview(6)" style="text-align: right;" title="The date this rate is for (not the refresh time)">Rate Date</th>
                   </tr>
                 </thead>
                 <tbody id="daily-overview-body">
@@ -182,7 +182,7 @@
           <!-- Monthly Top Gainers (from last upload) -->
           <div class="chart-card full-width-card">
             <div class="chart-header">
-              <h3>🏆 Top Monthly Gainers (Since Base Date)</h3>
+              <h3 id="monthly-overview-title">🏆 MTD Performance</h3>
             </div>
             <div class="table-wrapper">
               <table id="monthly-overview-table">
@@ -194,7 +194,7 @@
                     <th onclick="sortMonthlyOverview(3)" style="text-align: right;">Current Value (₹ L)</th>
                     <th onclick="sortMonthlyOverview(4)" style="text-align: right;">Gain (₹ L)</th>
                     <th onclick="sortMonthlyOverview(5)" style="text-align: right;">Gain %</th>
-                    <th onclick="sortMonthlyOverview(6)" style="text-align: right;" title="The date this price/NAV is for (not the refresh time)">Price/NAV Date</th>
+                    <th onclick="sortMonthlyOverview(6)" style="text-align: right;" title="The date this rate is for (not the refresh time)">Rate Date</th>
                   </tr>
                 </thead>
                 <tbody id="monthly-overview-body">
