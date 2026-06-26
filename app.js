@@ -4901,8 +4901,26 @@ function _benchmarkStartIndex(dates, periodDays) {
 function renderBenchmarkComparisonChart(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
   const allDates = breakupSummary.dates;
-  const nwTotal = breakupSummary.net_worth["Total"].values;
-  const newMoneyTotal = breakupSummary.new_investment["Total Investment"].values;
+
+  // Which slice of the portfolio to compare: Stocks, Mutual Funds, or both combined.
+  // (Combined = Stocks + MFs equity — the tradeable portfolio comparable to the
+  // equity benchmarks, not the whole net worth which includes debt/NPS/gold.)
+  const compSel = document.getElementById('benchmark-component');
+  const comp = compSel ? compSel.value : 'combined';
+  const _nwSt = breakupSummary.net_worth['Stocks (Equity)'].values;
+  const _niSt = breakupSummary.new_investment['Stocks (Equity)'].values;
+  const _nwMf = breakupSummary.net_worth['Mutual Funds (Equity)'].values;
+  const _niMf = breakupSummary.new_investment['Mutual Funds (Equity)'].values;
+  let nwTotal, newMoneyTotal, portLabel;
+  if (comp === 'stocks') {
+    nwTotal = _nwSt; newMoneyTotal = _niSt; portLabel = 'Stocks';
+  } else if (comp === 'mfs') {
+    nwTotal = _nwMf; newMoneyTotal = _niMf; portLabel = 'Mutual Funds';
+  } else {
+    nwTotal = _nwSt.map((v, i) => (v || 0) + (_nwMf[i] || 0));
+    newMoneyTotal = _niSt.map((v, i) => (v || 0) + (_niMf[i] || 0));
+    portLabel = 'Stocks + MFs';
+  }
 
   // Selected period (days; 0 = Max). Both portfolio and benchmark are sliced to this
   // window and RE-INDEXED to 100 at the window start, so the comparison reflects the
@@ -4946,7 +4964,7 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
       labels: dates.map(d => formatDateString(d)),
       datasets: [
         {
-          label: 'Portfolio',
+          label: portLabel,
           data: portfolioNormalized,
           borderColor: '#10b981',
           backgroundColor: 'rgba(16, 185, 129, 0.1)',

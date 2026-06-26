@@ -277,8 +277,12 @@
               <p style="font-size:0.75rem; color:var(--text-muted); margin:0.15rem 0 0;">Time-weighted return (contribution-timing neutral) — indexed to 100 at start.</p>
             </div>
             <div class="time-filters">
+              <select id="benchmark-component" class="select-filter" onchange="updateBenchmarkChart()" title="Which part of the portfolio to compare against the benchmark">
+                <option value="combined" selected>Stocks + MFs</option>
+                <option value="stocks">Stocks</option>
+                <option value="mfs">Mutual Funds</option>
+              </select>
               <select id="benchmark-period" class="select-filter" onchange="updateBenchmarkChart()" title="Time period — both portfolio and benchmark re-index to 100 at the start of the selected window">
-                <option value="30">30 Days</option>
                 <option value="90">90 Days</option>
                 <option value="180">180 Days</option>
                 <option value="365">1 Year</option>
