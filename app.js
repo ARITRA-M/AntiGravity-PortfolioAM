@@ -2083,6 +2083,19 @@ function getStockHistoryKey(symbol) {
   return foundKey ? historicalHoldings.stocks[foundKey] : null;
 }
 
+// Format the as-of date of a price/NAV as DD-MM-YYYY, matching the MF holdings
+// "NAV Date" column. MFs carry navDate (already DD-MM-YYYY from mfapi); stocks carry
+// priceAsOf (epoch ms — the market session the LTP belongs to, not the refresh time).
+function priceNavDateStr(holding, type) {
+  if (type === 'MF') return holding.navDate || null;
+  if (holding.priceAsOf) {
+    return new Date(holding.priceAsOf).toLocaleDateString('en-GB', {
+      timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric'
+    }).replace(/\//g, '-');
+  }
+  return null;
+}
+
 // ── Daily Overview Table (top gainers across stocks & MFs by daily value) ──
 function renderDailyOverviewTable() {
   const combined = [];
@@ -2106,6 +2119,7 @@ function renderDailyOverviewTable() {
       currentLtp: s.ltp,
       change: dailyGain,
       changePct: dailyGainPct,
+      priceDate: priceNavDateStr(s, 'Stock'),
       stale: noLivePrice
     });
     if (dailyGain !== null) totalStockGain += dailyGain;
@@ -2125,7 +2139,8 @@ function renderDailyOverviewTable() {
       yesterdayClose: previousNav,
       currentLtp: f.price,
       change: gain,
-      changePct: gainPct
+      changePct: gainPct,
+      priceDate: priceNavDateStr(f, 'MF')
     });
     if (gain !== null) totalMfGain += gain;
   });
@@ -2219,6 +2234,8 @@ function renderDailyOverviewTable() {
     filteredCombined.sort((a, b) => sortNullableNumber(a.change, b.change, asc));
   } else if (col === 5) {
     filteredCombined.sort((a, b) => sortNullableNumber(a.changePct, b.changePct, asc));
+  } else if (col === 6) {
+    filteredCombined.sort((a, b) => sortNullableNumber(_mfNavDateMs(a.priceDate), _mfNavDateMs(b.priceDate), asc));
   } else {
     // Name column (0) or fallback: sort by instrument name
     filteredCombined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
@@ -2243,6 +2260,7 @@ function renderDailyOverviewTable() {
       <td style="text-align: right;" class="${item.changePct === null ? '' : item.changePct >= 0 ? 'trend-up' : 'trend-down'}">
         ${item.stale ? '—' : item.changePct === null ? 'N/A' : `${item.changePct >= 0 ? '+' : ''}${item.changePct.toFixed(2)}%`}
       </td>
+      <td style="text-align: right;">${item.priceDate ? escapeHtml(item.priceDate) : '—'}</td>
     </tr>
   `;
   }).join('');
@@ -2307,7 +2325,7 @@ function renderMonthlyOverviewTable() {
   latestEquity.forEach(s => {
     const { gain, baseVal } = periodGain(s, 'stock');
     const gainPct = baseVal > 0 ? (gain / baseVal) * 100 : 0;
-    combined.push({ name: s.instrument, type: 'Stock', qty: s.qty, baseVal, currentVal: s.cur_val, gain, gainPct });
+    combined.push({ name: s.instrument, type: 'Stock', qty: s.qty, baseVal, currentVal: s.cur_val, gain, gainPct, priceDate: priceNavDateStr(s, 'Stock') });
     totalStockMonthlyGain += gain;
     totalStockBaseVal += baseVal;
   });
@@ -2315,7 +2333,7 @@ function renderMonthlyOverviewTable() {
   latestMf.forEach(f => {
     const { gain, baseVal } = periodGain(f, 'mf');
     const gainPct = baseVal > 0 ? (gain / baseVal) * 100 : 0;
-    combined.push({ name: f.scheme, type: 'MF', qty: f.qty, baseVal, currentVal: f.cur_val, gain, gainPct });
+    combined.push({ name: f.scheme, type: 'MF', qty: f.qty, baseVal, currentVal: f.cur_val, gain, gainPct, priceDate: priceNavDateStr(f, 'MF') });
     totalMfMonthlyGain += gain;
     totalMfBaseVal += baseVal;
   });
@@ -2416,6 +2434,8 @@ function renderMonthlyOverviewTable() {
     filteredCombined.sort((a, b) => asc ? a.gain - b.gain : b.gain - a.gain);
   } else if (col === 5) {
     filteredCombined.sort((a, b) => asc ? a.gainPct - b.gainPct : b.gainPct - a.gainPct);
+  } else if (col === 6) {
+    filteredCombined.sort((a, b) => sortNullableNumber(_mfNavDateMs(a.priceDate), _mfNavDateMs(b.priceDate), asc));
   } else {
     // Name column (0) or fallback: sort by name
     filteredCombined.sort((a, b) => asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
@@ -2434,6 +2454,7 @@ function renderMonthlyOverviewTable() {
       <td style="text-align: right;" class="${item.gainPct >= 0 ? 'trend-up' : 'trend-down'}">
         ${item.gainPct >= 0 ? '+' : ''}${item.gainPct.toFixed(2)}%
       </td>
+      <td style="text-align: right;">${item.priceDate ? escapeHtml(item.priceDate) : '—'}</td>
     </tr>
   `).join('');
 }
