@@ -2754,6 +2754,48 @@ function populateMonthlyOverviewSummary() {
 }
 
 // ==================== HISTORICAL GROWTH TAB ====================
+
+// Common Growth & Benchmark tab time filter → start index into the monthly
+// breakupSummary.dates. Drives every chart in the tab (re-rendered on change).
+function growthSliceIdx() {
+  const sel = document.getElementById('growth-time-filter');
+  const filter = sel ? sel.value : 'ALL';
+  const len = (breakupSummary && breakupSummary.dates) ? breakupSummary.dates.length : 0;
+  switch (filter) {
+    case '5Y': return Math.max(0, len - 60);
+    case '3Y': return Math.max(0, len - 36);
+    case '1Y': return Math.max(0, len - 12);
+    case '6M': return Math.max(0, len - 6);
+    case '3M': return Math.max(0, len - 3);
+    default:   return 0; // ALL
+  }
+}
+
+// Valuation + cumulative-capital-invested series for the capital-vs-valuation chart,
+// by asset type. Cumulative invested = running sum of monthly new investment.
+function _capValSeries(assetType) {
+  const nw = breakupSummary.net_worth, ni = breakupSummary.new_investment;
+  const cumsum = arr => { let s = 0; return (arr || []).map(v => (s += (v || 0))); };
+  if (assetType === 'stocks')
+    return { val: nw['Stocks (Equity)'].values, cumInv: cumsum(ni['Stocks (Equity)'].values), label: 'Stocks' };
+  if (assetType === 'mfs')
+    return { val: nw['Mutual Funds (Equity)'].values, cumInv: cumsum(ni['Mutual Funds (Equity)'].values), label: 'Mutual Funds' };
+  if (assetType === 'combined') {
+    const st = nw['Stocks (Equity)'].values, mf = nw['Mutual Funds (Equity)'].values;
+    const stI = ni['Stocks (Equity)'].values, mfI = ni['Mutual Funds (Equity)'].values;
+    return {
+      val: st.map((v, i) => (v || 0) + (mf[i] || 0)),
+      cumInv: cumsum(stI.map((v, i) => (v || 0) + (mfI[i] || 0))),
+      label: 'Stocks + MFs'
+    };
+  }
+  // total — keep the precomputed cumulative_investment_history for exact parity.
+  return { val: nw['Total'].values, cumInv: (portfolioSummary.cumulative_investment_history || []).slice(), label: 'Total Portfolio' };
+}
+
+// Re-render the whole Growth & Benchmark tab for the current common filters.
+function applyGrowthTimeFilter() { initGrowthTab(); }
+
 function initGrowthTab() {
   // Destroy existing charts before re-creating
   if (netWorthGrowthChart) netWorthGrowthChart.destroy();
@@ -2764,15 +2806,19 @@ function initGrowthTab() {
   if (componentXirrChart) componentXirrChart.destroy();
   if (allocationShiftChart) allocationShiftChart.destroy();
 
-  const dates = breakupSummary.dates;
+  // Common time-filter window: slice all series + dates to the selected period so
+  // each chart's axes rescale to that window (not just a cropped viewport).
+  const sliceIdx = growthSliceIdx();
+  const SL = arr => (arr || []).slice(sliceIdx);
+  const dates = breakupSummary.dates.slice(sliceIdx);
   const nwSec = breakupSummary.net_worth;
   const nwDatasets = [];
-  
+
   Object.keys(nwSec).forEach(key => {
     if (key !== 'Total') {
       const label = nwSec[key].label;
-      const vals = nwSec[key].values;
-      
+      const vals = SL(nwSec[key].values);
+
       nwDatasets.push({
         label: label,
         data: vals,
@@ -2811,14 +2857,16 @@ function initGrowthTab() {
     }
   });
 
-  // Capital vs Valuation Line Chart
-  const totalNw = nwSec["Total"].values;
-  const rawCumInvested = portfolioSummary.cumulative_investment_history;
-  // Offset cumulative investment to start at the same level as the initial portfolio valuation
-  // This ensures the chart shows capital invested vs valuation on a comparable basis
-  const offset = totalNw.length > 0 && rawCumInvested.length > 0 ? totalNw[0] - rawCumInvested[0] : 0;
-  const cumInvested = rawCumInvested.map(v => v + offset);
-  
+  // Capital vs Valuation Line Chart — asset type from the dedicated filter.
+  const assetSel = document.getElementById('capval-asset-filter');
+  const capValAsset = assetSel ? assetSel.value : 'total';
+  const { val: _capValFull, cumInv: _capInvFull, label: capValLabel } = _capValSeries(capValAsset);
+  // Offset cumulative investment to align with valuation at inception (full-series
+  // start), so applying the time window just crops this inception-anchored relationship.
+  const _capOffset = (_capValFull.length > 0 && _capInvFull.length > 0) ? _capValFull[0] - _capInvFull[0] : 0;
+  const totalNw = SL(_capValFull);
+  const cumInvested = SL(_capInvFull.map(v => v + _capOffset));
+
   const ctxCap = document.getElementById('capital-vs-valuation-chart').getContext('2d');
   capitalVsValuationChart = new Chart(ctxCap, {
     type: 'line',
@@ -2826,7 +2874,7 @@ function initGrowthTab() {
       labels: dates.map(d => formatDateString(d)),
       datasets: [
         {
-          label: 'Total Portfolio Valuation (Net Worth)',
+          label: capValLabel + ' Valuation',
           data: totalNw,
           borderColor: '#10b981',
           backgroundColor: 'rgba(16, 185, 129, 0.05)',
@@ -2882,7 +2930,7 @@ function initGrowthTab() {
     catValues[cat] = new Array(dates.length).fill(0);
     categoryMap[cat].forEach(key => {
       if (nwSec[key]) {
-        nwSec[key].values.forEach((v, i) => { catValues[cat][i] += v; });
+        SL(nwSec[key].values).forEach((v, i) => { catValues[cat][i] += v; });
       }
     });
   });
@@ -2960,7 +3008,7 @@ function initGrowthTab() {
       
       xirrDatasets.push({
         label: label,
-        data: vals.slice(xirrStartIdx).map(v => v * 100),
+        data: SL(vals).slice(xirrStartIdx).map(v => v * 100),
         borderColor: getAssetColor(label),
         backgroundColor: getAssetColor(label) + '33',
         borderWidth: 2,
@@ -3009,8 +3057,8 @@ function initGrowthTab() {
   Object.keys(contribSec).forEach(key => {
     if (key !== 'Total') {
       const label = contribSec[key].label;
-      const vals = contribSec[key].values.map(v => v * 100);
-      
+      const vals = SL(contribSec[key].values).map(v => v * 100);
+
       contribDatasets.push({
         label: label,
         data: vals,
@@ -3053,85 +3101,8 @@ function initGrowthTab() {
 }
 
 function filterGrowthChart() {
-  const filter = document.getElementById('growth-time-filter').value;
-  const dates = breakupSummary.dates;
-  const len = dates.length;
-
-  let sliceIdx = 0;
-  if (filter === '5Y') sliceIdx = Math.max(0, len - 60);
-  else if (filter === '3Y') sliceIdx = Math.max(0, len - 36);
-  else if (filter === '1Y') sliceIdx = Math.max(0, len - 12);
-  else if (filter === '6M') sliceIdx = Math.max(0, len - 6);
-
-  const filteredLabels = dates.slice(sliceIdx).map(d => formatDateString(d));
-
-  // Net Worth stacked area
-  netWorthGrowthChart.data.labels = filteredLabels;
-  netWorthGrowthChart.data.datasets.forEach((dataset, idx) => {
-    const key = Object.keys(breakupSummary.net_worth).filter(k => k !== 'Total')[idx];
-    dataset.data = breakupSummary.net_worth[key].values.slice(sliceIdx);
-  });
-  netWorthGrowthChart.update();
-
-  // Capital vs Valuation
-  capitalVsValuationChart.data.labels = filteredLabels;
-  capitalVsValuationChart.data.datasets[0].data = breakupSummary.net_worth['Total'].values.slice(sliceIdx);
-  capitalVsValuationChart.data.datasets[1].data = portfolioSummary.cumulative_investment_history.slice(sliceIdx);
-  capitalVsValuationChart.update();
-
-  // Asset Allocation % stacked bar
-  if (allocationChart) {
-    const nwSec = breakupSummary.net_worth;
-    const categoryMap = {
-      'Equity':    ['Stocks (Equity)', 'Mutual Funds (Equity)', 'NPS E (Equity)'],
-      'Debt':      ['NPS C (Debt)', 'NPS G (Debt)', 'PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)'],
-      'Gold':      ['Gold (Gold)'],
-      'Liquid':    ['Cash (Liquid)'],
-      'Alternate': ['Crypto (Alternate)']
-    };
-    const slicedDates = dates.slice(sliceIdx);
-    const totalPerDate = slicedDates.map((_, i) => {
-      const absI = sliceIdx + i;
-      return Object.values(categoryMap).flat().reduce((s, k) => s + (nwSec[k]?.values[absI] || 0), 0);
-    });
-    allocationChart.data.labels = slicedDates.map(d => formatDateString(d));
-    allocationChart.data.datasets.forEach((ds, di) => {
-      const cat = Object.keys(categoryMap)[di];
-      ds.data = slicedDates.map((_, i) => {
-        const absI = sliceIdx + i;
-        const catVal = categoryMap[cat].reduce((s, k) => s + (nwSec[k]?.values[absI] || 0), 0);
-        return totalPerDate[i] > 0 ? (catVal / totalPerDate[i]) * 100 : 0;
-      });
-    });
-    allocationChart.update();
-  }
-
-  // XIRR line — respect the Jan-2023 floor so early outliers stay hidden
-  if (componentXirrChart) {
-    const xirrFloor = dates.findIndex(d => d >= '2023-01-01');
-    const effectiveIdx = Math.max(sliceIdx, xirrFloor < 0 ? 0 : xirrFloor);
-    const xirrLabels = dates.slice(effectiveIdx).map(d => formatDateString(d));
-    componentXirrChart.data.labels = xirrLabels;
-    componentXirrChart.data.datasets.forEach(ds => {
-      const allVals = breakupSummary.xirr[
-        Object.keys(breakupSummary.xirr).find(k => breakupSummary.xirr[k].label === ds.label)
-      ]?.values || [];
-      ds.data = allVals.slice(effectiveIdx).map(v => v * 100);
-    });
-    componentXirrChart.update();
-  }
-
-  // Allocation Shift area
-  if (allocationShiftChart) {
-    allocationShiftChart.data.labels = filteredLabels;
-    allocationShiftChart.data.datasets.forEach(ds => {
-      const key = Object.keys(breakupSummary.contribution).find(
-        k => breakupSummary.contribution[k].label === ds.label
-      );
-      if (key) ds.data = breakupSummary.contribution[key].values.slice(sliceIdx).map(v => v * 100);
-    });
-    allocationShiftChart.update();
-  }
+  // Common tab filter — re-render the whole tab (all charts) for the selected window.
+  applyGrowthTimeFilter();
 }
 
 // ==================== FIXED INCOME TAB (PF / PPF / Bonds) ====================
@@ -4883,21 +4854,6 @@ function computeTWRIndex(nwArr, newMoneyArr) {
   return idx;
 }
 
-// Index of the first data point to show for a period (days). 0/Max → 0. For a finite
-// window, anchor at the last monthly point on/before the cutoff so the window has a
-// proper baseline to re-index from. Dates are 'YYYY-MM-DD', sorted ascending.
-function _benchmarkStartIndex(dates, periodDays) {
-  if (!periodDays || periodDays <= 0 || !dates.length) return 0; // Max
-  const last = new Date(dates[dates.length - 1] + 'T00:00:00');
-  last.setDate(last.getDate() - periodDays);
-  const cutoffStr = last.toISOString().slice(0, 10);
-  let idx = 0;
-  for (let i = 0; i < dates.length; i++) {
-    if (dates[i] <= cutoffStr) idx = i; else break;
-  }
-  return idx;
-}
-
 function renderBenchmarkComparisonChart(benchmarkKey) {
   const benchmark = benchmarkData[benchmarkKey];
   const allDates = breakupSummary.dates;
@@ -4916,18 +4872,20 @@ function renderBenchmarkComparisonChart(benchmarkKey) {
     nwTotal = _nwSt; newMoneyTotal = _niSt; portLabel = 'Stocks';
   } else if (comp === 'mfs') {
     nwTotal = _nwMf; newMoneyTotal = _niMf; portLabel = 'Mutual Funds';
+  } else if (comp === 'total') {
+    nwTotal = breakupSummary.net_worth['Total'].values;
+    newMoneyTotal = breakupSummary.new_investment['Total Investment'].values;
+    portLabel = 'Total Portfolio';
   } else {
     nwTotal = _nwSt.map((v, i) => (v || 0) + (_nwMf[i] || 0));
     newMoneyTotal = _niSt.map((v, i) => (v || 0) + (_niMf[i] || 0));
     portLabel = 'Stocks + MFs';
   }
 
-  // Selected period (days; 0 = Max). Both portfolio and benchmark are sliced to this
-  // window and RE-INDEXED to 100 at the window start, so the comparison reflects the
-  // chosen period rather than always since inception.
-  const periodSel = document.getElementById('benchmark-period');
-  const periodDays = periodSel ? parseInt(periodSel.value, 10) || 0 : 0;
-  const startIdx = _benchmarkStartIndex(allDates, periodDays);
+  // Time window comes from the common tab filter. Both portfolio and benchmark are
+  // sliced to it and RE-INDEXED to 100 at the window start, so the comparison reflects
+  // the chosen period rather than always since inception.
+  const startIdx = growthSliceIdx();
   const dates = allDates.slice(startIdx);
 
   // Update heading to reflect real vs simulated data source.
@@ -5019,8 +4977,11 @@ function renderRollingReturnsChart() {
   const rollingReturns = [];
   const labels = [];
   
+  // TWR index needs the full series (12-month lookback); only the DISPLAY is limited
+  // to the common time-filter window.
   const twrIdx = computeTWRIndex(nwTotal, newMoneyTotal);
-  for (let i = 12; i < nwTotal.length; i++) {
+  const startI = Math.max(12, growthSliceIdx());
+  for (let i = startI; i < nwTotal.length; i++) {
     const ret = twrIdx[i - 12] > 0 ? ((twrIdx[i] / twrIdx[i - 12]) - 1) * 100 : 0;
     rollingReturns.push(ret);
     labels.push(formatDateString(dates[i]));

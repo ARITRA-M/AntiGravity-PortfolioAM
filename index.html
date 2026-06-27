@@ -209,6 +209,20 @@
 
     <!-- ==================== GROWTH & BENCHMARK TAB ==================== -->
     <div id="growth-tab" class="tab-content">
+      <!-- Common time-period filter for ALL graphs in this tab -->
+      <div class="chart-header" style="display:flex; align-items:center; justify-content:flex-end; gap:0.75rem; margin-bottom:1rem;">
+        <label for="growth-time-filter" style="font-size:0.85rem; color:var(--text-secondary);">Time period</label>
+        <div class="time-filters">
+          <select id="growth-time-filter" class="select-filter" onchange="applyGrowthTimeFilter()" title="Applies to every chart in this tab">
+            <option value="ALL">All Time</option>
+            <option value="5Y">Past 5 Years</option>
+            <option value="3Y">Past 3 Years</option>
+            <option value="1Y">Past 1 Year</option>
+            <option value="6M">Past 6 Months</option>
+            <option value="3M">Past 3 Months</option>
+          </select>
+        </div>
+      </div>
       <div class="dashboard-grid">
         <!-- Asset Allocation Over Time (Stacked Bar) -->
         <div class="chart-card full-width-card">
@@ -243,16 +257,7 @@
         <!-- Net Worth Growth Trend (Area) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Net Worth Progression (Jan 2021 - May 2026)</h3>
-            <div class="time-filters">
-              <select id="growth-time-filter" class="select-filter" onchange="filterGrowthChart()">
-                <option value="ALL">All Time</option>
-                <option value="5Y">Past 5 Years</option>
-                <option value="3Y">Past 3 Years</option>
-                <option value="1Y">Past 1 Year</option>
-                <option value="6M">Past 6 Months</option>
-              </select>
-            </div>
+            <h3>Net Worth Progression</h3>
           </div>
           <div class="chart-container">
             <canvas id="net-worth-growth-chart"></canvas>
@@ -263,6 +268,14 @@
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Valuation Growth vs. Total Cumulative Capital Invested</h3>
+            <div class="time-filters">
+              <select id="capval-asset-filter" class="select-filter" onchange="applyGrowthTimeFilter()" title="Which assets to show valuation vs. capital invested for">
+                <option value="total" selected>Total Portfolio</option>
+                <option value="combined">Stocks + MFs</option>
+                <option value="stocks">Stocks</option>
+                <option value="mfs">Mutual Funds</option>
+              </select>
+            </div>
           </div>
           <div class="chart-container">
             <canvas id="capital-vs-valuation-chart"></canvas>
@@ -281,12 +294,7 @@
                 <option value="combined" selected>Stocks + MFs</option>
                 <option value="stocks">Stocks</option>
                 <option value="mfs">Mutual Funds</option>
-              </select>
-              <select id="benchmark-period" class="select-filter" onchange="updateBenchmarkChart()" title="Time period — both portfolio and benchmark re-index to 100 at the start of the selected window">
-                <option value="90">90 Days</option>
-                <option value="180">180 Days</option>
-                <option value="365">1 Year</option>
-                <option value="0" selected>Max</option>
+                <option value="total">Total Portfolio</option>
               </select>
               <select id="benchmark-select" class="select-filter" onchange="updateBenchmarkChart()">
                 <option value="nifty50">Nifty 50</option>
