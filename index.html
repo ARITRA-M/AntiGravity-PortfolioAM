@@ -213,8 +213,14 @@
           <div class="chart-header">
             <h3>Market Overview — National, Sectoral &amp; Global Indices</h3>
             <div class="time-filters">
-              <button class="subtab-btn active" id="market-mode-daily" onclick="setMarketOverviewMode('daily')">Daily</button>
-              <button class="subtab-btn" id="market-mode-mtd" onclick="setMarketOverviewMode('mtd')">MTD</button>
+              <select id="market-period-filter" class="select-filter" onchange="setMarketOverviewMode(this.value)">
+                <option value="daily" selected>Daily</option>
+                <option value="mtd">MTD</option>
+                <option value="m3">3 Months</option>
+                <option value="m6">6 Months</option>
+                <option value="y1">1 Year</option>
+                <option value="y5">5 Years</option>
+              </select>
             </div>
           </div>
           <p class="manage-hint" id="market-overview-status">Loading market data…</p>
