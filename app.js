@@ -6471,8 +6471,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
       });
     });
   });
-  // Post-base balance contributions AND interest entered via the ledger (not yet
-  // month-closed) — each gets its own row so the log reflects exactly what you entered.
+  // Post-base balance contributions entered via the ledger (not yet month-closed).
   const _bd2 = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
   const _catAcFor = (code) => ({
     cat: /Debt|PF|PPF|Bonds|NPS-C|NPS-G/.test(code) ? 'Debt'
@@ -6484,46 +6483,47 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   });
   (typeof balances !== 'undefined' ? balances : []).forEach(b => {
     if (_bd2 && b.date <= _bd2) return; // pre-base already in the breakup series
+    if (!b.contribution) return;
     const { cat, ac } = _catAcFor(b.component);
     const lbl = b.component.replace('-', ' ');
-    if (b.contribution) {
-      trades.push({
-        date: b.date, instrument: lbl,
-        type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
-        quantity: null, price: null, total: Math.abs(b.contribution),
-        category: cat, assetCategory: ac,
-      });
-    }
-    if (b.interest) {
-      trades.push({
-        date: b.date, instrument: lbl,
-        type: 'INTEREST',
-        quantity: null, price: null, total: b.interest,
-        category: cat, assetCategory: ac,
-      });
-    }
+    trades.push({
+      date: b.date, instrument: lbl,
+      type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
+      quantity: null, price: null, total: Math.abs(b.contribution),
+      category: cat, assetCategory: ac,
+    });
   });
 
-  // Total Interest row per CLOSED period — every ledger balance entry's interest,
-  // summed within the period it closed into (so the log shows one clean figure per
-  // month-close, matching how Contribution is already rolled up via new_investment).
-  // Only CLOSED periods (≤ frozen base) are aggregated here — anything after that is
-  // still pending a Close Period and already appears as its own row above.
-  for (let i = 0; i < dates.length; i++) {
-    const periodEnd = dates[i];
-    if (_bd2 && periodEnd > _bd2) break;
-    const periodStart = i > 0 ? dates[i - 1] : null;
-    const interestThisPeriod = (typeof balances !== 'undefined' ? balances : [])
-      .filter(b => b.interest && (!periodStart || b.date > periodStart) && b.date <= periodEnd)
-      .reduce((s, b) => s + b.interest, 0);
-    if (interestThisPeriod) {
+  // Monthly Return row per component, per CLOSED period — pure market/interest growth
+  // (Net Change − New Investment), straight from breakupSummary.returns. That series
+  // already spans every period since the start of tracking (Excel-era history AND
+  // every Close Period since), so this covers the full history automatically.
+  const RETURN_META = {
+    'Stocks (Equity)':    { label: 'Stocks',   category: 'Equity',    assetCategory: 'Stocks' },
+    'Mutual Funds (Equity)': { label: 'Mutual Funds', category: 'Equity', assetCategory: 'Mutual Funds' },
+    'Gold (Gold)':        { label: 'Gold',     category: 'Gold',      assetCategory: 'Gold' },
+    'NPS E (Equity)':     { label: 'NPS E',    category: 'Equity',    assetCategory: 'NPS' },
+    'NPS C (Debt)':       { label: 'NPS C',    category: 'Debt',      assetCategory: 'NPS' },
+    'NPS G (Debt)':       { label: 'NPS G',    category: 'Debt',      assetCategory: 'NPS' },
+    'PF (Debt)':          { label: 'PF',       category: 'Debt',      assetCategory: 'PF' },
+    'PPF (Debt)':         { label: 'PPF',      category: 'Debt',      assetCategory: 'PPF' },
+    'Bonds (Debt)':       { label: 'Bonds',    category: 'Debt',      assetCategory: 'Bonds' },
+    'Cash (Liquid)':      { label: 'Cash',     category: 'Liquid',    assetCategory: 'Cash' },
+    'Crypto (Alternate)': { label: 'Crypto',   category: 'Alternate', assetCategory: 'Crypto' },
+  };
+  const returnsSec = breakupSummary.returns || {};
+  Object.entries(RETURN_META).forEach(([key, meta]) => {
+    const vals = returnsSec[key]?.values;
+    if (!vals) return;
+    vals.forEach((v, i) => {
+      if (!v) return; // only periods with a nonzero return
       trades.push({
-        date: periodEnd, instrument: 'Total Interest',
-        type: 'INTEREST', quantity: null, price: null, total: interestThisPeriod,
-        category: 'Interest', assetCategory: 'Interest',
+        date: dates[i], instrument: `${meta.label} — Monthly Return`,
+        type: 'RETURN', quantity: null, price: null, total: Math.abs(v) * 100000,
+        category: meta.category, assetCategory: meta.assetCategory, isLoss: v < 0,
       });
-    }
-  }
+    });
+  });
 
   // Tag existing stock/MF trades with a coarse asset category for filtering.
   trades.forEach(t => {
@@ -6556,19 +6556,28 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
 
   // Render table
   const tbody = document.getElementById('trading-activity-body');
-  tbody.innerHTML = filteredTrades.map(trade => `
+  tbody.innerHTML = filteredTrades.map(trade => {
+    const typeClass = trade.type === 'CONTRIBUTION' ? 'buy'
+      : trade.type === 'WITHDRAWAL' ? 'sell'
+      : trade.type === 'RETURN' ? (trade.isLoss ? 'return-loss' : 'return-gain')
+      : trade.type.toLowerCase();
+    const totalStr = trade.type === 'RETURN'
+      ? `${trade.isLoss ? '-' : '+'}${formatINR(trade.total)}`
+      : formatINR(trade.total);
+    return `
     <tr>
       <td>${formatFullDate(trade.date)}</td>
       <td style="font-weight: 600;">${escapeHtml(trade.instrument)}</td>
       <td>
-        <span class="trade-type ${trade.type === 'CONTRIBUTION' ? 'buy' : trade.type === 'WITHDRAWAL' ? 'sell' : trade.type.toLowerCase()}">${trade.type}</span>
+        <span class="trade-type ${typeClass}">${trade.type}</span>
       </td>
       <td style="text-align: right;">${trade.quantity == null ? '—' : trade.quantity.toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
       <td style="text-align: right;">${trade.price == null ? '—' : '₹' + trade.price.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
-      <td style="text-align: right; font-weight: 600;">${formatINR(trade.total)}</td>
+      <td style="text-align: right; font-weight: 600;" class="${trade.type === 'RETURN' ? (trade.isLoss ? 'trend-down' : 'trend-up') : ''}">${totalStr}</td>
       <td><span class="sector-tag">${escapeHtml(trade.category)}</span></td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
   // Show message if no trades
   if (filteredTrades.length === 0) {

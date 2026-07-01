@@ -1946,9 +1946,13 @@ tr:hover td {
   color: #10b981;
 }
 
-.trade-type.interest {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
+.trade-type.return-gain {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+.trade-type.return-loss {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
 }
 
 /* ── Overview Sub-tabs ─────────────────────────────────────────── */
