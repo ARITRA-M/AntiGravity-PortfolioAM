@@ -1946,6 +1946,11 @@ tr:hover td {
   color: #10b981;
 }
 
+.trade-type.interest {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
 /* ── Overview Sub-tabs ─────────────────────────────────────────── */
 .overview-subtabs {
   display: flex;
@@ -1989,6 +1994,49 @@ tr:hover td {
   height: 2px;
   background: var(--accent-indigo);
   border-radius: 1px;
+}
+
+.market-index-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+.market-index-card {
+  background: var(--bg-secondary, rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-left: 3px solid var(--card-accent, #6366f1);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+}
+.market-index-card .mi-group {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+.market-index-card .mi-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+.market-index-card .mi-pct {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.market-index-card .mi-last {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+.time-filters .subtab-btn {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+}
+.time-filters .subtab-btn.active::after {
+  display: none;
 }
 
 .overview-subcontent {
@@ -2376,6 +2424,86 @@ tr:hover td {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.calc-fab {
+  position: fixed;
+  bottom: 1.75rem;
+  right: 1.75rem;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent-indigo, #6366f1);
+  color: #fff;
+  font-size: 1.4rem;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  z-index: 900;
+  transition: var(--transition-fast);
+}
+.calc-fab:hover { transform: scale(1.06); }
+
+.calculator-panel {
+  position: fixed;
+  bottom: 5.5rem;
+  right: 1.75rem;
+  width: 260px;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  padding: 0.9rem;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  z-index: 900;
+}
+.calculator-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+.calc-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.calculator-display {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: right;
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.6rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+  margin-bottom: 0.6rem;
+}
+.calculator-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.4rem;
+}
+.calc-key {
+  padding: 0.6rem 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.calc-key:hover { background: rgba(255,255,255,0.09); }
+.calc-key.calc-op { color: var(--accent-indigo, #818cf8); }
+.calc-key.calc-zero { grid-column: span 2; }
+.calc-key.calc-equals { background: var(--accent-indigo, #6366f1); color: #fff; border-color: transparent; }
+
 .manage-actions {
   display: flex;
   gap: 0.6rem;

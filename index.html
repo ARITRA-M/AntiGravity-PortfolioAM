@@ -138,6 +138,7 @@
       <div class="overview-subtabs">
         <button class="subtab-btn active" onclick="switchOverviewSubtab('daily', this)">📊 Daily Overview</button>
         <button class="subtab-btn" onclick="switchOverviewSubtab('monthly', this)">📈 Monthly Overview</button>
+        <button class="subtab-btn" onclick="switchOverviewSubtab('market', this)">🌐 Market Overview</button>
       </div>
 
       <!-- Daily Overview Section -->
@@ -203,6 +204,21 @@
               </table>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Market Overview Section -->
+      <div id="overview-market" class="overview-subcontent">
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Market Overview — National, Sectoral &amp; Global Indices</h3>
+            <div class="time-filters">
+              <button class="subtab-btn active" id="market-mode-daily" onclick="setMarketOverviewMode('daily')">Daily</button>
+              <button class="subtab-btn" id="market-mode-mtd" onclick="setMarketOverviewMode('mtd')">MTD</button>
+            </div>
+          </div>
+          <p class="manage-hint" id="market-overview-status">Loading market data…</p>
+          <div id="market-overview-grid" class="market-index-grid"></div>
         </div>
       </div>
     </div>
@@ -592,6 +608,31 @@
             </table>
           </div>
         </div>
+
+        <!-- Fixed Income Contribution & Balance History -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Contribution &amp; Balance History</h3>
+          </div>
+          <p class="manage-hint">Every balance update entered for PF, PPF, and Bonds via Manage Portfolio.</p>
+          <div class="table-wrapper">
+            <table id="fi-history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Component</th>
+                  <th style="text-align: right;">Contribution (₹)</th>
+                  <th style="text-align: right;">Interest (₹)</th>
+                  <th style="text-align: right;">Value (₹)</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody id="fi-history-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -648,6 +689,30 @@
           </div>
           <div class="nps-summary" id="nps-summary">
             <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- NPS Update Log -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Update Log</h3>
+          </div>
+          <p class="manage-hint">Every balance update entered for NPS E, NPS C, and NPS G via Manage Portfolio.</p>
+          <div class="table-wrapper">
+            <table id="nps-history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Component</th>
+                  <th style="text-align: right;">Contribution (₹)</th>
+                  <th style="text-align: right;">Value (₹)</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody id="nps-history-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -733,7 +798,7 @@
         <!-- Trading Activity Log -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
-            <h3>Investment Log</h3>
+            <h3>Transaction Log</h3>
             <div class="table-header-controls">
               <select id="trading-type-filter" class="select-filter" onchange="setTradingFilter()">
                 <option value="ALL">All Types</option>
@@ -741,6 +806,7 @@
                 <option value="SELL">Sell</option>
                 <option value="CONTRIBUTION">Contribution</option>
                 <option value="WITHDRAWAL">Withdrawal</option>
+                <option value="INTEREST">Interest</option>
               </select>
               <select id="trading-cat-filter" class="select-filter" onchange="setTradingFilter()">
                 <option value="ALL">All Categories</option>
@@ -785,6 +851,36 @@
 
     <!-- ════════════════════ MANAGE PORTFOLIO TAB ════════════════════ -->
     <div id="manage-tab" class="tab-content">
+      <!-- Handy calculator for working out values while filling the forms below -->
+      <button type="button" class="calc-fab" onclick="toggleCalculator()" title="Calculator">🧮</button>
+      <div id="calculator-panel" class="calculator-panel" style="display:none;">
+        <div class="calculator-header">
+          <span>Calculator</span>
+          <button type="button" class="calc-close" onclick="toggleCalculator()">✕</button>
+        </div>
+        <input id="calc-display" class="calculator-display" readonly value="0">
+        <div class="calculator-keys">
+          <button type="button" class="calc-key calc-op" onclick="calcClear()">C</button>
+          <button type="button" class="calc-key calc-op" onclick="calcBackspace()">⌫</button>
+          <button type="button" class="calc-key calc-op" onclick="calcInput('%')">%</button>
+          <button type="button" class="calc-key calc-op" onclick="calcInput('/')">÷</button>
+          <button type="button" class="calc-key" onclick="calcInput('7')">7</button>
+          <button type="button" class="calc-key" onclick="calcInput('8')">8</button>
+          <button type="button" class="calc-key" onclick="calcInput('9')">9</button>
+          <button type="button" class="calc-key calc-op" onclick="calcInput('*')">×</button>
+          <button type="button" class="calc-key" onclick="calcInput('4')">4</button>
+          <button type="button" class="calc-key" onclick="calcInput('5')">5</button>
+          <button type="button" class="calc-key" onclick="calcInput('6')">6</button>
+          <button type="button" class="calc-key calc-op" onclick="calcInput('-')">−</button>
+          <button type="button" class="calc-key" onclick="calcInput('1')">1</button>
+          <button type="button" class="calc-key" onclick="calcInput('2')">2</button>
+          <button type="button" class="calc-key" onclick="calcInput('3')">3</button>
+          <button type="button" class="calc-key calc-op" onclick="calcInput('+')">+</button>
+          <button type="button" class="calc-key calc-zero" onclick="calcInput('0')">0</button>
+          <button type="button" class="calc-key" onclick="calcInput('.')">.</button>
+          <button type="button" class="calc-key calc-equals" onclick="calcEquals()">=</button>
+        </div>
+      </div>
       <div class="manage-grid">
 
         <!-- Add Transaction (stocks / MFs) -->
@@ -842,7 +938,7 @@
         <!-- Update Balance (opaque components) -->
         <div class="chart-card manage-card">
           <div class="chart-header"><h3>🏦 Update Balance</h3></div>
-          <p class="manage-hint">Current value + amount contributed this period for NPS, PF, PPF, Bonds, Cash, Crypto. Gold is tracked automatically from your SGB/GOLDBEES holdings.</p>
+          <p class="manage-hint">NPS: enter the current value straight from your statement, plus what you contributed. PF/PPF/Bonds/Cash/Crypto: current value auto-calculates from previous value + contribution + interest. Gold is tracked automatically from your SGB/GOLDBEES holdings.</p>
           <form id="bal-form" class="manage-form" onsubmit="return handleBalSubmit(event)">
             <input type="hidden" id="bal-edit-id" value="">
             <input type="hidden" id="bal-value" value="0">
@@ -863,11 +959,12 @@
             </div>
             <div class="manage-row">
               <label>Contributed this period (₹) <input type="number" step="any" id="bal-contribution" value="0" oninput="updateBalComputedValue()"></label>
-              <label>Interest earned this period (₹) <input type="number" step="any" id="bal-interest" value="0" oninput="updateBalComputedValue()"></label>
+              <label id="bal-interest-wrap">Interest earned this period (₹) <input type="number" step="any" id="bal-interest" value="0" oninput="updateBalComputedValue()"></label>
             </div>
             <div class="manage-row">
-              <label>Previous value <span id="bal-prev-value" class="manage-computed">₹0</span></label>
-              <label>Current value (₹) <span id="bal-value-display" class="manage-computed" title="Auto-calculated: previous value + contribution + interest earned">₹0</span></label>
+              <label id="bal-prev-wrap">Previous value <span id="bal-prev-value" class="manage-computed">₹0</span></label>
+              <label id="bal-value-computed-wrap">Current value (₹) <span id="bal-value-display" class="manage-computed" title="Auto-calculated: previous value + contribution + interest earned">₹0</span></label>
+              <label id="bal-value-input-wrap" style="display:none;">Current value (₹) <input type="number" step="any" id="bal-value-input" oninput="updateBalComputedValue()"></label>
             </div>
             <div class="manage-row">
               <label class="manage-full">Note <input id="bal-note" placeholder="optional"></label>
