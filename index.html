@@ -824,6 +824,8 @@
                   <th style="text-align: right;">Price (₹)</th>
                   <th style="text-align: right;">Total (₹)</th>
                   <th>Category</th>
+                  <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="trading-activity-body">
@@ -1000,12 +1002,7 @@
             <input type="file" id="import-backup" accept=".json" hidden onchange="handleImportBackup(event)">
           </div>
           <div id="backup-status" class="manage-preview"></div>
-        </div>
-
-        <!-- Ledger -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header"><h3>📒 Ledger</h3></div>
-          <div id="ledger-content"><!-- populated by renderLedger() --></div>
+          <p class="manage-hint" style="margin-top:0.5rem;">Looking for the transaction/balance list? It's now in <strong>Periodic Performance → Transaction Log</strong>, where every entry is editable with a Closed/Pending status.</p>
         </div>
 
       </div>

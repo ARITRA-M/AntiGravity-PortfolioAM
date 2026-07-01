@@ -294,6 +294,15 @@ function canonicalInstrument(name, assetClass) {
   return match ? match.instrument : name;
 }
 
+// A transaction is "folded" (already reflected in the frozen base, so must NOT
+// be replayed again) if explicitly marked so by closeMonth(). Legacy
+// transactions predating that flag fall back to the old date-vs-baseDate check.
+function _isTxnFolded(t, baseDate) {
+  if (t.folded === true) return true;
+  if (t.folded === false) return false;
+  return !!baseDate && t.date <= baseDate;
+}
+
 // ── Holdings derivation ────────────────────────────────────────────────────
 // Returns { equity:[...], mf:[...] } in the same shape app.js consumes:
 //   equity item: { instrument, sector, qty, avg_cost, ltp, invested, cur_val, pnl, gain_pct, realized_pnl }
@@ -329,9 +338,13 @@ function deriveHoldings(base, txns) {
     });
   });
 
-  // Apply transactions in chronological order (only those after the frozen base).
+  // Apply transactions in chronological order — skip whatever is already baked
+  // into this frozen base. Uses the explicit `folded` flag (set by closeMonth())
+  // rather than date, so a transaction added AFTER a close — even if dated on or
+  // before the base date — still replays. Legacy transactions with no `folded`
+  // field (saved before this fix) fall back to the old date comparison.
   const ordered = [...txns]
-    .filter(t => !base.baseDate || t.date > base.baseDate)
+    .filter(t => !_isTxnFolded(t, base.baseDate))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   ordered.forEach(t => {
@@ -513,10 +526,10 @@ function rebuildHoldingHistoryFromLedger() {
   const ltpOf = {}; (latestEquity || []).forEach(s => { ltpOf[s.instrument] = s.ltp; });
   const navOf = {}; (latestMf || []).forEach(f => { navOf[f.scheme] = f.price; });
 
-  // 3. Replay post-base transactions grouped by date; snapshot affected holdings.
+  // 3. Replay not-yet-folded transactions grouped by date; snapshot affected holdings.
   const byDate = {};
   (transactions || [])
-    .filter(t => !baseDate || t.date > baseDate)
+    .filter(t => !_isTxnFolded(t, baseDate))
     .forEach(t => { (byDate[t.date] = byDate[t.date] || []).push(t); });
 
   Object.keys(byDate).sort().forEach(date => {
@@ -604,6 +617,14 @@ function addTransaction(txn) {
     amount: txn.amount != null ? Number(txn.amount) : Number(txn.qty) * Number(txn.price),
     category: txn.category || null,    // for brand-new MFs
     note: txn.note || '',
+    // `folded: false` marks this as NOT yet baked into a frozen-base snapshot —
+    // explicit, so it always replays regardless of its date. Without this, a
+    // transaction dated on/before the current frozen base (e.g. logged late, or
+    // backdated) would be silently excluded by deriveHoldings' date filter,
+    // since that filter otherwise assumes "date ≤ base date" means "already in
+    // the snapshot" — true only for transactions that existed BEFORE the close
+    // ran. closeMonth() flips this to `true` for every transaction it folds in.
+    folded: false,
   };
   transactions.push(t);
   saveLedger(); markLedgerDirty();
@@ -617,6 +638,12 @@ function updateTransaction(id, patch) {
   if (patch.qty != null || patch.price != null) {
     t.amount = Number(t.qty) * Number(t.price);
   }
+  // Editing is an explicit "please re-apply me" signal — un-fold so the next
+  // derivation replays it against current holdings, even if it was previously
+  // folded into a Close Period snapshot. Without this, editing a transaction
+  // that's already folded (or a legacy one defaulting to folded via the date
+  // fallback) silently has no effect on the current portfolio value.
+  t.folded = false;
   saveLedger(); markLedgerDirty();
   return t;
 }
@@ -956,6 +983,12 @@ function closeMonth(dateStr) {
       avg_nav: f.avg_nav, invested: f.invested, basePrice: f.price,
     })),
   };
+  // Every transaction that exists right now is baked into the frozenBase snapshot
+  // just built above (its qty/invested is already reflected in latestEquity/latestMf).
+  // Mark them all folded so future derivations don't replay them a second time —
+  // anything added AFTER this point, regardless of its own date, is new information.
+  transactions.forEach(t => { t.folded = true; });
+
   saveLedger(); markLedgerDirty();
   saveBreakupOverride();
 

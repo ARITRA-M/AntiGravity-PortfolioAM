@@ -1955,6 +1955,11 @@ tr:hover td {
   color: #ef4444;
 }
 
+.trade-type.bal {
+  background: rgba(245,158,11,0.15);
+  color: #fcd34d;
+}
+
 /* ── Overview Sub-tabs ─────────────────────────────────────────── */
 .overview-subtabs {
   display: flex;
@@ -2034,6 +2039,34 @@ tr:hover td {
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-top: 0.25rem;
+}
+
+@media (max-width: 768px) {
+  .market-index-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.6rem;
+    margin-top: 0.75rem;
+  }
+  .market-index-card {
+    padding: 0.65rem 0.7rem;
+    border-radius: 8px;
+  }
+  .market-index-card .mi-group { font-size: 0.6rem; margin-bottom: 0.1rem; }
+  .market-index-card .mi-label {
+    font-size: 0.78rem;
+    margin-bottom: 0.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .market-index-card .mi-pct { font-size: 1.05rem; }
+  .market-index-card .mi-last { font-size: 0.65rem; margin-top: 0.15rem; }
+}
+
+@media (max-width: 480px) {
+  .market-index-grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .market-index-card { padding: 0.55rem 0.6rem; }
+  .market-index-card .mi-pct { font-size: 0.95rem; }
 }
 .time-filters .subtab-btn {
   padding: 0.35rem 0.9rem;
@@ -2561,6 +2594,16 @@ tr:hover td {
   color: #93c5fd;
 }
 .ledger-tag.bal { background: rgba(245,158,11,0.18); color: #fcd34d; }
+.ledger-status {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ledger-status.closed { background: rgba(148,163,184,0.15); color: #94a3b8; }
+.ledger-status.pending { background: rgba(16,185,129,0.15); color: #10b981; }
 .ledger-btn {
   background: transparent;
   border: none;
