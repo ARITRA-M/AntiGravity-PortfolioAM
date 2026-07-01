@@ -6353,99 +6353,82 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   _tradingLastStart = startIndex; _tradingLastEnd = endIndex;
   
   const trades = [];
-  
-  // Generate simulated trading activity from historical holdings data
+
+  // The ledger (transactions[]/balances[]) is the source of truth for anything
+  // it covers — so historical snapshot-diffing is only used for the PURE
+  // pre-ledger era (Excel-imported months with no corresponding ledger entry).
+  // Anything from the ledger's earliest entry onward is shown as an individual,
+  // editable row further below instead of a coarser per-period aggregate — this
+  // is what lets the log double as the (now-merged) Ledger view.
+  const _ledgerDates = [
+    ...(typeof transactions !== 'undefined' ? transactions.map(t => t.date) : []),
+    ...(typeof balances !== 'undefined' ? balances.map(b => b.date) : []),
+  ];
+  const ledgerEraStart = _ledgerDates.length ? _ledgerDates.reduce((a, b) => a < b ? a : b) : null;
+
+  // Historical (pre-ledger) stock/MF buys & sells, derived from monthly snapshot deltas.
   const stockHistory = historicalHoldings.stocks;
   const mfHistory = historicalHoldings.mfs;
-  
-  // Process stock transactions
+
   Object.keys(stockHistory).forEach(symbol => {
     const stock = stockHistory[symbol];
     const history = stock.history;
-    
     for (let i = 1; i < history.length; i++) {
       const prev = history[i - 1];
       const curr = history[i];
-      
-      // Detect buys (invested increased)
+      if (ledgerEraStart && curr.date >= ledgerEraStart) continue; // covered by individual ledger rows below
       if (curr.invested > prev.invested) {
-        const buyAmount = curr.invested - prev.invested;
         const qty = curr.qty - prev.qty;
         if (qty > 0) {
           trades.push({
-            date: curr.date,
-            instrument: symbol,
-            type: 'BUY',
-            quantity: qty,
-            price: curr.ltp,
-            total: buyAmount,
-            category: stock.sector || 'Equity'
+            date: curr.date, instrument: symbol, type: 'BUY',
+            quantity: qty, price: curr.ltp, total: curr.invested - prev.invested,
+            category: stock.sector || 'Equity', closed: true,
           });
         }
       }
-      
-      // Detect sells (qty decreased)
       if (curr.qty < prev.qty && curr.qty >= 0) {
         const sellQty = prev.qty - curr.qty;
-        const sellAmount = sellQty * curr.ltp;
         trades.push({
-          date: curr.date,
-          instrument: symbol,
-          type: 'SELL',
-          quantity: sellQty,
-          price: curr.ltp,
-          total: sellAmount,
-          category: stock.sector || 'Equity'
+          date: curr.date, instrument: symbol, type: 'SELL',
+          quantity: sellQty, price: curr.ltp, total: sellQty * curr.ltp,
+          category: stock.sector || 'Equity', closed: true,
         });
       }
     }
   });
-  
-  // Process MF transactions
+
   Object.keys(mfHistory).forEach(scheme => {
     const mf = mfHistory[scheme];
     const history = mf.history;
-    
+    const label = scheme.length > 30 ? scheme.substring(0, 30) + '...' : scheme;
     for (let i = 1; i < history.length; i++) {
       const prev = history[i - 1];
       const curr = history[i];
-      
-      // Detect buys
+      if (ledgerEraStart && curr.date >= ledgerEraStart) continue;
       if (curr.invested > prev.invested) {
-        const buyAmount = curr.invested - prev.invested;
         const qty = curr.qty - prev.qty;
         if (qty > 0) {
           trades.push({
-            date: curr.date,
-            instrument: scheme.length > 30 ? scheme.substring(0, 30) + '...' : scheme,
-            type: 'BUY',
-            quantity: qty,
-            price: curr.ltp,
-            total: buyAmount,
-            category: 'Mutual Fund'
+            date: curr.date, instrument: label, type: 'BUY',
+            quantity: qty, price: curr.ltp, total: curr.invested - prev.invested,
+            category: 'Mutual Fund', closed: true,
           });
         }
       }
-      
-      // Detect sells
       if (curr.qty < prev.qty && curr.qty >= 0) {
         const sellQty = prev.qty - curr.qty;
-        const sellAmount = sellQty * curr.ltp;
         trades.push({
-          date: curr.date,
-          instrument: scheme.length > 30 ? scheme.substring(0, 30) + '...' : scheme,
-          type: 'SELL',
-          quantity: sellQty,
-          price: curr.ltp,
-          total: sellAmount,
-          category: 'Mutual Fund'
+          date: curr.date, instrument: label, type: 'SELL',
+          quantity: sellQty, price: curr.ltp, total: sellQty * curr.ltp,
+          category: 'Mutual Fund', closed: true,
         });
       }
     }
   });
-  
-  // ── Contributions for non-tradeable components (Gold, NPS, PF, PPF, Bonds,
-  // Cash, Crypto) from the breakup new_investment series + the ledger balances. ──
+
+  // Historical (pre-ledger) contributions for non-tradeable components (Gold,
+  // NPS, PF, PPF, Bonds, Cash, Crypto), from the breakup new_investment series.
   const COMP_META = {
     'Gold (Gold)':        { label: 'Gold',   category: 'Gold',      assetCategory: 'Gold' },
     'NPS E (Equity)':     { label: 'NPS E',  category: 'Equity',    assetCategory: 'NPS' },
@@ -6462,17 +6445,20 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     const vals = niSec[key]?.values;
     if (!vals) return;
     vals.forEach((v, i) => {
-      if (!v) return; // only periods with an actual contribution/withdrawal
+      if (!v) return;
+      if (ledgerEraStart && dates[i] >= ledgerEraStart) return; // covered by individual ledger rows below
       trades.push({
         date: dates[i], instrument: meta.label,
         type: v >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
         quantity: null, price: null, total: Math.abs(v) * 100000,
-        category: meta.category, assetCategory: meta.assetCategory,
+        category: meta.category, assetCategory: meta.assetCategory, closed: true,
       });
     });
   });
-  // Post-base balance contributions entered via the ledger (not yet month-closed).
-  const _bd2 = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+
+  // ── Every ledger entry, individually — this is what replaces the separate
+  // Ledger view. Each row carries its id/kind so it can be edited or deleted
+  // right here, plus a live Closed/Pending status. ──
   const _catAcFor = (code) => ({
     cat: /Debt|PF|PPF|Bonds|NPS-C|NPS-G/.test(code) ? 'Debt'
        : /Gold/.test(code) ? 'Gold' : /Cash/.test(code) ? 'Liquid'
@@ -6481,17 +6467,40 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
       : /Bonds/.test(code) ? 'Bonds' : /Gold/.test(code) ? 'Gold'
       : /Cash/.test(code) ? 'Cash' : /Crypto/.test(code) ? 'Crypto' : 'NPS',
   });
+  const _fbBaseDateForLog = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+
+  (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
+    const folded = (typeof _isTxnFolded === 'function') ? _isTxnFolded(t, _fbBaseDateForLog) : (t.date <= _fbBaseDateForLog);
+    const typeLabel = t.type === 'split' ? 'SPLIT' : t.type === 'bonus' ? 'BONUS' : t.type === 'sell' ? 'SELL' : 'BUY';
+    const isMf = t.assetClass === 'mf';
+    trades.push({
+      date: t.date, instrument: t.instrument, type: typeLabel,
+      quantity: t.qty, price: t.price, total: t.amount,
+      category: isMf ? 'Mutual Fund' : (t.category || 'Equity'),
+      assetCategory: isMf ? 'Mutual Funds' : 'Stocks',
+      closed: folded, id: t.id, kind: 'txn',
+    });
+  });
   (typeof balances !== 'undefined' ? balances : []).forEach(b => {
-    if (_bd2 && b.date <= _bd2) return; // pre-base already in the breakup series
-    if (!b.contribution) return;
+    const folded = !!(_fbBaseDateForLog && b.date <= _fbBaseDateForLog);
     const { cat, ac } = _catAcFor(b.component);
     const lbl = b.component.replace('-', ' ');
-    trades.push({
-      date: b.date, instrument: lbl,
-      type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
-      quantity: null, price: null, total: Math.abs(b.contribution),
-      category: cat, assetCategory: ac,
-    });
+    if (b.contribution) {
+      trades.push({
+        date: b.date, instrument: lbl,
+        type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
+        quantity: null, price: null, total: Math.abs(b.contribution),
+        category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
+      });
+    } else {
+      // Balance entries with zero contribution (pure value update) still need a
+      // row so they're visible/editable — shown as an UPDATE with no amount.
+      trades.push({
+        date: b.date, instrument: lbl, type: 'UPDATE',
+        quantity: null, price: null, total: 0,
+        category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
+      });
+    }
   });
 
   // Monthly Return row per component, per CLOSED period — pure market/interest growth
@@ -6560,10 +6569,20 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     const typeClass = trade.type === 'CONTRIBUTION' ? 'buy'
       : trade.type === 'WITHDRAWAL' ? 'sell'
       : trade.type === 'RETURN' ? (trade.isLoss ? 'return-loss' : 'return-gain')
+      : trade.type === 'UPDATE' ? 'bal'
       : trade.type.toLowerCase();
     const totalStr = trade.type === 'RETURN'
       ? `${trade.isLoss ? '-' : '+'}${formatINR(trade.total)}`
-      : formatINR(trade.total);
+      : (trade.total ? formatINR(trade.total) : '—');
+    const statusBadge = trade.closed
+      ? '<span class="ledger-status closed" title="Already baked into the last Close Period">🔒 Closed</span>'
+      : (trade.id
+        ? '<span class="ledger-status pending" title="Not yet folded into a Close Period — counts in the current live total">🟢 Pending</span>'
+        : '');
+    const actions = trade.id
+      ? `<button class="ledger-btn" onclick="${trade.kind === 'txn' ? 'editTxn' : 'editBal'}('${trade.id}')">✏️</button>
+         <button class="ledger-btn" onclick="${trade.kind === 'txn' ? 'removeTxn' : 'removeBal'}('${trade.id}')">🗑️</button>`
+      : '';
     return `
     <tr>
       <td>${formatFullDate(trade.date)}</td>
@@ -6575,6 +6594,8 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
       <td style="text-align: right;">${trade.price == null ? '—' : '₹' + trade.price.toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
       <td style="text-align: right; font-weight: 600;" class="${trade.type === 'RETURN' ? (trade.isLoss ? 'trend-down' : 'trend-up') : ''}">${totalStr}</td>
       <td><span class="sector-tag">${escapeHtml(trade.category)}</span></td>
+      <td>${statusBadge}</td>
+      <td style="white-space:nowrap;">${actions}</td>
     </tr>
   `;
   }).join('');
@@ -6583,7 +6604,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   if (filteredTrades.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+        <td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">
           No trading activity found for the selected period
         </td>
       </tr>
@@ -6687,7 +6708,6 @@ function initManageTab() {
   });
   onTxnAssetClassChange();
   updateBalComputedValue();
-  renderLedger();
 }
 
 // ── Handy calculator (Manage Portfolio) — a basic +−×÷ pad for working out
@@ -6826,7 +6846,6 @@ function handleTxnSubmit(e) {
   else addTransaction(payload);
   resetTxnForm();
   refreshAfterLedgerChange();
-  renderLedger();
   return false;
 }
 
@@ -6844,6 +6863,7 @@ function resetTxnForm() {
 function editTxn(id) {
   const t = (transactions || []).find(x => x.id === id);
   if (!t) return;
+  switchTab('manage'); // editing may be triggered from the Transaction Log (Periodic Performance tab)
   document.getElementById('txn-edit-id').value = t.id;
   document.getElementById('txn-assetClass').value = t.assetClass;
   document.getElementById('txn-type').value = t.type;
@@ -6865,7 +6885,6 @@ function removeTxn(id) {
   if (!confirm('Delete this transaction?')) return;
   deleteTransaction(id);
   refreshAfterLedgerChange();
-  renderLedger();
 }
 
 // Most recent known value for a component strictly before `beforeDate` — the
@@ -6936,7 +6955,7 @@ function handleBalSubmit(e) {
   if (editId) updateBalance(editId, payload);
   else addBalance(payload);
   resetBalForm();
-  renderLedger();
+  refreshAfterLedgerChange();
   return false;
 }
 
@@ -6956,6 +6975,7 @@ function resetBalForm() {
 function editBal(id) {
   const b = (balances || []).find(x => x.id === id);
   if (!b) return;
+  switchTab('manage'); // editing may be triggered from the Transaction Log (Periodic Performance tab)
   document.getElementById('bal-edit-id').value = b.id;
   document.getElementById('bal-component').value = b.component;
   document.getElementById('bal-date').value = b.date;
@@ -6972,7 +6992,7 @@ function editBal(id) {
 function removeBal(id) {
   if (!confirm('Delete this balance entry?')) return;
   deleteBalance(id);
-  renderLedger();
+  refreshAfterLedgerChange();
 }
 
 // Re-derive holdings from the ledger and re-render every analytics view,
@@ -7030,7 +7050,6 @@ function handleCloseMonth() {
   try {
     const res = closeMonth(date);
     refreshAfterLedgerChange();
-    renderLedger();
     const xirr = res.portfolioXirr != null ? (res.portfolioXirr * 100).toFixed(2) + '%' : '—';
     preview.innerHTML = `<span class="trend-up">✓ Period ${res.date} closed.</span><br>` +
       `Net worth: <b>${formatLakhs(res.totalValue)}</b> · Change: <b>${formatLakhs(res.netChange)}</b> · ` +
@@ -7061,7 +7080,6 @@ async function handleImportBackup(e) {
     saveBreakupOverride();
     initializeLiveBaseline();
     refreshAfterLedgerChange();
-    renderLedger();
     status.innerHTML = `<span class="trend-up">✓ Imported backup from ${escapeHtml((data._backup_meta || {}).exported_at || 'file')}. Commit to persist.</span>`;
   } catch (err) {
     status.innerHTML = `<span class="trend-down">⚠️ ${escapeHtml(err.message)}</span>`;
@@ -7070,55 +7088,3 @@ async function handleImportBackup(e) {
   }
 }
 
-// Combined chronological ledger of transactions + balances with edit/delete.
-function renderLedger() {
-  const el = document.getElementById('ledger-content');
-  if (!el) return;
-  const txns = (transactions || []).map(t => ({ kind: 'txn', ...t }));
-  const bals = (balances || []).map(b => ({ kind: 'bal', ...b }));
-  const rows = [...txns, ...bals].sort((a, b) => b.date.localeCompare(a.date));
-
-  if (!rows.length) {
-    el.innerHTML = '<p class="manage-hint">No transactions or balance entries yet. Add some above, then “Close Period” to snapshot a new data point.</p>';
-    return;
-  }
-
-  const body = rows.map(r => {
-    if (r.kind === 'txn') {
-      const cls = r.type === 'buy' ? 'trend-up' : 'trend-down';
-      return `<tr>
-        <td>${r.date}</td>
-        <td><span class="ledger-tag">${r.assetClass === 'mf' ? 'MF' : 'Stock'}</span></td>
-        <td>${escapeHtml(r.instrument)}</td>
-        <td class="${cls}">${r.type.toUpperCase()}</td>
-        <td style="text-align:right;">${(+r.qty).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
-        <td style="text-align:right;">${formatINR(r.price)}</td>
-        <td style="text-align:right;">${formatINR(r.amount)}</td>
-        <td>${escapeHtml(r.note || '')}</td>
-        <td style="white-space:nowrap;">
-          <button class="ledger-btn" onclick="editTxn('${r.id}')">✏️</button>
-          <button class="ledger-btn" onclick="removeTxn('${r.id}')">🗑️</button>
-        </td></tr>`;
-    }
-    return `<tr>
-      <td>${r.date}</td>
-      <td><span class="ledger-tag bal">Balance</span></td>
-      <td>${escapeHtml(r.component)}</td>
-      <td>UPDATE</td>
-      <td style="text-align:right;">—</td>
-      <td style="text-align:right;">—</td>
-      <td style="text-align:right;">${formatINR(r.value)}${r.contribution ? ` <span style="color:var(--text-muted)">(contrib +${formatINR(r.contribution)})</span>` : ''}${r.interest ? ` <span style="color:var(--text-muted)">(interest +${formatINR(r.interest)})</span>` : ''}</td>
-      <td>${escapeHtml(r.note || '')}</td>
-      <td style="white-space:nowrap;">
-        <button class="ledger-btn" onclick="editBal('${r.id}')">✏️</button>
-        <button class="ledger-btn" onclick="removeBal('${r.id}')">🗑️</button>
-      </td></tr>`;
-  }).join('');
-
-  el.innerHTML = `<div class="table-wrapper"><table class="ledger-table">
-    <thead><tr>
-      <th>Date</th><th>Kind</th><th>Instrument / Component</th><th>Action</th>
-      <th style="text-align:right;">Qty</th><th style="text-align:right;">Price/NAV</th>
-      <th style="text-align:right;">Amount / Value</th><th>Note</th><th></th>
-    </tr></thead><tbody>${body}</tbody></table></div>`;
-}
