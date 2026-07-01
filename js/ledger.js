@@ -127,6 +127,7 @@ function initFrozenBaseFromCurrent() {
     baseDate,
     stockLakhs: _last('Stocks (Equity)'),
     mfLakhs:    _last('Mutual Funds (Equity)'),
+    goldLakhs:  _last('Gold (Gold)'),
     npsELakhs:  _last('NPS E (Equity)'),
     totalLakhs: _last('Total'),
     equity: latestEquity.map(s => ({
@@ -632,6 +633,7 @@ function addBalance(entry) {
     component: entry.component,         // one of OPAQUE_COMPONENTS
     value: Number(entry.value),
     contribution: Number(entry.contribution) || 0,
+    interest: Number(entry.interest) || 0,
     note: entry.note || '',
   };
   balances.push(b);
@@ -747,21 +749,34 @@ function closeMonth(dateStr) {
   // The gap = (uploadedSnapshot baseline) − Σ(frozenQty × frozenPrice).  If we stored
   // a raw per-holding sum here instead, the gap would vanish and every subsequent
   // recomputePortfolioFromLiveData() call would show a different (wrong) total.
-  const rawStockVal = latestEquity.reduce((s, h) => s + h.cur_val, 0) / L;
+  // Gold (SGB / GOLDBEES) lives inside latestEquity for live pricing purposes but
+  // belongs to the "Gold" net-worth bucket, not "Stocks (Equity)" — split it out
+  // the same way recomputePortfolioFromLiveData() does.
+  const nonGoldEquity = latestEquity.filter(h => !isGoldHolding(h));
+  const goldEquity    = latestEquity.filter(isGoldHolding);
+  const rawStockVal = nonGoldEquity.reduce((s, h) => s + h.cur_val, 0) / L;
+  const rawGoldVal  = goldEquity.reduce((s, h) => s + h.cur_val, 0) / L;
   const rawMfVal    = latestMf.reduce((s, h) => s + h.price * h.qty, 0) / L;
   let stockValue = rawStockVal;
+  let goldValue  = rawGoldVal;
   let mfValue    = rawMfVal;
   if ((typeof uploadedSnapshot !== 'undefined') && uploadedSnapshot &&
       (typeof frozenBase !== 'undefined') && frozenBase) {
-    const frozenStkVal = (frozenBase.equity || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0) / L;
+    const frozenEquity = frozenBase.equity || [];
+    const frozenStkVal  = frozenEquity.filter(h => !isGoldHolding(h)).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0) / L;
+    const frozenGoldVal = frozenEquity.filter(isGoldHolding).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0) / L;
     const frozenMfVal  = (frozenBase.mf   || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.price ?? 0), 0) / L;
     stockValue = rawStockVal + (uploadedSnapshot.stockLakhs - frozenStkVal);
+    goldValue  = rawGoldVal  + ((uploadedSnapshot.goldLakhs ?? 0) - frozenGoldVal);
     mfValue    = rawMfVal   + (uploadedSnapshot.mfLakhs    - frozenMfVal);
   }
 
   // New investment this period for tradeables (lakhs): buys − sells in (prev, D]
   const inWindow = t => t.date > prevDate && t.date <= D;
-  const stockNewInv = transactions.filter(t => inWindow(t) && t.assetClass === 'stock')
+  const goldInstruments = new Set(goldEquity.map(h => h.instrument));
+  const stockNewInv = transactions.filter(t => inWindow(t) && t.assetClass === 'stock' && !goldInstruments.has(t.instrument))
+    .reduce((s, t) => s + (t.type === 'sell' ? -t.amount : t.amount), 0) / L;
+  const goldNewInv = transactions.filter(t => inWindow(t) && t.assetClass === 'stock' && goldInstruments.has(t.instrument))
     .reduce((s, t) => s + (t.type === 'sell' ? -t.amount : t.amount), 0) / L;
   const mfNewInv = transactions.filter(t => inWindow(t) && t.assetClass === 'mf')
     .reduce((s, t) => s + (t.type === 'sell' ? -t.amount : t.amount), 0) / L;
@@ -780,6 +795,11 @@ function closeMonth(dateStr) {
   };
   OPAQUE_COMPONENTS.forEach(comp => {
     const meta = COMPONENT_BREAKUP[comp];
+    // Gold is derived automatically from SGB/GOLDBEES holdings, not a manual balance entry.
+    if (comp === 'Gold') {
+      ctx.opaque[comp] = { value: goldValue, prevValue: prevVal('net_worth', meta.key), newInv: goldNewInv };
+      return;
+    }
     const bal = latestBalanceFor(comp, D);
     const value = bal ? bal.value / L : prevVal('net_worth', meta.key); // carry forward if no new entry
     const newInv = bal && bal.date > prevDate ? (bal.contribution || 0) / L : 0;
@@ -904,7 +924,7 @@ function closeMonth(dateStr) {
   latestEquity.forEach(h => { h.basePrice = h.ltp; h.thisMonthGain = 0; });
   latestMf.forEach(h => { h.basePrice = h.price; h.thisMonthGain = 0; });
   uploadedSnapshot = {
-    totalLakhs: totalValue, stockLakhs: stockValue, mfLakhs: mfValue,
+    totalLakhs: totalValue, stockLakhs: stockValue, mfLakhs: mfValue, goldLakhs: goldValue,
     npsELakhs: ctx.opaque['NPS-E'].value,
   };
   // Advance the frozen base to this close so future derivations start here.
@@ -912,6 +932,7 @@ function closeMonth(dateStr) {
     baseDate: D,
     stockLakhs: stockValue,
     mfLakhs: mfValue,
+    goldLakhs: goldValue,
     npsELakhs: ctx.opaque['NPS-E'].value,
     totalLakhs: totalValue,
     equity: latestEquity.map(s => ({

@@ -2366,6 +2366,16 @@ tr:hover td {
   outline: none;
   border-color: rgba(99,102,241,0.55);
 }
+.manage-computed {
+  background: var(--bg-secondary, rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 7px;
+  padding: 0.5rem 0.6rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .manage-actions {
   display: flex;
   gap: 0.6rem;
