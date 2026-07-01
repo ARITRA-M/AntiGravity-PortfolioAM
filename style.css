@@ -2043,30 +2043,37 @@ tr:hover td {
 
 @media (max-width: 768px) {
   .market-index-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.6rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
     margin-top: 0.75rem;
   }
   .market-index-card {
-    padding: 0.65rem 0.7rem;
+    padding: 0.5rem 0.45rem;
     border-radius: 8px;
+    border-left-width: 2px;
   }
-  .market-index-card .mi-group { font-size: 0.6rem; margin-bottom: 0.1rem; }
-  .market-index-card .mi-label {
-    font-size: 0.78rem;
-    margin-bottom: 0.2rem;
+  .market-index-card .mi-group {
+    font-size: 0.55rem;
+    margin-bottom: 0.05rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .market-index-card .mi-pct { font-size: 1.05rem; }
-  .market-index-card .mi-last { font-size: 0.65rem; margin-top: 0.15rem; }
+  .market-index-card .mi-label {
+    font-size: 0.68rem;
+    margin-bottom: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .market-index-card .mi-pct { font-size: 0.85rem; }
+  .market-index-card .mi-last { font-size: 0.58rem; margin-top: 0.1rem; }
 }
 
 @media (max-width: 480px) {
-  .market-index-grid { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
-  .market-index-card { padding: 0.55rem 0.6rem; }
-  .market-index-card .mi-pct { font-size: 0.95rem; }
+  .market-index-grid { grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+  .market-index-card { padding: 0.4rem 0.35rem; }
+  .market-index-card .mi-pct { font-size: 0.78rem; }
 }
 .time-filters .subtab-btn {
   padding: 0.35rem 0.9rem;
