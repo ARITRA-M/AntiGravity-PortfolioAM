@@ -202,14 +202,14 @@ async function fetchNiftySeries() {
 
 const PERF_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — shorter TTL prevents stale bad-data persisting
 
-// Fetch daily closes for many Yahoo symbols using the multi-symbol spark
-// endpoint (≈15 per request). Returns Map<symbol, {dates:[ms], closes:[]}>.
-async function fetchSparkCloses(symbols) {
+// Fetch closes for many Yahoo symbols using the multi-symbol spark endpoint
+// (≈15 per request). Returns Map<symbol, {dates:[ms], closes:[]}>.
+async function fetchSparkCloses(symbols, range = '1mo', interval = '1d') {
   const out = new Map();
   const BATCH = 15;
   for (let i = 0; i < symbols.length; i += BATCH) {
     const batch = symbols.slice(i, i + BATCH);
-    const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batch.map(encodeURIComponent).join(',')}&range=1mo&interval=1d`;
+    const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batch.map(encodeURIComponent).join(',')}&range=${range}&interval=${interval}`;
     try {
       const res = await fetchViaCorsProxy(url, {}, 12000);
       if (!res.ok) continue;
@@ -2104,15 +2104,23 @@ const MARKET_MOVER_POOL = [
   { symbol: '^CNXINFRA',  label: 'Nifty Infra' },
 ];
 const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
-let marketOverviewData = null; // Map<symbol, {label, group, dailyPct, mtdPct, last}>
+let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m3,m6,y1,y5}}>
 let marketOverviewFetchedAt = 0;
-let marketOverviewMode = 'daily'; // 'daily' | 'mtd'
+let marketOverviewMode = 'daily'; // 'daily' | 'mtd' | 'm3' | 'm6' | 'y1' | 'y5'
 
 function setMarketOverviewMode(mode) {
   marketOverviewMode = mode;
-  document.getElementById('market-mode-daily').classList.toggle('active', mode === 'daily');
-  document.getElementById('market-mode-mtd').classList.toggle('active', mode === 'mtd');
+  const sel = document.getElementById('market-period-filter');
+  if (sel) sel.value = mode;
   renderMarketOverviewCards();
+}
+
+// Reference close on/before a given timestamp from an ascending {dates,closes} series.
+function _closeBefore(series, ms) {
+  if (!series) return null;
+  let val = null;
+  for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < ms) val = series.closes[i];
+  return val;
 }
 
 async function initMarketOverviewTab() {
@@ -2122,21 +2130,54 @@ async function initMarketOverviewTab() {
   if (statusEl) statusEl.textContent = 'Loading market data…';
   try {
     const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
-    const closesBySym = await fetchSparkCloses(all.map(i => i.symbol));
+    const symbols = all.map(i => i.symbol);
+    // Short (daily) series for the MTD anchor, long (weekly) series for
+    // 3M/6M/1Y/5Y lookback — one batched request each, not per-symbol.
+    const [shortBySym, longBySym] = await Promise.all([
+      fetchSparkCloses(symbols, '1mo', '1d'),
+      fetchSparkCloses(symbols, '5y', '1wk'),
+    ]);
+    // The rolling series above can lag a day or more behind (Yahoo doesn't always
+    // post today's bar promptly), which silently zeroed out MTD/Daily whenever
+    // "today" and the series' last bar landed in different months. Fetch each
+    // symbol's live quote (regularMarketPrice + the true previous close) the same
+    // way fetchNiftySeries() does, and use THAT as "current" instead of trusting
+    // the series' last element to be up to date.
+    const liveBySym = new Map();
+    await Promise.all(symbols.map(async (sym) => {
+      try {
+        const res = await fetchViaCorsProxy(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`, {}, 10000);
+        if (!res.ok) return;
+        const meta = (await res.json())?.chart?.result?.[0]?.meta;
+        if (meta?.regularMarketPrice > 0) {
+          liveBySym.set(sym, { last: meta.regularMarketPrice, prevClose: meta.chartPreviousClose > 0 ? meta.chartPreviousClose : null });
+        }
+      } catch (_) { /* fall back to the rolling series below */ }
+    }));
     const now = new Date();
     const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const daysAgo = (n) => now.getTime() - n * 86400000;
     const data = new Map();
     all.forEach(({ symbol, label, group }) => {
-      const series = closesBySym.get(symbol);
-      if (!series || series.closes.length < 2) return;
-      const { dates, closes } = series;
-      const last = closes[closes.length - 1];
-      const prev = closes[closes.length - 2];
-      const dailyPct = prev ? ((last - prev) / prev) * 100 : null;
-      let monthStartClose = null;
-      for (let i = 0; i < dates.length; i++) if (dates[i] < monthStartMs) monthStartClose = closes[i];
-      const mtdPct = monthStartClose ? ((last - monthStartClose) / monthStartClose) * 100 : null;
-      data.set(symbol, { label, group, dailyPct, mtdPct, last });
+      const shortSeries = shortBySym.get(symbol);
+      const longSeries = longBySym.get(symbol);
+      const live = liveBySym.get(symbol);
+      const fallbackSrc = (shortSeries && shortSeries.closes.length) ? shortSeries
+        : (longSeries && longSeries.closes.length) ? longSeries : null;
+      const last = live?.last ?? (fallbackSrc ? fallbackSrc.closes[fallbackSrc.closes.length - 1] : null);
+      if (last == null) return;
+      const prev = live?.prevClose
+        ?? (shortSeries && shortSeries.closes.length >= 2 ? shortSeries.closes[shortSeries.closes.length - 2] : null);
+      const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
+      const pct = {
+        daily: pctFrom(prev),
+        mtd: pctFrom(_closeBefore(shortSeries, monthStartMs) ?? _closeBefore(longSeries, monthStartMs)),
+        m3: pctFrom(_closeBefore(longSeries, daysAgo(91))),
+        m6: pctFrom(_closeBefore(longSeries, daysAgo(182))),
+        y1: pctFrom(_closeBefore(longSeries, daysAgo(365))),
+        y5: pctFrom(_closeBefore(longSeries, daysAgo(365 * 5))),
+      };
+      data.set(symbol, { label, group, last, pct });
     });
     if (data.size) {
       marketOverviewData = data;
@@ -2158,13 +2199,13 @@ function renderMarketOverviewCards() {
   if (!grid) return;
   if (!marketOverviewData) { grid.innerHTML = ''; return; }
 
-  const pctKey = marketOverviewMode === 'mtd' ? 'mtdPct' : 'dailyPct';
+  const pctKey = marketOverviewMode;
   const pinnedSymbols = new Set(MARKET_PINNED_INDICES.map(i => i.symbol));
 
   const cardHtml = ({ symbol, label, group }) => {
     const d = marketOverviewData.get(symbol);
-    if (!d || d[pctKey] == null) return '';
-    const pct = d[pctKey];
+    const pct = d?.pct?.[pctKey];
+    if (!d || pct == null) return '';
     const cls = pct >= 0 ? 'trend-up' : 'trend-down';
     const accent = pct >= 0 ? '#34d399' : '#f87171';
     return `
@@ -2178,11 +2219,11 @@ function renderMarketOverviewCards() {
 
   const pinnedHtml = MARKET_PINNED_INDICES.map(cardHtml).join('');
 
-  // Top movers from the non-pinned pool, ranked by |change| in the current mode.
+  // Top movers from the non-pinned pool, ranked by |change| in the current period.
   const movers = MARKET_MOVER_POOL
     .map(i => ({ ...i, d: marketOverviewData.get(i.symbol) }))
-    .filter(i => i.d && i.d[pctKey] != null && !pinnedSymbols.has(i.symbol))
-    .sort((a, b) => Math.abs(b.d[pctKey]) - Math.abs(a.d[pctKey]))
+    .filter(i => i.d && i.d.pct?.[pctKey] != null && !pinnedSymbols.has(i.symbol))
+    .sort((a, b) => Math.abs(b.d.pct[pctKey]) - Math.abs(a.d.pct[pctKey]))
     .slice(0, 4);
   const moversHtml = movers.map(i => cardHtml({ symbol: i.symbol, label: i.label, group: 'Top Mover' })).join('');
 
