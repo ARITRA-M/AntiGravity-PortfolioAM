@@ -25,7 +25,15 @@ window.lastRefreshReport = null;
 // them like any other stock, but their value belongs to the "Gold" net-worth bucket,
 // not "Stocks (Equity)" — split out anywhere the two are computed from latestEquity.
 const GOLD_SECTORS = new Set(['Sovereign Gold Bonds', 'Gold Commodity (ETF)']);
-function isGoldHolding(stock) { return !!stock && GOLD_SECTORS.has(stock.sector); }
+// Also match by instrument name — some SGB tranches carry a stale/incorrect
+// `sector` tag (seen as "Other Equities" for a couple of tranches), which would
+// otherwise silently exclude them from gold-specific handling (net-worth split,
+// calendar-MTD pricing, etc.).
+function isGoldHolding(stock) {
+  if (!stock) return false;
+  if (GOLD_SECTORS.has(stock.sector)) return true;
+  return /^SGB/i.test(stock.instrument || '') || stock.instrument === 'GOLDBEES';
+}
 
 // Chart references
 let allocationChart = null;
@@ -963,6 +971,7 @@ async function loadData() {
       }
       try { applyStaleDataFlag(); } catch (_) {}
 
+      try { if (typeof repairLastXirrColumn === 'function') repairLastXirrColumn(); } catch (e) { console.warn('repairLastXirrColumn:', e); }
       try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
       try { initOverviewTab(); } catch (e) { console.error('initOverviewTab failed:', e); }
       try { initStocksTab(); } catch (e) { console.error('initStocksTab failed:', e); }
@@ -1049,6 +1058,7 @@ async function loadData() {
     try { applyStaleDataFlag(); } catch (_) {}
 
     // Initialize UI elements — each wrapped in try-catch to isolate failures
+    try { if (typeof repairLastXirrColumn === 'function') repairLastXirrColumn(); } catch (e) { console.warn('repairLastXirrColumn:', e); }
     try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
     try { initOverviewTab(); } catch (e) { console.error('initOverviewTab failed:', e); }
     try { initStocksTab(); } catch (e) { console.error('initStocksTab failed:', e); }
@@ -1134,16 +1144,39 @@ function recomputePortfolioFromLiveData() {
     liveGoldLakhs  = (uploadedSnapshot.goldLakhs ?? 0) + exactGoldGain / 100000;
     liveMfLakhs    = uploadedSnapshot.mfLakhs    + exactMfGain    / 100000;
   }
-  const liveTotalLakhs = uploadedSnapshot.totalLakhs +
-    (liveStockLakhs - uploadedSnapshot.stockLakhs) + (liveMfLakhs - uploadedSnapshot.mfLakhs) +
-    (liveGoldLakhs - (uploadedSnapshot.goldLakhs ?? 0));
+  // Live-override opaque (non-tradeable, non-gold) components from balance entries
+  // recorded after the frozen base but not yet folded in via Close Period — so a
+  // new PF/NPS/PPF/Bonds/Cash/Crypto entry shows up immediately instead of waiting
+  // for a month close (closeMonth() already reads these the same way).
+  const _fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : '';
+  const _todayStr = new Date().toISOString().slice(0, 10);
+  function _liveOpaqueLakhs(comp) {
+    const meta = (typeof COMPONENT_BREAKUP !== 'undefined') ? COMPONENT_BREAKUP[comp] : null;
+    const baseVal = meta ? getLatestSectionValue(breakupSummary.net_worth, meta.key) : 0;
+    const bal = (typeof latestBalanceFor === 'function') ? latestBalanceFor(comp, _todayStr) : null;
+    return (bal && (!_fbBaseDate || bal.date > _fbBaseDate)) ? bal.value / 100000 : baseVal;
+  }
+  const liveNpsE  = _liveOpaqueLakhs('NPS-E');
+  const liveNpsC  = _liveOpaqueLakhs('NPS-C');
+  const liveNpsG  = _liveOpaqueLakhs('NPS-G');
+  const livePf    = _liveOpaqueLakhs('PF');
+  const livePpf   = _liveOpaqueLakhs('PPF');
+  const liveBonds = _liveOpaqueLakhs('Bonds');
+  const liveCash  = _liveOpaqueLakhs('Cash');
+  const liveCrypto = _liveOpaqueLakhs('Crypto');
+
+  const liveTotalLakhs = liveStockLakhs + liveMfLakhs + liveGoldLakhs +
+    liveNpsE + liveNpsC + liveNpsG + livePf + livePpf + liveBonds + liveCash + liveCrypto;
 
   portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
-  portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
+  portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + liveNpsE;
+  portfolioSummary.debt_lakhs = liveNpsC + liveNpsG + livePf + livePpf + liveBonds;
   portfolioSummary.gold_lakhs = liveGoldLakhs;
+  portfolioSummary.liquid_lakhs = liveCash;
+  portfolioSummary.alternate_lakhs = liveCrypto;
   portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
 
-  // Update latest breakupSummary data points for Growth tab chart display only.
+  // Update latest breakupSummary data points for Growth/Fixed-Income/NPS tab display.
   // GUARD: never overwrite the immutable frozen-base column. When no month has been
   // closed since the base date, the LAST breakup column IS the opening snapshot —
   // writing live values there corrupts the base (Stocks/MF/Total), and a subsequent
@@ -1151,11 +1184,18 @@ function recomputePortfolioFromLiveData() {
   // a genuine post-base (closed-period) column. The live net worth is always shown
   // via portfolioSummary.total_net_worth_lakhs (set above), independent of this.
   const _lastBreakupDate = (breakupSummary.dates || []).slice(-1)[0] || '';
-  const _fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : '';
   if (!_fbBaseDate || _lastBreakupDate > _fbBaseDate) {
     setLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)', liveStockLakhs);
     setLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)', liveMfLakhs);
     setLatestSectionValue(breakupSummary.net_worth, 'Gold (Gold)', liveGoldLakhs);
+    setLatestSectionValue(breakupSummary.net_worth, 'NPS E (Equity)', liveNpsE);
+    setLatestSectionValue(breakupSummary.net_worth, 'NPS C (Debt)', liveNpsC);
+    setLatestSectionValue(breakupSummary.net_worth, 'NPS G (Debt)', liveNpsG);
+    setLatestSectionValue(breakupSummary.net_worth, 'PF (Debt)', livePf);
+    setLatestSectionValue(breakupSummary.net_worth, 'PPF (Debt)', livePpf);
+    setLatestSectionValue(breakupSummary.net_worth, 'Bonds (Debt)', liveBonds);
+    setLatestSectionValue(breakupSummary.net_worth, 'Cash (Liquid)', liveCash);
+    setLatestSectionValue(breakupSummary.net_worth, 'Crypto (Alternate)', liveCrypto);
     setLatestSectionValue(breakupSummary.net_worth, 'Total', liveTotalLakhs);
   }
   // autoCloseMonthIfNeeded is intentionally NOT called here — recomputePortfolioFromLiveData
@@ -2037,6 +2077,116 @@ function switchOverviewSubtab(subtab, btn) {
     if (subtab === 'daily') renderDailyOverviewTable();
     if (subtab === 'monthly') renderMonthlyOverviewTable();
   }
+  if (subtab === 'market') initMarketOverviewTab();
+}
+
+// ── Market Overview: national/sectoral/global index cards with Daily/MTD toggle ──
+// Pinned indices always show; a few extra "top movers" from the sectoral pool are
+// surfaced dynamically based on whichever moved the most that day.
+const MARKET_PINNED_INDICES = [
+  { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National' },
+  { symbol: '^BSESN',   label: 'Sensex',          group: 'National' },
+  { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral' },
+  { symbol: '^CNXIT',   label: 'Nifty IT',        group: 'Sectoral' },
+  { symbol: '^CNXFMCG', label: 'Nifty FMCG',      group: 'Sectoral' },
+  { symbol: '^CNXPHARMA', label: 'Nifty Healthcare', group: 'Sectoral' },
+  { symbol: '^IXIC',    label: 'Nasdaq',          group: 'Global' },
+  { symbol: 'GC=F',     label: 'Gold',            group: 'Commodity' },
+];
+const MARKET_MOVER_POOL = [
+  { symbol: '^CNXAUTO',   label: 'Nifty Auto' },
+  { symbol: '^CNXMETAL',  label: 'Nifty Metal' },
+  { symbol: '^CNXREALTY', label: 'Nifty Realty' },
+  { symbol: '^CNXENERGY', label: 'Nifty Energy' },
+  { symbol: '^CNXFIN',    label: 'Nifty Fin Services' },
+  { symbol: '^CNXPSUBANK', label: 'Nifty PSU Bank' },
+  { symbol: '^CNXMEDIA',  label: 'Nifty Media' },
+  { symbol: '^CNXINFRA',  label: 'Nifty Infra' },
+];
+const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
+let marketOverviewData = null; // Map<symbol, {label, group, dailyPct, mtdPct, last}>
+let marketOverviewFetchedAt = 0;
+let marketOverviewMode = 'daily'; // 'daily' | 'mtd'
+
+function setMarketOverviewMode(mode) {
+  marketOverviewMode = mode;
+  document.getElementById('market-mode-daily').classList.toggle('active', mode === 'daily');
+  document.getElementById('market-mode-mtd').classList.toggle('active', mode === 'mtd');
+  renderMarketOverviewCards();
+}
+
+async function initMarketOverviewTab() {
+  const fresh = marketOverviewData && (Date.now() - marketOverviewFetchedAt) < MARKET_OVERVIEW_TTL_MS;
+  if (fresh) { renderMarketOverviewCards(); return; }
+  const statusEl = document.getElementById('market-overview-status');
+  if (statusEl) statusEl.textContent = 'Loading market data…';
+  try {
+    const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
+    const closesBySym = await fetchSparkCloses(all.map(i => i.symbol));
+    const now = new Date();
+    const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const data = new Map();
+    all.forEach(({ symbol, label, group }) => {
+      const series = closesBySym.get(symbol);
+      if (!series || series.closes.length < 2) return;
+      const { dates, closes } = series;
+      const last = closes[closes.length - 1];
+      const prev = closes[closes.length - 2];
+      const dailyPct = prev ? ((last - prev) / prev) * 100 : null;
+      let monthStartClose = null;
+      for (let i = 0; i < dates.length; i++) if (dates[i] < monthStartMs) monthStartClose = closes[i];
+      const mtdPct = monthStartClose ? ((last - monthStartClose) / monthStartClose) * 100 : null;
+      data.set(symbol, { label, group, dailyPct, mtdPct, last });
+    });
+    if (data.size) {
+      marketOverviewData = data;
+      marketOverviewFetchedAt = Date.now();
+    }
+  } catch (e) {
+    console.warn('[market-overview] fetch failed:', e.message);
+  }
+  if (statusEl) {
+    statusEl.textContent = marketOverviewData
+      ? `Updated ${new Date(marketOverviewFetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+      : 'Could not load market data — check your connection and retry.';
+  }
+  renderMarketOverviewCards();
+}
+
+function renderMarketOverviewCards() {
+  const grid = document.getElementById('market-overview-grid');
+  if (!grid) return;
+  if (!marketOverviewData) { grid.innerHTML = ''; return; }
+
+  const pctKey = marketOverviewMode === 'mtd' ? 'mtdPct' : 'dailyPct';
+  const pinnedSymbols = new Set(MARKET_PINNED_INDICES.map(i => i.symbol));
+
+  const cardHtml = ({ symbol, label, group }) => {
+    const d = marketOverviewData.get(symbol);
+    if (!d || d[pctKey] == null) return '';
+    const pct = d[pctKey];
+    const cls = pct >= 0 ? 'trend-up' : 'trend-down';
+    const accent = pct >= 0 ? '#34d399' : '#f87171';
+    return `
+      <div class="market-index-card" style="--card-accent: ${accent};">
+        <div class="mi-group">${escapeHtml(group)}</div>
+        <div class="mi-label">${escapeHtml(label)}</div>
+        <div class="mi-pct ${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</div>
+        <div class="mi-last">${d.last.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+      </div>`;
+  };
+
+  const pinnedHtml = MARKET_PINNED_INDICES.map(cardHtml).join('');
+
+  // Top movers from the non-pinned pool, ranked by |change| in the current mode.
+  const movers = MARKET_MOVER_POOL
+    .map(i => ({ ...i, d: marketOverviewData.get(i.symbol) }))
+    .filter(i => i.d && i.d[pctKey] != null && !pinnedSymbols.has(i.symbol))
+    .sort((a, b) => Math.abs(b.d[pctKey]) - Math.abs(a.d[pctKey]))
+    .slice(0, 4);
+  const moversHtml = movers.map(i => cardHtml({ symbol: i.symbol, label: i.label, group: 'Top Mover' })).join('');
+
+  grid.innerHTML = pinnedHtml + moversHtml || '<p style="color:var(--text-muted);">No market data available.</p>';
 }
 
 // ── Daily Type Filter (Stocks / MFs / All) — click KPI cards ───────────────
@@ -2331,6 +2481,105 @@ function sortMonthlyOverview(colIdx) {
 }
 
 // ── Monthly Overview Table (top gainers from last upload) ──────────────────
+// ── Calendar-month-to-date data: portfolio MTD must track the CALENDAR month
+// (1st-of-month → today), independent of when "Close Period" was last run —
+// otherwise closing a period mid-month resets the MTD clock to that moment,
+// silently discarding whatever move already happened earlier that day/month.
+let calendarMtdData = null; // { month: 'YYYY-MM', stockPriceByInstrument: Map, mfNavByScheme: Map, fetchedAt }
+const CALENDAR_MTD_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function currentCalendarMonthStr() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+let _calendarMtdFetchPromise = null;
+
+function ensureCalendarMtdData() {
+  const month = currentCalendarMonthStr();
+  if (calendarMtdData && calendarMtdData.month === month &&
+      (Date.now() - calendarMtdData.fetchedAt) < CALENDAR_MTD_TTL_MS) {
+    return Promise.resolve(calendarMtdData);
+  }
+  if (_calendarMtdFetchPromise) return _calendarMtdFetchPromise; // de-dupe concurrent callers
+  _calendarMtdFetchPromise = _fetchCalendarMtdData(month).finally(() => { _calendarMtdFetchPromise = null; });
+  return _calendarMtdFetchPromise;
+}
+
+async function _fetchCalendarMtdData(month) {
+  const now = new Date();
+  const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+  // Stocks: one batched Yahoo request for everything with a live price source.
+  const stockPriceByInstrument = new Map();
+  try {
+    const tickerOf = (instr) => instr.replace(/-RR$/, '') + '.NS';
+    const stockHoldings = (latestEquity || []).filter(s =>
+      typeof hasLivePriceSource === 'function' && hasLivePriceSource(s.instrument) && s.qty > 0);
+    const closesBySym = await fetchSparkCloses(stockHoldings.map(h => tickerOf(h.instrument)));
+    stockHoldings.forEach(h => {
+      const series = closesBySym.get(tickerOf(h.instrument));
+      if (!series) return;
+      let val = null;
+      for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartMs) val = series.closes[i];
+      if (val != null) stockPriceByInstrument.set(h.instrument, val);
+    });
+
+    // SGBs have no live Yahoo ticker (hasLivePriceSource is false for them), so they're
+    // excluded above — leaving them to a stale "last two closed snapshots" fallback that
+    // compares across whole CLOSED PERIODS (e.g. the full prior month), not the calendar
+    // month. Since SGBs track gold 1:1 intraday, derive their month-start price from
+    // GOLDBEES (already fetched here) scaled by today's SGB:GOLDBEES ratio — preserves
+    // any real premium/discount while reflecting only this month's gold price movement.
+    const goldbeesNow = (latestEquity || []).find(s => s.instrument === 'GOLDBEES');
+    const goldbeesMonthStart = stockPriceByInstrument.get('GOLDBEES');
+    if (goldbeesNow?.ltp > 0 && goldbeesMonthStart != null) {
+      const ratio = goldbeesMonthStart / goldbeesNow.ltp;
+      (latestEquity || []).forEach(s => {
+        if (s.qty > 0 && typeof isGoldHolding === 'function' && isGoldHolding(s) &&
+            !stockPriceByInstrument.has(s.instrument) && s.ltp > 0) {
+          stockPriceByInstrument.set(s.instrument, s.ltp * ratio);
+        }
+      });
+    }
+  } catch (e) { console.warn('[calendar-mtd] stock fetch failed:', e.message); }
+
+  // MFs: one mfapi call per scheme (full NAV history), same pattern as the 30-day perf chart.
+  const mfNavByScheme = new Map();
+  try {
+    const parseMfDate = (s) => { const [d, m, y] = s.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+    const mfHoldings = (latestMf || []).filter(f => f.qty > 0);
+    await Promise.all(mfHoldings.map(async (f) => {
+      const code = (typeof MF_SCHEME_CODES !== 'undefined' && MF_SCHEME_CODES[f.scheme]) ||
+                   (typeof dynamicMfSchemeCodes !== 'undefined' && dynamicMfSchemeCodes[f.scheme]);
+      if (!code) return;
+      try {
+        const res = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: AbortSignal.timeout(12000) });
+        if (!res.ok) return;
+        const j = await res.json();
+        const pts = (j?.data || [])
+          .map(e => ({ t: parseMfDate(e.date), c: parseFloat(e.nav) }))
+          .filter(p => !isNaN(p.t) && p.c > 0)
+          .sort((a, b) => a.t - b.t);
+        let val = null;
+        for (const p of pts) if (p.t < monthStartMs) val = p.c;
+        if (val != null) mfNavByScheme.set(f.scheme, val);
+      } catch (_) { /* skip this scheme */ }
+    }));
+  } catch (e) { console.warn('[calendar-mtd] MF fetch failed:', e.message); }
+
+  calendarMtdData = { month, stockPriceByInstrument, mfNavByScheme, fetchedAt: Date.now() };
+  return calendarMtdData;
+}
+
+// Kicks off the calendar-MTD fetch (if stale/missing) and re-renders the Monthly
+// Overview table once it lands. Safe to call repeatedly — ensureCalendarMtdData
+// short-circuits when already fresh.
+function refreshCalendarMtdAndRerender() {
+  ensureCalendarMtdData().then(() => {
+    if (document.getElementById('monthly-overview-body')) renderMonthlyOverviewTable();
+  });
+}
+
 function renderMonthlyOverviewTable() {
   const combined = [];
   let totalStockMonthlyGain = 0;
@@ -2338,29 +2587,35 @@ function renderMonthlyOverviewTable() {
   let totalStockBaseVal = 0;
   let totalMfBaseVal = 0;
 
-  // Headline: "MTD Performance (since <base date>)" — the frozen opening snapshot
-  // (month start) the period gain is measured from.
+  // Headline: "MTD Performance (since <calendar month start>)" — always the 1st of
+  // the current calendar month, independent of when Close Period last ran.
+  const _now = new Date();
+  const _monthStartDate = new Date(_now.getFullYear(), _now.getMonth(), 1);
   const _mTitleEl = document.getElementById('monthly-overview-title');
   if (_mTitleEl) {
-    const baseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
-    _mTitleEl.textContent = baseDate
-      ? `🏆 MTD Performance (since ${_fmtDMY(_parseYMD(baseDate))})`
-      : '🏆 MTD Performance';
+    _mTitleEl.textContent = `🏆 MTD Performance (since ${_fmtDMY(_monthStartDate)})`;
   }
 
-  // Period gain per holding:
-  //  • If live prices have been refreshed this session, use the month-to-date
-  //    movement (live ltp − base-date price) × qty.
-  //  • Otherwise fall back to the last COMPLETED period's change from the
-  //    per-holding history (so the cards/table aren't all zero before a refresh).
+  // Period gain per holding, calendar-month basis:
+  //  • Preferred: live price/NAV vs. the price as of the last close BEFORE this
+  //    calendar month started (fetched by ensureCalendarMtdData — a real market
+  //    price, not tied to when Close Period was last run).
+  //  • Fallback while that data is loading (or unavailable for a holding): the old
+  //    thisMonthGain/historicalHoldings-based estimate, so the table isn't blank.
   const hasLive = !!(window.lastRefreshReport);
-  // Only the immutable month-end snapshots (date ≤ frozen base date) define the
-  // last completed period. Post-base transaction snapshots appended by the ledger
-  // must be excluded, otherwise adding a transaction shifts a holding's "previous"
-  // snapshot from the prior month-end to the transaction date and corrupts the
-  // period gain (e.g. Edelweiss after a buy).
   const _baseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+  const _calMonth = currentCalendarMonthStr();
+  const calReady = calendarMtdData && calendarMtdData.month === _calMonth;
   const periodGain = (holding, type) => {
+    if (calReady) {
+      const basePrice = type === 'stock'
+        ? calendarMtdData.stockPriceByInstrument.get(holding.instrument)
+        : calendarMtdData.mfNavByScheme.get(holding.scheme);
+      if (basePrice != null) {
+        const curPrice = type === 'stock' ? holding.ltp : holding.price;
+        return { gain: (curPrice - basePrice) * holding.qty, baseVal: basePrice * holding.qty };
+      }
+    }
     if (hasLive && holding.thisMonthGain) {
       return { gain: holding.thisMonthGain, baseVal: (holding.basePrice ?? 0) * holding.qty };
     }
@@ -2376,6 +2631,7 @@ function renderMonthlyOverviewTable() {
     }
     return { gain: 0, baseVal: holding.cur_val || 0 };
   };
+  if (!calReady) refreshCalendarMtdAndRerender();
 
   latestEquity.forEach(s => {
     const { gain, baseVal } = periodGain(s, 'stock');
@@ -2415,19 +2671,22 @@ function renderMonthlyOverviewTable() {
     ? 'month to date (live)'
     : `period to ${_lastPeriodDate ? formatDateString(_lastPeriodDate) : 'last close'}`;
 
-  // New investment summary: last completed month (from breakup) + any not-yet-closed
-  // ledger buys/sells after the base date (current month in progress).
-  // All in rupees to match formatINR (used by the other cards).
-  const _niTot = breakupSummary.new_investment?.['Total Investment']?.values;
-  const newInvClosed = (_niTot ? (_niTot[_niTot.length - 1] || 0) : 0) * 100000; // lakhs→₹
-  const _bd = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
-  let ledgerNewInv = 0;
+  // New investment this CALENDAR month, from the ledger only. The closed-period
+  // breakup total is NOT included here — it represents new_investment "since the
+  // previous close" (e.g. all of June, rolled up at the July 1 close), a different,
+  // non-calendar-aligned window that would misattribute last month's contributions
+  // to this month. Going forward, everything since month start lives in the ledger.
+  const _monthStartStr = _monthStartDate.toISOString().slice(0, 10);
+  let newInvTotal = 0;
   (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
-    if (_bd && t.date <= _bd) return;
-    if (t.type === 'buy') ledgerNewInv += (t.amount || 0);
-    else if (t.type === 'sell') ledgerNewInv -= (t.amount || 0);
+    if (t.date < _monthStartStr) return;
+    if (t.type === 'buy') newInvTotal += (t.amount || 0);
+    else if (t.type === 'sell') newInvTotal -= (t.amount || 0);
   });
-  const newInvTotal = newInvClosed + ledgerNewInv;
+  (typeof balances !== 'undefined' ? balances : []).forEach(b => {
+    if (b.date < _monthStartStr) return;
+    newInvTotal += (b.contribution || 0);
+  });
 
   // Apply monthly type filter (All / Stocks / MFs)
   const filteredCombined = monthlyTypeFilter === 'all'
@@ -2464,7 +2723,7 @@ function renderMonthlyOverviewTable() {
       <div class="tab-kpi-card" style="--card-accent:#6366f1;">
         <div class="tab-kpi-label">New Investment</div>
         <div class="tab-kpi-value">${newInvTotal >= 0 ? '+' : ''}${formatINR(newInvTotal)}</div>
-        <div class="tab-kpi-sub">${ledgerNewInv ? `${formatINR(newInvClosed)} closed · ${ledgerNewInv >= 0 ? '+' : ''}${formatINR(ledgerNewInv)} this month` : periodLabel}</div>
+        <div class="tab-kpi-sub">month to date (ledger)</div>
       </div>
       <div class="tab-kpi-card" style="--card-accent:${niftyMonthlyPct >= 0 ? G : R};">
         <div class="tab-kpi-label">Nifty 50 (Ref)</div>
@@ -3369,6 +3628,55 @@ function initFixedIncomeTab() {
     </tr>
     `;
   }).join('');
+
+  // 5. Contribution & Balance History — every entry recorded via Manage Portfolio
+  // for PF/PPF/Bonds, PLUS the pre-ledger (Excel-era) monthly contribution history
+  // pulled straight from the Breakup sheet, so the table covers the full timeline
+  // the same way the Stocks/MF holdings breakdowns show full instrument history.
+  const fiHistoryBody = document.getElementById('fi-history-body');
+  if (fiHistoryBody) {
+    const fiComponentKeys = { 'PF (Debt)': 'PF', 'PPF (Debt)': 'PPF', 'Bonds (Debt)': 'Bonds' };
+    const fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+    const niSec = breakupSummary.new_investment || {};
+
+    // Historical (Excel-era) monthly entries — one row per period with a nonzero
+    // contribution, up to and including the frozen base column.
+    const historicalRows = [];
+    Object.entries(fiComponentKeys).forEach(([nwKey, label]) => {
+      const vals = niSec[nwKey]?.values || [];
+      const nwVals = nw[nwKey]?.values || [];
+      vals.forEach((v, i) => {
+        const date = dates[i];
+        if (fbBaseDate && date > fbBaseDate) return; // post-base periods are ledger-driven, not historical
+        if (!v) return; // only periods with an actual contribution
+        historicalRows.push({
+          date, component: label,
+          contribution: v * 100000, interest: 0,
+          value: (nwVals[i] || 0) * 100000,
+          note: 'Historical (Excel)',
+        });
+      });
+    });
+
+    // Only entries dated AFTER the frozen base are still "pending" (not yet folded
+    // into breakupSummary via Close Period) — anything on/before it is already
+    // represented in historicalRows above via that period's new_investment value.
+    const ledgerRows = (typeof balances !== 'undefined' ? balances : [])
+      .filter(b => ['PF', 'PPF', 'Bonds'].includes(b.component) && (!fbBaseDate || b.date > fbBaseDate))
+      .map(b => ({ date: b.date, component: b.component, contribution: b.contribution || 0, interest: b.interest || 0, value: b.value, note: b.note || '' }));
+
+    const fiHistory = [...historicalRows, ...ledgerRows].sort((a, b) => b.date.localeCompare(a.date));
+    fiHistoryBody.innerHTML = fiHistory.length ? fiHistory.map(b => `
+      <tr>
+        <td>${b.date}</td>
+        <td>${escapeHtml(b.component)}</td>
+        <td style="text-align: right;">${b.contribution ? formatINR(b.contribution) : '—'}</td>
+        <td style="text-align: right;">${b.interest ? formatINR(b.interest) : '—'}</td>
+        <td style="text-align: right;">${formatINR(b.value)}</td>
+        <td>${escapeHtml(b.note || '')}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="6" style="color:var(--text-muted);">No balance entries yet. Add one via Manage Portfolio → Update Balance.</td></tr>';
+  }
 }
 
 // ==================== NPS TAB ====================
@@ -3610,6 +3918,48 @@ function initNpsTab() {
       This Month Change: <span class="${npsTotalGain >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalGain >= 0 ? '+' : ''}${npsTotalGain.toFixed(2)} L</span>
     </div>
   `;
+
+  // 4. Update Log — every historical (Excel-era) monthly contribution PLUS
+  // ledger balance entries not yet folded into a Close Period (same pattern as
+  // the Fixed Income tab's history table).
+  const npsHistoryBody = document.getElementById('nps-history-body');
+  if (npsHistoryBody) {
+    const npsComponentKeys = { 'NPS E (Equity)': 'NPS-E', 'NPS C (Debt)': 'NPS-C', 'NPS G (Debt)': 'NPS-G' };
+    const fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+    const niSec2 = breakupSummary.new_investment || {};
+
+    const historicalRows = [];
+    Object.entries(npsComponentKeys).forEach(([nwKey, label]) => {
+      const vals = niSec2[nwKey]?.values || [];
+      const nwVals = nw[nwKey]?.values || [];
+      vals.forEach((v, i) => {
+        const date = dates[i];
+        if (fbBaseDate && date > fbBaseDate) return;
+        if (!v) return;
+        historicalRows.push({
+          date, component: label,
+          contribution: v * 100000,
+          value: (nwVals[i] || 0) * 100000,
+          note: 'Historical (Excel)',
+        });
+      });
+    });
+
+    const ledgerRows = (typeof balances !== 'undefined' ? balances : [])
+      .filter(b => ['NPS-E', 'NPS-C', 'NPS-G'].includes(b.component) && (!fbBaseDate || b.date > fbBaseDate))
+      .map(b => ({ date: b.date, component: b.component, contribution: b.contribution || 0, value: b.value, note: b.note || '' }));
+
+    const npsHistory = [...historicalRows, ...ledgerRows].sort((a, b) => b.date.localeCompare(a.date));
+    npsHistoryBody.innerHTML = npsHistory.length ? npsHistory.map(b => `
+      <tr>
+        <td>${b.date}</td>
+        <td>${escapeHtml(b.component)}</td>
+        <td style="text-align: right;">${b.contribution ? formatINR(b.contribution) : '—'}</td>
+        <td style="text-align: right;">${formatINR(b.value)}</td>
+        <td>${escapeHtml(b.note || '')}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="5" style="color:var(--text-muted);">No balance entries yet. Add one via Manage Portfolio → Update Balance.</td></tr>';
+  }
 }
 
 // ==================== STOCKS TAB ====================
@@ -6121,26 +6471,59 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
       });
     });
   });
-  // Post-base balance contributions entered via the ledger (not yet month-closed).
+  // Post-base balance contributions AND interest entered via the ledger (not yet
+  // month-closed) — each gets its own row so the log reflects exactly what you entered.
   const _bd2 = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
-  (typeof balances !== 'undefined' ? balances : []).forEach(b => {
-    if (!b.contribution) return;
-    if (_bd2 && b.date <= _bd2) return; // pre-base already in the breakup series
-    const code = `${b.component}`;
-    const lbl = code.replace('-', ' ');
-    const cat = /Debt|PF|PPF|Bonds|NPS-C|NPS-G/.test(code) ? 'Debt'
-              : /Gold/.test(code) ? 'Gold' : /Cash/.test(code) ? 'Liquid'
-              : /Crypto/.test(code) ? 'Alternate' : 'Equity';
-    const ac = /NPS/.test(code) ? 'NPS' : /PPF/.test(code) ? 'PPF' : /PF/.test(code) ? 'PF'
-             : /Bonds/.test(code) ? 'Bonds' : /Gold/.test(code) ? 'Gold'
-             : /Cash/.test(code) ? 'Cash' : /Crypto/.test(code) ? 'Crypto' : 'NPS';
-    trades.push({
-      date: b.date, instrument: lbl,
-      type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
-      quantity: null, price: null, total: Math.abs(b.contribution),
-      category: cat, assetCategory: ac,
-    });
+  const _catAcFor = (code) => ({
+    cat: /Debt|PF|PPF|Bonds|NPS-C|NPS-G/.test(code) ? 'Debt'
+       : /Gold/.test(code) ? 'Gold' : /Cash/.test(code) ? 'Liquid'
+       : /Crypto/.test(code) ? 'Alternate' : 'Equity',
+    ac: /NPS/.test(code) ? 'NPS' : /PPF/.test(code) ? 'PPF' : /PF/.test(code) ? 'PF'
+      : /Bonds/.test(code) ? 'Bonds' : /Gold/.test(code) ? 'Gold'
+      : /Cash/.test(code) ? 'Cash' : /Crypto/.test(code) ? 'Crypto' : 'NPS',
   });
+  (typeof balances !== 'undefined' ? balances : []).forEach(b => {
+    if (_bd2 && b.date <= _bd2) return; // pre-base already in the breakup series
+    const { cat, ac } = _catAcFor(b.component);
+    const lbl = b.component.replace('-', ' ');
+    if (b.contribution) {
+      trades.push({
+        date: b.date, instrument: lbl,
+        type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
+        quantity: null, price: null, total: Math.abs(b.contribution),
+        category: cat, assetCategory: ac,
+      });
+    }
+    if (b.interest) {
+      trades.push({
+        date: b.date, instrument: lbl,
+        type: 'INTEREST',
+        quantity: null, price: null, total: b.interest,
+        category: cat, assetCategory: ac,
+      });
+    }
+  });
+
+  // Total Interest row per CLOSED period — every ledger balance entry's interest,
+  // summed within the period it closed into (so the log shows one clean figure per
+  // month-close, matching how Contribution is already rolled up via new_investment).
+  // Only CLOSED periods (≤ frozen base) are aggregated here — anything after that is
+  // still pending a Close Period and already appears as its own row above.
+  for (let i = 0; i < dates.length; i++) {
+    const periodEnd = dates[i];
+    if (_bd2 && periodEnd > _bd2) break;
+    const periodStart = i > 0 ? dates[i - 1] : null;
+    const interestThisPeriod = (typeof balances !== 'undefined' ? balances : [])
+      .filter(b => b.interest && (!periodStart || b.date > periodStart) && b.date <= periodEnd)
+      .reduce((s, b) => s + b.interest, 0);
+    if (interestThisPeriod) {
+      trades.push({
+        date: periodEnd, instrument: 'Total Interest',
+        type: 'INTEREST', quantity: null, price: null, total: interestThisPeriod,
+        category: 'Interest', assetCategory: 'Interest',
+      });
+    }
+  }
 
   // Tag existing stock/MF trades with a coarse asset category for filtering.
   trades.forEach(t => {
@@ -6298,6 +6681,67 @@ function initManageTab() {
   renderLedger();
 }
 
+// ── Handy calculator (Manage Portfolio) — a basic +−×÷ pad for working out
+// figures (e.g. NPS contributions, PF interest) while filling the forms above. ──
+let _calcExpr = '';
+let _calcJustEvaluated = false;
+
+function toggleCalculator() {
+  const panel = document.getElementById('calculator-panel');
+  if (!panel) return;
+  const showing = panel.style.display !== 'none';
+  panel.style.display = showing ? 'none' : 'block';
+}
+
+function _calcRender() {
+  const el = document.getElementById('calc-display');
+  if (el) el.value = _calcExpr === '' ? '0' : _calcExpr;
+}
+
+function calcInput(ch) {
+  const isOp = ['+', '-', '*', '/'].includes(ch);
+  if (_calcJustEvaluated) {
+    _calcExpr = isOp ? _calcExpr : '';
+    _calcJustEvaluated = false;
+  }
+  if (isOp && (_calcExpr === '' && ch !== '-')) return; // no leading operator (minus allowed for negatives)
+  if (isOp && /[+\-*/]$/.test(_calcExpr)) { _calcExpr = _calcExpr.slice(0, -1) + ch; _calcRender(); return; }
+  if (ch === '%') {
+    // Convert the trailing number to a percentage of itself (e.g. "1000" → "1000*0.01")
+    const m = _calcExpr.match(/(\d+\.?\d*)$/);
+    if (m) { _calcExpr = _calcExpr.slice(0, -m[1].length) + (parseFloat(m[1]) / 100); _calcRender(); }
+    return;
+  }
+  _calcExpr += ch;
+  _calcRender();
+}
+
+function calcBackspace() {
+  _calcExpr = _calcExpr.slice(0, -1);
+  _calcJustEvaluated = false;
+  _calcRender();
+}
+
+function calcClear() {
+  _calcExpr = '';
+  _calcJustEvaluated = false;
+  _calcRender();
+}
+
+function calcEquals() {
+  if (!/^[0-9+\-*/.\s]+$/.test(_calcExpr)) return; // only digits/operators — no eval injection
+  try {
+    // eslint-disable-next-line no-new-func
+    const result = Function(`"use strict"; return (${_calcExpr})`)();
+    if (!isFinite(result)) throw new Error('Invalid result');
+    _calcExpr = String(+result.toFixed(6));
+  } catch (_) {
+    _calcExpr = 'Error';
+  }
+  _calcJustEvaluated = true;
+  _calcRender();
+}
+
 // Populate the instrument autocomplete from current holdings for the chosen class.
 function populateInstrumentDatalist() {
   const dl = document.getElementById('txn-instrument-list');
@@ -6429,8 +6873,31 @@ function priorBalanceValue(component, beforeDate, excludeId) {
   return (v && v.length) ? v[v.length - 1] * 1e5 : 0;
 }
 
-// Recompute the read-only "Current value" field = previous value + contribution + interest earned.
+// NPS components ask for Current value directly (from your statement) + Contribution —
+// no "interest" concept (NPS is market-linked, not a declared interest rate) and no
+// auto-calc, since the statement already tells you the current value.
+const NPS_BAL_COMPONENTS = new Set(['NPS-E', 'NPS-C', 'NPS-G']);
+
+// Toggle the form between NPS mode (editable Current value, no interest/auto-calc)
+// and the standard mode (auto-computed Current value = previous + contribution + interest).
+function updateBalFormMode() {
+  const isNps = NPS_BAL_COMPONENTS.has(document.getElementById('bal-component').value);
+  document.getElementById('bal-interest-wrap').style.display = isNps ? 'none' : '';
+  document.getElementById('bal-prev-wrap').style.display = isNps ? 'none' : '';
+  document.getElementById('bal-value-computed-wrap').style.display = isNps ? 'none' : '';
+  document.getElementById('bal-value-input-wrap').style.display = isNps ? '' : 'none';
+  return isNps;
+}
+
+// Recompute the "Current value" field: auto-calculated (previous + contribution +
+// interest) for standard components, or read directly from the editable input for NPS.
 function updateBalComputedValue() {
+  const isNps = updateBalFormMode();
+  if (isNps) {
+    const entered = parseFloat(document.getElementById('bal-value-input').value);
+    document.getElementById('bal-value').value = isFinite(entered) ? entered : '';
+    return;
+  }
   const component = document.getElementById('bal-component').value;
   const date = document.getElementById('bal-date').value;
   const editId = document.getElementById('bal-edit-id').value;
@@ -6446,13 +6913,14 @@ function updateBalComputedValue() {
 function handleBalSubmit(e) {
   e.preventDefault();
   const editId = document.getElementById('bal-edit-id').value;
+  const isNps = NPS_BAL_COMPONENTS.has(document.getElementById('bal-component').value);
   updateBalComputedValue();
   const payload = {
     component: document.getElementById('bal-component').value,
     date: document.getElementById('bal-date').value,
     value: parseFloat(document.getElementById('bal-value').value),
     contribution: parseFloat(document.getElementById('bal-contribution').value) || 0,
-    interest: parseFloat(document.getElementById('bal-interest').value) || 0,
+    interest: isNps ? 0 : (parseFloat(document.getElementById('bal-interest').value) || 0),
     note: document.getElementById('bal-note').value.trim(),
   };
   if (!isFinite(payload.value)) { alert('Current value is required.'); return false; }
@@ -6472,6 +6940,7 @@ function resetBalForm() {
   document.getElementById('bal-date').value = new Date().toISOString().slice(0, 10);
   document.getElementById('bal-contribution').value = '0';
   document.getElementById('bal-interest').value = '0';
+  document.getElementById('bal-value-input').value = '';
   updateBalComputedValue();
 }
 
@@ -6483,6 +6952,7 @@ function editBal(id) {
   document.getElementById('bal-date').value = b.date;
   document.getElementById('bal-contribution').value = b.contribution;
   document.getElementById('bal-interest').value = b.interest || 0;
+  document.getElementById('bal-value-input').value = b.value;
   document.getElementById('bal-note').value = b.note || '';
   document.getElementById('bal-submit-btn').textContent = 'Update Balance';
   document.getElementById('bal-cancel-btn').style.display = '';

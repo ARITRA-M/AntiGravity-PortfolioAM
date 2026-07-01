@@ -894,7 +894,19 @@ function closeMonth(dateStr) {
     }
     if (!invSeries || !terminal) return e.values.length ? e.values[e.values.length - 1] : 0;
     const termVal = terminal[terminal.length - 1];
-    const flows = breakupSummary.dates.map((dt, i) => ({ date: dt, amount: -(invSeries[i] || 0) }));
+    // The opening balance at dates[0] MUST be seeded as the initial cash outflow —
+    // it's an existing balance (e.g. PF/PPF corpus at the frozen base), not a fresh
+    // investment, so new_investment[0] is 0. Without this the terminal value looks
+    // like pure profit on only the later sporadic contributions, producing an
+    // absurd XIRR (matches the same fix already applied in computeDebtXirr/
+    // computePortfolioXirr for the KPI cards).
+    const opening = terminal[0] || 0;
+    const flows = opening > 0 ? [{ date: breakupSummary.dates[0], amount: -opening }] : [];
+    breakupSummary.dates.forEach((dt, i) => {
+      if (i === 0) return;
+      const inv = invSeries[i] || 0;
+      if (Math.abs(inv) > 1e-6) flows.push({ date: dt, amount: -inv });
+    });
     flows.push({ date: D, amount: termVal }); // terminal liquidation value
     const x = computeXirr(flows);
     return x == null ? (e.values.length ? e.values[e.values.length - 1] : 0) : +x.toFixed(6);
@@ -954,4 +966,57 @@ function closeMonth(dateStr) {
     newInvestment: totalNewInv,
     portfolioXirr: breakupSummary.xirr['Average']?.values.slice(-1)[0] ?? null,
   };
+}
+
+// Self-heal: an earlier version of closeMonth() built each component's XIRR cash-flow
+// series WITHOUT seeding the opening (frozen-base) balance as an initial outflow.
+// For any component with a nonzero starting corpus (e.g. PF/PPF carried in from the
+// Excel era), that made the terminal value look like pure profit on only the sporadic
+// later contributions — an absurd XIRR spike (60%+) on the first real Close Period.
+// Recomputes just the LAST xirr column with the corrected construction; safe to call
+// on every load (idempotent once already correct).
+function repairLastXirrColumn() {
+  if (!breakupSummary) return false;
+  const dates = breakupSummary.dates || [];
+  const xirrSec = breakupSummary.xirr || {};
+  if (dates.length < 2) return false;
+  const isTotalLabel = label =>
+    /^(Total|Total Investment|Total Growth|Total Change|Average|Total Return %)$/.test(label);
+  let changed = false;
+  Object.entries(xirrSec).forEach(([key, entry]) => {
+    if (!entry.values.length) return;
+    const niSeries = isTotalLabel(entry.label)
+      ? breakupSummary.new_investment['Total Investment']?.values
+      : breakupSummary.new_investment[key]?.values;
+    const nwSeries = isTotalLabel(entry.label)
+      ? breakupSummary.net_worth['Total']?.values
+      : breakupSummary.net_worth[key]?.values;
+    if (!niSeries || !nwSeries || !nwSeries.length) return;
+    const termVal = nwSeries[nwSeries.length - 1];
+
+    // Reconstruct what the OLD buggy formula (no opening-balance outflow) would have
+    // produced for this exact column. Only touch the stored value if it matches that
+    // artifact — this never overwrites genuine (pre-ledger, Excel-era) historical XIRR,
+    // which was computed by a different method entirely and won't coincidentally match.
+    const buggyFlows = dates.map((dt, i) => ({ date: dt, amount: -(niSeries[i] || 0) }));
+    buggyFlows.push({ date: dates[dates.length - 1], amount: termVal });
+    const buggyX = computeXirr(buggyFlows);
+    const stored = entry.values[entry.values.length - 1];
+    if (buggyX == null || Math.abs(stored - buggyX) > 1e-4) return;
+
+    const opening = nwSeries[0] || 0;
+    const flows = opening > 0 ? [{ date: dates[0], amount: -opening }] : [];
+    dates.forEach((dt, i) => {
+      if (i === 0) return;
+      const inv = niSeries[i] || 0;
+      if (Math.abs(inv) > 1e-6) flows.push({ date: dt, amount: -inv });
+    });
+    flows.push({ date: dates[dates.length - 1], amount: termVal });
+    const fixedX = computeXirr(flows);
+    if (fixedX == null) return;
+    entry.values[entry.values.length - 1] = +fixedX.toFixed(6);
+    changed = true;
+  });
+  if (changed) saveBreakupOverride();
+  return changed;
 }
