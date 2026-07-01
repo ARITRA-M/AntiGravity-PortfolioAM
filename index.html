@@ -842,28 +842,32 @@
         <!-- Update Balance (opaque components) -->
         <div class="chart-card manage-card">
           <div class="chart-header"><h3>🏦 Update Balance</h3></div>
-          <p class="manage-hint">Current value + amount contributed this period for NPS, PF, PPF, Bonds, Gold, Cash, Crypto.</p>
+          <p class="manage-hint">Current value + amount contributed this period for NPS, PF, PPF, Bonds, Cash, Crypto. Gold is tracked automatically from your SGB/GOLDBEES holdings.</p>
           <form id="bal-form" class="manage-form" onsubmit="return handleBalSubmit(event)">
             <input type="hidden" id="bal-edit-id" value="">
+            <input type="hidden" id="bal-value" value="0">
             <div class="manage-row">
               <label>Component
-                <select id="bal-component">
+                <select id="bal-component" onchange="updateBalComputedValue()">
                   <option value="NPS-E">NPS E (Equity)</option>
                   <option value="NPS-C">NPS C (Debt)</option>
                   <option value="NPS-G">NPS G (Debt)</option>
                   <option value="PF">PF</option>
                   <option value="PPF">PPF</option>
                   <option value="Bonds">Bonds</option>
-                  <option value="Gold">Gold</option>
                   <option value="Cash">Cash</option>
                   <option value="Crypto">Crypto</option>
                 </select>
               </label>
-              <label>Date <input type="date" id="bal-date" required></label>
+              <label>Date <input type="date" id="bal-date" required onchange="updateBalComputedValue()"></label>
             </div>
             <div class="manage-row">
-              <label>Current value (₹) <input type="number" step="any" id="bal-value" required></label>
-              <label>Contributed this period (₹) <input type="number" step="any" id="bal-contribution" value="0"></label>
+              <label>Contributed this period (₹) <input type="number" step="any" id="bal-contribution" value="0" oninput="updateBalComputedValue()"></label>
+              <label>Interest earned this period (₹) <input type="number" step="any" id="bal-interest" value="0" oninput="updateBalComputedValue()"></label>
+            </div>
+            <div class="manage-row">
+              <label>Previous value <span id="bal-prev-value" class="manage-computed">₹0</span></label>
+              <label>Current value (₹) <span id="bal-value-display" class="manage-computed" title="Auto-calculated: previous value + contribution + interest earned">₹0</span></label>
             </div>
             <div class="manage-row">
               <label class="manage-full">Note <input id="bal-note" placeholder="optional"></label>

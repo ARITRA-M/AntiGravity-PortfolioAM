@@ -21,6 +21,12 @@ let lastRefreshReport = null;
 // Also expose on window so api.js (which loads before app.js) can set it reliably
 window.lastRefreshReport = null;
 
+// Gold is tracked as regular stock holdings (SGB / GOLDBEES) so live prices refresh
+// them like any other stock, but their value belongs to the "Gold" net-worth bucket,
+// not "Stocks (Equity)" — split out anywhere the two are computed from latestEquity.
+const GOLD_SECTORS = new Set(['Sovereign Gold Bonds', 'Gold Commodity (ETF)']);
+function isGoldHolding(stock) { return !!stock && GOLD_SECTORS.has(stock.sector); }
+
 // Chart references
 let allocationChart = null;
 let componentXirrChart = null;
@@ -1103,27 +1109,38 @@ function recomputePortfolioFromLiveData() {
   // that keeps the running total anchored to the uploaded breakup sheet while letting
   // individual row sums add up correctly to the displayed total. With no transactions
   // this is identical to the old baseline + price-gain formula.
-  let liveStockLakhs, liveMfLakhs;
+  const nonGoldEquity = latestEquity.filter(s => !isGoldHolding(s));
+  const goldEquity    = latestEquity.filter(isGoldHolding);
+
+  let liveStockLakhs, liveMfLakhs, liveGoldLakhs;
   if (typeof frozenBase !== 'undefined' && frozenBase) {
     // basePrice is the freeze-date price; fall back to old ltp/price field for
     // existing saved frozenBase data that predates the rename.
-    const frozenStockVal = (frozenBase.equity || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0);
+    const frozenEquity = frozenBase.equity || [];
+    const frozenStockVal = frozenEquity.filter(h => !isGoldHolding(h)).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0);
+    const frozenGoldVal  = frozenEquity.filter(isGoldHolding).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0);
     const frozenMfVal   = (frozenBase.mf || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.price ?? 0), 0);
     const stockReconcGap = uploadedSnapshot.stockLakhs - frozenStockVal / 100000;
+    const goldReconcGap  = (uploadedSnapshot.goldLakhs ?? 0) - frozenGoldVal / 100000;
     const mfReconcGap    = uploadedSnapshot.mfLakhs   - frozenMfVal   / 100000;
-    liveStockLakhs = latestEquity.reduce((s, h) => s + h.qty * h.ltp,   0) / 100000 + stockReconcGap;
+    liveStockLakhs = nonGoldEquity.reduce((s, h) => s + h.qty * h.ltp, 0) / 100000 + stockReconcGap;
+    liveGoldLakhs  = goldEquity.reduce(   (s, h) => s + h.qty * h.ltp, 0) / 100000 + goldReconcGap;
     liveMfLakhs    = latestMf.reduce(   (s, h) => s + h.qty * h.price,  0) / 100000 + mfReconcGap;
   } else {
-    const exactStockGain = latestEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
+    const exactStockGain = nonGoldEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
+    const exactGoldGain  = goldEquity.reduce(   (sum, s) => sum + s.thisMonthGain, 0);
     const exactMfGain    = latestMf.reduce(   (sum, f) => sum + f.thisMonthGain, 0);
     liveStockLakhs = uploadedSnapshot.stockLakhs + exactStockGain / 100000;
+    liveGoldLakhs  = (uploadedSnapshot.goldLakhs ?? 0) + exactGoldGain / 100000;
     liveMfLakhs    = uploadedSnapshot.mfLakhs    + exactMfGain    / 100000;
   }
   const liveTotalLakhs = uploadedSnapshot.totalLakhs +
-    (liveStockLakhs - uploadedSnapshot.stockLakhs) + (liveMfLakhs - uploadedSnapshot.mfLakhs);
+    (liveStockLakhs - uploadedSnapshot.stockLakhs) + (liveMfLakhs - uploadedSnapshot.mfLakhs) +
+    (liveGoldLakhs - (uploadedSnapshot.goldLakhs ?? 0));
 
   portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + uploadedSnapshot.npsELakhs;
+  portfolioSummary.gold_lakhs = liveGoldLakhs;
   portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
 
   // Update latest breakupSummary data points for Growth tab chart display only.
@@ -1138,6 +1155,7 @@ function recomputePortfolioFromLiveData() {
   if (!_fbBaseDate || _lastBreakupDate > _fbBaseDate) {
     setLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)', liveStockLakhs);
     setLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)', liveMfLakhs);
+    setLatestSectionValue(breakupSummary.net_worth, 'Gold (Gold)', liveGoldLakhs);
     setLatestSectionValue(breakupSummary.net_worth, 'Total', liveTotalLakhs);
   }
   // autoCloseMonthIfNeeded is intentionally NOT called here — recomputePortfolioFromLiveData
@@ -1275,6 +1293,7 @@ function initializeLiveBaseline() {
     uploadedSnapshot = {
       stockLakhs: fb?.stockLakhs ?? getLatestSectionValue(breakupSummary.net_worth, 'Stocks (Equity)'),
       mfLakhs:    fb?.mfLakhs   ?? getLatestSectionValue(breakupSummary.net_worth, 'Mutual Funds (Equity)'),
+      goldLakhs:  fb?.goldLakhs ?? getLatestSectionValue(breakupSummary.net_worth, 'Gold (Gold)'),
       npsELakhs:  fb?.npsELakhs ?? getLatestSectionValue(breakupSummary.net_worth, 'NPS E (Equity)'),
       totalLakhs: fb?.totalLakhs ?? getLatestSectionValue(breakupSummary.net_worth, 'Total'),
     };
@@ -6275,6 +6294,7 @@ function initManageTab() {
     if (el && !el.value) el.value = today;
   });
   onTxnAssetClassChange();
+  updateBalComputedValue();
   renderLedger();
 }
 
@@ -6395,14 +6415,44 @@ function removeTxn(id) {
   renderLedger();
 }
 
+// Most recent known value for a component strictly before `beforeDate` — the
+// last manually entered balance if one exists, else the last closed Breakup
+// column (lakhs → rupees). Excludes `excludeId` so editing an entry doesn't
+// use itself as its own "previous" value.
+function priorBalanceValue(component, beforeDate, excludeId) {
+  const meta = (typeof COMPONENT_BREAKUP !== 'undefined') ? COMPONENT_BREAKUP[component] : null;
+  const prior = (balances || [])
+    .filter(b => b.component === component && b.id !== excludeId && (!beforeDate || b.date < beforeDate))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (prior.length) return prior[prior.length - 1].value;
+  const v = meta && breakupSummary?.net_worth?.[meta.key]?.values;
+  return (v && v.length) ? v[v.length - 1] * 1e5 : 0;
+}
+
+// Recompute the read-only "Current value" field = previous value + contribution + interest earned.
+function updateBalComputedValue() {
+  const component = document.getElementById('bal-component').value;
+  const date = document.getElementById('bal-date').value;
+  const editId = document.getElementById('bal-edit-id').value;
+  const contribution = parseFloat(document.getElementById('bal-contribution').value) || 0;
+  const interest = parseFloat(document.getElementById('bal-interest').value) || 0;
+  const prevValue = priorBalanceValue(component, date, editId || null);
+  const currentValue = prevValue + contribution + interest;
+  document.getElementById('bal-prev-value').textContent = formatINR(prevValue);
+  document.getElementById('bal-value-display').textContent = formatINR(currentValue);
+  document.getElementById('bal-value').value = currentValue.toFixed(2);
+}
+
 function handleBalSubmit(e) {
   e.preventDefault();
   const editId = document.getElementById('bal-edit-id').value;
+  updateBalComputedValue();
   const payload = {
     component: document.getElementById('bal-component').value,
     date: document.getElementById('bal-date').value,
     value: parseFloat(document.getElementById('bal-value').value),
     contribution: parseFloat(document.getElementById('bal-contribution').value) || 0,
+    interest: parseFloat(document.getElementById('bal-interest').value) || 0,
     note: document.getElementById('bal-note').value.trim(),
   };
   if (!isFinite(payload.value)) { alert('Current value is required.'); return false; }
@@ -6421,6 +6471,8 @@ function resetBalForm() {
   document.getElementById('bal-cancel-btn').style.display = 'none';
   document.getElementById('bal-date').value = new Date().toISOString().slice(0, 10);
   document.getElementById('bal-contribution').value = '0';
+  document.getElementById('bal-interest').value = '0';
+  updateBalComputedValue();
 }
 
 function editBal(id) {
@@ -6429,11 +6481,12 @@ function editBal(id) {
   document.getElementById('bal-edit-id').value = b.id;
   document.getElementById('bal-component').value = b.component;
   document.getElementById('bal-date').value = b.date;
-  document.getElementById('bal-value').value = b.value;
   document.getElementById('bal-contribution').value = b.contribution;
+  document.getElementById('bal-interest').value = b.interest || 0;
   document.getElementById('bal-note').value = b.note || '';
   document.getElementById('bal-submit-btn').textContent = 'Update Balance';
   document.getElementById('bal-cancel-btn').style.display = '';
+  updateBalComputedValue();
   document.getElementById('bal-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
@@ -6575,7 +6628,7 @@ function renderLedger() {
       <td>UPDATE</td>
       <td style="text-align:right;">—</td>
       <td style="text-align:right;">—</td>
-      <td style="text-align:right;">${formatINR(r.value)}${r.contribution ? ` <span style="color:var(--text-muted)">(+${formatINR(r.contribution)})</span>` : ''}</td>
+      <td style="text-align:right;">${formatINR(r.value)}${r.contribution ? ` <span style="color:var(--text-muted)">(contrib +${formatINR(r.contribution)})</span>` : ''}${r.interest ? ` <span style="color:var(--text-muted)">(interest +${formatINR(r.interest)})</span>` : ''}</td>
       <td>${escapeHtml(r.note || '')}</td>
       <td style="white-space:nowrap;">
         <button class="ledger-btn" onclick="editBal('${r.id}')">✏️</button>
