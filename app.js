@@ -225,12 +225,19 @@ async function fetchSparkCloses(symbols, range = '1mo', interval = '1d') {
         const cl = resp?.indicators?.quote?.[0]?.close;
         if (!ts || !cl) continue;
         const pts = ts.map((t, k) => ({ t: t * 1000, c: cl[k] })).filter(p => p.c != null);
-        // The spark endpoint's own `meta` already carries the authoritative live
-        // price + true previous close (same fields the dedicated chart endpoint
-        // exposes) — capture it so callers needing "right now" data don't have to
-        // fire a second per-symbol request just for that.
+        // The spark endpoint's own `meta` already carries a live price + true
+        // previous close (same fields the dedicated chart endpoint exposes) —
+        // capture it so callers needing "right now" data don't have to fire a
+        // second per-symbol request. BUT: some thinly-quoted symbols (seen on
+        // Nifty Midcap 100) have a `regularMarketPrice` frozen years in the past
+        // while `chartPreviousClose`/the close series stay current — mixing a
+        // stale price with a fresh previous-close produces a nonsense ±60%+
+        // "daily change". Guard with `regularMarketTime`: only trust the live
+        // price if it's from the last few days: otherwise fall back to the
+        // (mutually consistent) close series below.
         const meta = resp?.meta;
-        const live = meta?.regularMarketPrice > 0
+        const isRecent = meta?.regularMarketTime > 0 && (Date.now() / 1000 - meta.regularMarketTime) < 5 * 86400;
+        const live = (isRecent && meta.regularMarketPrice > 0)
           ? { price: meta.regularMarketPrice, prevClose: meta.chartPreviousClose > 0 ? meta.chartPreviousClose : null }
           : null;
         out.set(r.symbol, { dates: pts.map(p => p.t), closes: pts.map(p => p.c), live });
@@ -2161,8 +2168,21 @@ async function initMarketOverviewTab() {
     all.forEach(({ symbol, label, group }) => {
       const series = shortBySym.get(symbol);
       if (!series || !series.closes.length) return;
-      const last = series.live?.price ?? series.closes[series.closes.length - 1];
-      const prev = series.live?.prevClose ?? (series.closes.length >= 2 ? series.closes[series.closes.length - 2] : null);
+      // `chartPreviousClose` (meta) turns out to be unreliable on its own — it can
+      // lag several sessions behind even when `regularMarketPrice` and the close
+      // series are both current, producing nonsense ±5-15% "daily" swings. The
+      // close series is self-consistent, so prefer it: if the array's last close
+      // already equals the live price (today's bar has posted), the previous
+      // trading day is simply the array's second-to-last entry. Only when the
+      // live price is AHEAD of the array (today's bar hasn't posted yet) does the
+      // array's last entry itself serve as "previous", with chartPreviousClose as
+      // a last-resort fallback if there isn't enough array history at all.
+      const arrLast = series.closes[series.closes.length - 1];
+      const liveAheadOfArray = series.live?.price != null && Math.abs(series.live.price - arrLast) > 1e-6;
+      const last = series.live?.price ?? arrLast;
+      const prev = liveAheadOfArray
+        ? arrLast
+        : (series.closes.length >= 2 ? series.closes[series.closes.length - 2] : series.live?.prevClose ?? null);
       const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
       data.set(symbol, {
         label, group, last,
@@ -2974,7 +2994,7 @@ function updateEquityXirrFromHistory() { /* dividends fold into holdingXIRR + di
 function loadTransactionHistory() {
   if (transactionHistory) { try { updateEquityXirrFromHistory(); } catch (_) {} return; }
   fetch('data/transaction_history.json?v=' + APP_VERSION, { credentials: 'same-origin' })
-    .then(r => r.ok ? r.json() : null)
+    .then(r => r.ok ? parsePortfolioJson(r) : null)
     .then(data => {
       if (!data) return;
       transactionHistory = data;
