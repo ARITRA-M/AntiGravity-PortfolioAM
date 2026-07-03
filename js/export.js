@@ -110,8 +110,26 @@ function exportBackupJson() {
 }
 
 // ── Excel export ─────────────────────────────────────────────────────────
-function exportBackupXlsx() {
-  if (typeof XLSX === 'undefined') { alert('Excel library not loaded.'); return; }
+// SheetJS (437KB) is not loaded with the page — it would block first paint on
+// mobile for a feature used a few times a year. Inject it the first time an
+// Excel export is requested; the SW keeps it cached for offline use.
+let _xlsxLoadPromise = null;
+function ensureXlsxLoaded() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  if (!_xlsxLoadPromise) {
+    _xlsxLoadPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/xlsx.core.min.js';
+      s.onload = resolve;
+      s.onerror = () => { _xlsxLoadPromise = null; reject(new Error('Failed to load Excel library')); };
+      document.head.appendChild(s);
+    });
+  }
+  return _xlsxLoadPromise;
+}
+
+async function exportBackupXlsx() {
+  try { await ensureXlsxLoaded(); } catch (_) { alert('Could not load the Excel library (offline?). Try again once online.'); return; }
   if (!breakupSummary || !historicalHoldings) { alert('No data to export yet.'); return; }
 
   const wb = XLSX.utils.book_new();
@@ -350,7 +368,7 @@ function appendDatedHoldingSheets(wb, hist) {
   });
 
   // Latest holdings (from latestEquity/latestMf) added for the most recent date
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const today = localDateStr().replace(/-/g, '');
   if (typeof latestEquity !== 'undefined' && latestEquity && latestEquity.length) {
     const key = today;
     byDateE[key] = latestEquity.map(s => ({
@@ -574,5 +592,5 @@ function triggerDownload(blob, filename) {
 }
 
 function todayStamp() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateStr();
 }

@@ -17,6 +17,17 @@
 // ledger.js loads first — they are evaluated only at runtime, after app.js ran.
 // ─────────────────────────────────────────────────────────────────────────
 
+// Local-timezone YYYY-MM-DD. toISOString() is UTC: for an IST user it returns
+// YESTERDAY's date between midnight and 05:30, silently mis-dating transactions,
+// month closes and calendar-window boundaries — so all "today"/date-string
+// construction must go through this instead.
+function localDateStr(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 // Persisted ledger state (also mirrored to localStorage and the git commit).
 let transactions = [];   // [{ id, date, assetClass:'stock'|'mf', instrument, type:'buy'|'sell', qty, price, amount, category?, note }]
 let balances = [];       // [{ id, date, component, value, contribution, note }]
@@ -120,7 +131,7 @@ function initFrozenBaseFromCurrent() {
   if (frozenBase) return frozenBase; // already migrated
   if (!latestEquity || !latestMf || !breakupSummary) return null;
   const dates = breakupSummary.dates || [];
-  const baseDate = dates.length ? dates[dates.length - 1] : new Date().toISOString().slice(0, 10);
+  const baseDate = dates.length ? dates[dates.length - 1] : localDateStr();
   const nw = breakupSummary.net_worth || {};
   const _last = (key) => { const v = nw[key]?.values || []; return v.length ? v[v.length-1] : 0; };
   frozenBase = {
@@ -766,7 +777,7 @@ function closeMonth(dateStr) {
   }
   const dates = breakupSummary.dates;
   const prevDate = dates[dates.length - 1];
-  const D = dateStr || new Date().toISOString().slice(0, 10);
+  const D = dateStr || localDateStr();
   if (D <= prevDate) throw new Error(`Close date ${D} must be after the last period ${prevDate}.`);
 
   const L = 1e5; // rupees → lakhs
@@ -1010,6 +1021,11 @@ function closeMonth(dateStr) {
 // on every load (idempotent once already correct).
 function repairLastXirrColumn() {
   if (!breakupSummary) return false;
+  // One-shot per device: the buggy closeMonth() was fixed long ago, so once this
+  // has run (and found nothing or healed the column) there's nothing left to scan.
+  const _flagKey = _ledgerPrefix() + 'xirr_repair_done_v1';
+  try { if (localStorage.getItem(_flagKey)) return false; } catch (_) {}
+  try { localStorage.setItem(_flagKey, '1'); } catch (_) {}
   const dates = breakupSummary.dates || [];
   const xirrSec = breakupSummary.xirr || {};
   if (dates.length < 2) return false;

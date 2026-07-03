@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0b0f19">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11,10 +11,9 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
-  <!-- Vendor scripts: load locally for offline PWA support -->
-  <script src="vendor/chart.umd.js"></script>
-  <script src="vendor/read-excel-file.min.js"></script>
-  <script src="vendor/xlsx.core.min.js"></script>
+  <!-- Chart.js: deferred so it doesn't block first paint on mobile networks.
+       SheetJS (xlsx) is loaded on demand by js/export.js at export time. -->
+  <script defer src="vendor/chart.umd.js"></script>
   <script>
     // Detect if running on GitHub Pages (no local backend server)
     window.__isGitHubPages = window.location.hostname.includes('github.io') ||
@@ -98,7 +97,7 @@
         <div class="kpi-slim-icon">💼</div>
         <div class="kpi-slim-body">
           <div class="kpi-slim-label">Net Worth</div>
-          <div class="kpi-slim-value" id="kpi-net-worth">₹0.00 L</div>
+          <div class="kpi-slim-value" id="kpi-net-worth"></div>
           <div class="kpi-slim-sub">Total portfolio</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-portfolio-xirr" class="kpi-slim-pct">—</span></div>
         </div>
@@ -107,7 +106,7 @@
         <div class="kpi-slim-icon">📈</div>
         <div class="kpi-slim-body">
           <div class="kpi-slim-label">Equity</div>
-          <div class="kpi-slim-value" id="kpi-equity-val">₹0.00 L</div>
+          <div class="kpi-slim-value" id="kpi-equity-val"></div>
           <div class="kpi-slim-sub"><span id="kpi-equity-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-equity-xirr" class="kpi-slim-pct">—</span></div>
         </div>
@@ -116,7 +115,7 @@
         <div class="kpi-slim-icon">🏦</div>
         <div class="kpi-slim-body">
           <div class="kpi-slim-label">Debt</div>
-          <div class="kpi-slim-value" id="kpi-debt-val">₹0.00 L</div>
+          <div class="kpi-slim-value" id="kpi-debt-val"></div>
           <div class="kpi-slim-sub"><span id="kpi-debt-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-debt-xirr" class="kpi-slim-pct">—</span></div>
         </div>
@@ -125,7 +124,7 @@
         <div class="kpi-slim-icon">🥇</div>
         <div class="kpi-slim-body">
           <div class="kpi-slim-label">Gold</div>
-          <div class="kpi-slim-value" id="kpi-gold-val">₹0.00 L</div>
+          <div class="kpi-slim-value" id="kpi-gold-val"></div>
           <div class="kpi-slim-sub"><span id="kpi-gold-pct" class="kpi-slim-pct">0%</span> of portfolio</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-gold-xirr" class="kpi-slim-pct">—</span></div>
         </div>
@@ -367,17 +366,17 @@
       <div class="tab-kpi-bar">
         <div class="tab-kpi-card" style="--card-accent: #6366f1;">
           <div class="tab-kpi-label">Stocks Value</div>
-          <div class="tab-kpi-value" id="kpi-stocks-uploaded">₹0.00 L</div>
+          <div class="tab-kpi-value" id="kpi-stocks-uploaded"></div>
           <div class="tab-kpi-sub">Overall gain: <span id="kpi-stocks-gain">+0.00 L</span> (<span id="kpi-stocks-gain-pct">0.0%</span>)</div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
           <div class="tab-kpi-label">Active Holdings</div>
-          <div class="tab-kpi-value" id="kpi-stocks-active-count">—</div>
+          <div class="tab-kpi-value" id="kpi-stocks-active-count"></div>
           <div class="tab-kpi-sub">Stocks currently held</div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #10b981;">
           <div class="tab-kpi-label">Overall XIRR</div>
-          <div class="tab-kpi-value" id="kpi-stocks-best-xirr">—</div>
+          <div class="tab-kpi-value" id="kpi-stocks-best-xirr"></div>
           <div class="tab-kpi-sub" id="kpi-stocks-best-xirr-name">Equity portfolio</div>
         </div>
       </div>
@@ -465,17 +464,17 @@
       <div class="tab-kpi-bar">
         <div class="tab-kpi-card" style="--card-accent: #10b981;">
           <div class="tab-kpi-label">MF Value</div>
-          <div class="tab-kpi-value" id="kpi-mfs-uploaded">₹0.00 L</div>
+          <div class="tab-kpi-value" id="kpi-mfs-uploaded"></div>
           <div class="tab-kpi-sub">Overall gain: <span id="kpi-mfs-gain">+0.00 L</span> (<span id="kpi-mfs-gain-pct">0.0%</span>)</div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
           <div class="tab-kpi-label">Active Funds</div>
-          <div class="tab-kpi-value" id="kpi-mfs-active-count">—</div>
+          <div class="tab-kpi-value" id="kpi-mfs-active-count"></div>
           <div class="tab-kpi-sub">Funds currently held</div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
           <div class="tab-kpi-label">Overall XIRR</div>
-          <div class="tab-kpi-value" id="kpi-mfs-best-xirr">—</div>
+          <div class="tab-kpi-value" id="kpi-mfs-best-xirr"></div>
           <div class="tab-kpi-sub" id="kpi-mfs-best-xirr-name">MF portfolio</div>
         </div>
       </div>
@@ -545,17 +544,17 @@
       <div class="tab-kpi-bar" style="margin-bottom: 2rem;">
         <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
           <div class="tab-kpi-label">PF (Current)</div>
-          <div class="tab-kpi-value" id="fi-pf-value">₹0.00 L</div>
+          <div class="tab-kpi-value" id="fi-pf-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="fi-pf-gain" class="trend-up">+0.00 L</span></div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #ec4899;">
           <div class="tab-kpi-label">PPF (Current)</div>
-          <div class="tab-kpi-value" id="fi-ppf-value">₹0.00 L</div>
+          <div class="tab-kpi-value" id="fi-ppf-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="fi-ppf-gain" class="trend-up">+0.00 L</span></div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #8b5cf6;">
           <div class="tab-kpi-label">Bonds (Current)</div>
-          <div class="tab-kpi-value" id="fi-bonds-value">₹0.00 L</div>
+          <div class="tab-kpi-value" id="fi-bonds-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="fi-bonds-gain" class="trend-up">+0.00 L</span></div>
         </div>
       </div>
@@ -647,22 +646,22 @@
       <div class="tab-kpi-bar" style="margin-bottom: 2rem;">
         <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
           <div class="tab-kpi-label">NPS E (Equity)</div>
-          <div class="tab-kpi-value" id="nps-e-value">₹0.00 L</div>
+          <div class="tab-kpi-value" id="nps-e-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="nps-e-gain" class="trend-up">+0.00 L</span></div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #10b981;">
           <div class="tab-kpi-label">NPS C (Debt)</div>
-          <div class="tab-kpi-value" id="nps-c-value">₹0.00 L</div>
+          <div class="tab-kpi-value" id="nps-c-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="nps-c-gain" class="trend-up">+0.00 L</span></div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
           <div class="tab-kpi-label">NPS G (Debt)</div>
-          <div class="tab-kpi-value" id="nps-g-value">₹0.00 L</div>
+          <div class="tab-kpi-value" id="nps-g-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="nps-g-gain" class="trend-up">+0.00 L</span></div>
         </div>
         <div class="tab-kpi-card" style="--card-accent: #8b5cf6;">
           <div class="tab-kpi-label">Total NPS</div>
-          <div class="tab-kpi-value" id="nps-total-value">₹0.00 L</div>
+          <div class="tab-kpi-value" id="nps-total-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="nps-total-gain" class="trend-up">+0.00 L</span></div>
         </div>
       </div>
@@ -992,8 +991,10 @@
             <label>Close date <input type="date" id="close-date"></label>
           </div>
           <div class="manage-actions">
+            <button type="button" class="ghost-btn" onclick="startCloseChecklist()">📋 Month-close checklist</button>
             <button type="button" class="upload-btn" onclick="handleCloseMonth()">Close Period →</button>
           </div>
+          <div id="close-checklist"></div>
           <div id="close-preview" class="manage-preview"></div>
         </div>
 
@@ -1014,15 +1015,35 @@
       </div>
     </div>
 
+  <div class="ptr-indicator" id="ptr-indicator"></div>
+
+  <!-- Mobile bottom navigation (hidden on desktop; top tab bar hidden on mobile) -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="bottom-nav-btn active" data-tab="overview" onclick="switchTab('overview')"><span class="bn-icon">📊</span><span class="bn-label">Overview</span></button>
+    <button class="bottom-nav-btn" data-tab="stocks" onclick="switchTab('stocks')"><span class="bn-icon">📈</span><span class="bn-label">Stocks</span></button>
+    <button class="bottom-nav-btn" data-tab="growth" onclick="switchTab('growth')"><span class="bn-icon">🚀</span><span class="bn-label">Growth</span></button>
+    <button class="bottom-nav-btn" data-tab="monthly" onclick="switchTab('monthly')"><span class="bn-icon">📅</span><span class="bn-label">Periodic</span></button>
+    <button class="bottom-nav-btn" id="bottom-nav-more" onclick="toggleBottomNavSheet()"><span class="bn-icon">⋯</span><span class="bn-label">More</span></button>
+  </nav>
+  <div class="bottom-nav-sheet" id="bottom-nav-sheet">
+    <button class="bottom-nav-sheet-btn" data-tab="mfs" onclick="switchTab('mfs')">💰 Mutual Funds</button>
+    <button class="bottom-nav-sheet-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')">🏦 Fixed Income</button>
+    <button class="bottom-nav-sheet-btn" data-tab="nps" onclick="switchTab('nps')">🛡️ NPS</button>
+    <button class="bottom-nav-sheet-btn" data-tab="update-log" onclick="switchTab('update-log')">📋 Update Log</button>
+    <button class="bottom-nav-sheet-btn" data-tab="manage" onclick="switchTab('manage')">✏️ Manage Portfolio</button>
+  </div>
   </div>
 
+
   <!-- Scripts -->
-  <script src="js/crypto.js"></script>
-  <script src="auth.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/ledger.js"></script>
-  <script src="js/export.js"></script>
-  <script src="app.js"></script>
+  <!-- defer keeps execution order (after the deferred chart.umd.js in <head>)
+       while letting the HTML parse/paint without waiting on script downloads. -->
+  <script defer src="js/crypto.js"></script>
+  <script defer src="auth.js"></script>
+  <script defer src="js/api.js"></script>
+  <script defer src="js/ledger.js"></script>
+  <script defer src="js/export.js"></script>
+  <script defer src="app.js"></script>
   <script>
     // ── Service Worker Registration with Update Detection ──────────────────────
     // Registers the SW and sets up update detection so users get notified

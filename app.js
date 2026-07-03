@@ -4,7 +4,7 @@ const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'm
 // App version for cache busting — auto-derived from today's date so JSON files
 // are never served stale after a deploy. The server.js commit script no longer
 // needs to touch this constant.
-const APP_VERSION = new Date().toISOString().slice(0, 10);
+const APP_VERSION = localDateStr();
 
 // Global state
 let portfolioSummary = null;
@@ -70,22 +70,22 @@ let monthlyTypeFilter = 'all';
 // Stock name lookup cache (for daily overview table)
 let _stockNameLookup = null;
 
-// Benchmark data (simulated historical data for comparison)
+// Benchmark series (populated by fetchBenchmarkData; empty until real data lands)
 const benchmarkData = {
   nifty50: {
-    name: 'Nifty 50 (simulated)',
+    name: 'Nifty 50',
     history: [] // Will be generated based on portfolio dates
   },
   sensex: {
-    name: 'Sensex (simulated)',
+    name: 'Sensex',
     history: []
   },
   spx: {
-    name: 'S&P 500 (simulated)',
+    name: 'S&P 500',
     history: []
   },
   gold: {
-    name: 'Gold (simulated)',
+    name: 'Gold',
     history: []
   }
 };
@@ -789,22 +789,6 @@ function loadFromLocalStorage() {
   }
 }
 
-function clearLocalStorageData() {
-  try {
-    for (const key of LS_KEYS) {
-      localStorage.removeItem(LS_PREFIX + key);
-    }
-    // Also clear any stale breakup_summary that may exist from before this fix
-    localStorage.removeItem(LS_PREFIX + 'breakup_summary');
-    localStorage.removeItem(LS_PREFIX + 'refresh_report');
-    localStorage.removeItem(LS_PREFIX + 'version');
-    localStorage.removeItem(BENCHMARK_MONTHLY_CACHE_KEY);
-    console.log('Portfolio data cleared from localStorage');
-  } catch (e) {
-    console.warn('Failed to clear localStorage:', e);
-  }
-}
-
 // ── One-click "Commit" (saves data, bumps versions, git push) ──────────
 async function commitData() {
   const btn = document.getElementById('commit-btn');
@@ -853,7 +837,7 @@ async function commitData() {
 
     const data = await res.json();
     if (res.ok && data.success) {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = localDateStr();
       if (APP_VERSION !== todayStr) {
         console.log('APP_VERSION will be updated on next page load');
       }
@@ -977,7 +961,6 @@ async function loadData() {
       // breakup baseline plus the ledger's new-investment deltas.
       recomputePortfolioFromLiveData();
 
-      generateBenchmarkData();
       fetchBenchmarkData(); // async; re-renders Growth tab benchmarks when resolved
 
       const dates = breakupSummary.dates;
@@ -993,14 +976,7 @@ async function loadData() {
 
       try { if (typeof repairLastXirrColumn === 'function') repairLastXirrColumn(); } catch (e) { console.warn('repairLastXirrColumn:', e); }
       try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
-      try { initOverviewTab(); } catch (e) { console.error('initOverviewTab failed:', e); }
-      try { initStocksTab(); } catch (e) { console.error('initStocksTab failed:', e); }
-      try { initMfsTab(); } catch (e) { console.error('initMfsTab failed:', e); }
-      try { initGrowthTab(); } catch (e) { console.error('initGrowthTab failed:', e); }
-      try { initFixedIncomeTab(); } catch (e) { console.error('initFixedIncomeTab failed:', e); }
-      try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
-      try { initMonthlyTab(); } catch (e) { console.error('initMonthlyTab failed:', e); }
-      try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
+      try { initActiveTabOnly(); } catch (e) { console.error('initActiveTabOnly failed:', e); }
       try { autoCloseMonthIfNeeded(); } catch (e) { console.warn('autoCloseMonthIfNeeded:', e); }
       loadTransactionHistory(); // portfolio XIRR + dividends (was missing on cached loads)
 
@@ -1066,9 +1042,9 @@ async function loadData() {
     // Load transaction history non-critically (dividends + pre-base flows for XIRR)
     loadTransactionHistory();
 
-    // Generate benchmark data (simulated immediately; real data fetched async below)
-    generateBenchmarkData();
-    fetchBenchmarkData(); // async; re-renders Growth tab benchmarks when resolved
+    // Real benchmark series fetched async; charts/tables show a loading state
+    // until it lands (no more simulated placeholder curves).
+    fetchBenchmarkData();
 
     // Populate live badge
     const dates = breakupSummary.dates;
@@ -1080,14 +1056,7 @@ async function loadData() {
     // Initialize UI elements — each wrapped in try-catch to isolate failures
     try { if (typeof repairLastXirrColumn === 'function') repairLastXirrColumn(); } catch (e) { console.warn('repairLastXirrColumn:', e); }
     try { updateKpis(); } catch (e) { console.error('updateKpis failed:', e); }
-    try { initOverviewTab(); } catch (e) { console.error('initOverviewTab failed:', e); }
-    try { initStocksTab(); } catch (e) { console.error('initStocksTab failed:', e); }
-    try { initMfsTab(); } catch (e) { console.error('initMfsTab failed:', e); }
-    try { initGrowthTab(); } catch (e) { console.error('initGrowthTab failed:', e); }
-    try { initFixedIncomeTab(); } catch (e) { console.error('initFixedIncomeTab failed:', e); }
-    try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
-    try { initMonthlyTab(); } catch (e) { console.error('initMonthlyTab failed:', e); }
-    try { initUpdateLogTab(); } catch (e) { console.error('initUpdateLogTab failed:', e); }
+    try { initActiveTabOnly(); } catch (e) { console.error('initActiveTabOnly failed:', e); }
     try { autoCloseMonthIfNeeded(); } catch (e) { console.warn('autoCloseMonthIfNeeded:', e); }
     if (typeof startAutoRefresh === 'function') startAutoRefresh();
   } catch (error) {
@@ -1169,7 +1138,7 @@ function recomputePortfolioFromLiveData() {
   // new PF/NPS/PPF/Bonds/Cash/Crypto entry shows up immediately instead of waiting
   // for a month close (closeMonth() already reads these the same way).
   const _fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : '';
-  const _todayStr = new Date().toISOString().slice(0, 10);
+  const _todayStr = localDateStr();
   function _liveOpaqueLakhs(comp) {
     const meta = (typeof COMPONENT_BREAKUP !== 'undefined') ? COMPONENT_BREAKUP[comp] : null;
     const baseVal = meta ? getLatestSectionValue(breakupSummary.net_worth, meta.key) : 0;
@@ -1224,79 +1193,13 @@ function recomputePortfolioFromLiveData() {
   // Auto-close is triggered only once, in loadData(), after prices are settled.
 }
 
-function initPortfolioUpload() {
-  const input = document.getElementById('portfolio-upload');
-  if (!input) return;
-
-  input.addEventListener('change', async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    await loadWorkbookFile(file);
-    input.value = '';
-  });
-}
-
-async function loadWorkbookFile(file) {
-  const status = document.getElementById('upload-status');
-  try {
-    if (typeof readXlsxFile !== 'function') {
-      throw new Error('Excel parser could not be loaded. Check your network connection and retry.');
-    }
-
-    if (status) status.textContent = `Reading ${file.name}...`;
-    const sheets = await readXlsxFile(file);
-    const workbook = normalizeReadExcelWorkbook(sheets);
-    const parsed = parsePortfolioWorkbook(workbook);
-
-    portfolioSummary = parsed.portfolioSummary;
-    breakupSummary = parsed.breakupSummary;
-    latestEquity = parsed.latestEquity;
-    latestMf = parsed.latestMf;
-    historicalHoldings = stitchHistoryFragments(parsed.historicalHoldings);
-
-    // ── Persist to localStorage (survives page refresh) ──
-    saveToLocalStorage(portfolioSummary, breakupSummary, latestEquity, latestMf, historicalHoldings);
-
-    resetDerivedState();
-    refreshAllTabs();
-
-    const latestDate = breakupSummary.dates[breakupSummary.dates.length - 1];
-    document.getElementById('live-time-badge').innerText = `As of: ${formatDateString(latestDate)}`;
-    updateDataFreshness(`Portfolio snapshot: ${formatDateString(latestDate)}. Live prices not refreshed.`);
-
-    // Show Commit button after successful upload
-    if (status) status.textContent = `✅ ${file.name} — saved locally. Hit "Commit" to deploy permanently.`;
-    const commitBtn = document.getElementById('commit-btn');
-    if (commitBtn) {
-      commitBtn.style.display = 'inline-flex';
-      commitBtn.disabled = false;
-      commitBtn.textContent = '🚀 Commit';
-    }
-  } catch (error) {
-    console.error('Failed to load uploaded workbook:', error);
-    if (status) status.textContent = error.message || 'Upload failed';
-  }
-}
-
-function normalizeReadExcelWorkbook(sheets) {
-  if (!Array.isArray(sheets) || !sheets.length) {
-    throw new Error('Workbook does not contain any readable sheets.');
-  }
-
-  return {
-    SheetNames: sheets.map(sheet => sheet.sheet),
-    Sheets: Object.fromEntries(sheets.map(sheet => [sheet.sheet, sheet.data || []]))
-  };
-}
-
 function resetDerivedState() {
   benchmarkData.nifty50.history = [];
   benchmarkData.spx.history = [];
   benchmarkData.gold.history = [];
   benchmarkData.sensex.history = [];
-  // Reset names to "(simulated)" so stale real-data labels don't persist.
   for (const [key, { label }] of Object.entries(BENCHMARK_SOURCES)) {
-    benchmarkData[key].name = `${label} (simulated)`;
+    benchmarkData[key].name = label;
   }
   uploadedSnapshot = null;
   lastRefreshReport = null;
@@ -1311,7 +1214,6 @@ function resetDerivedState() {
     localStorage.removeItem(BENCHMARK_MONTHLY_CACHE_KEY);
   } catch (_) { /* ignore */ }
   initializeLiveBaseline();
-  generateBenchmarkData();
   fetchBenchmarkData(); // re-fetch real data aligned to new portfolio dates
 }
 
@@ -1522,10 +1424,6 @@ function sortNullableNumber(a, b, asc) {
   return asc ? a - b : b - a;
 }
 
-function sumValue(rows, key) {
-  return rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
-}
-
 function recomputeAllocation(summary) {
   const total = Number(summary.total_net_worth_lakhs) || 0;
   const allocation = {};
@@ -1562,255 +1460,6 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value);
-}
-
-function cleanFloat(value) {
-  if (value === null || value === undefined || value === '') return 0;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  const normalized = String(value).trim().replace(/%/g, '').replace(/\n/g, '').replace(/\s/g, '').replace(/,/g, '');
-  if (!normalized || normalized === '-' || normalized.toLowerCase() === 'nan') return 0;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function formatWorkbookDate(value, fallback) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  if (typeof value === 'number') {
-    const epoch = new Date(Date.UTC(1899, 11, 30));
-    const parsed = new Date(epoch.getTime() + value * 24 * 60 * 60 * 1000);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  }
-  if (typeof value === 'string' && value.trim()) return value.trim();
-  return fallback;
-}
-
-function sheetRows(workbook, sheetName) {
-  const sheet = workbook.Sheets[sheetName];
-  if (!sheet) throw new Error(`Missing sheet: ${sheetName}`);
-  return sheet;
-}
-
-function rowsToObjects(rows) {
-  const headers = (rows[0] || []).map(h => String(h ?? '').trim());
-  return rows.slice(1).map(row => {
-    const item = {};
-    headers.forEach((header, index) => {
-      if (header) item[header] = row[index];
-    });
-    return normalizeRow(item);
-  });
-}
-
-function validateRowsHaveColumns(rows, sheetName, requiredColumns) {
-  const normalizedHeaders = normalizeRow(Object.fromEntries((rows[0] || []).map(header => [header, true])));
-  const missing = requiredColumns.filter(column => !normalizedHeaders[column]);
-  if (missing.length) {
-    throw new Error(`${sheetName} is missing required column(s): ${missing.join(', ')}`);
-  }
-}
-
-function normalizeRow(row) {
-  const mapping = {
-    Company: 'Instrument',
-    Quantity: 'Qty.',
-    'Current Price': 'LTP',
-    'Average Buy Price': 'Avg. cost',
-    'Average Buy NAV': 'Avg. cost',
-    'Amount Invested': 'Invested',
-    'Total Investment': 'Invested',
-    'Current Price ': 'LTP',
-    'Current Valuation': 'Cur. val',
-    'Gain/Loss': 'P&L',
-    'Gain/ Loss': 'P&L',
-    'Unrealised Gain/Loss': 'P&L',
-    'Gain %': 'Gain %',
-    'Gain/ Loss %': 'Gain %',
-    Scheme: 'Instrument',
-    'Scheme Type': 'Category'
-  };
-
-  const normalized = {};
-  Object.entries(row).forEach(([key, value]) => {
-    const cleanKey = String(key).trim();
-    normalized[mapping[cleanKey] || cleanKey] = value;
-  });
-  return normalized;
-}
-
-function parsePortfolioWorkbook(workbook) {
-  const eSheets = [];
-  const mfSheets = [];
-  workbook.SheetNames.forEach(name => {
-    const eMatch = name.match(/^(\d{8})\s+E$/);
-    const mfMatch = name.match(/^(\d{8})\s+MF$/);
-    if (eMatch) eSheets.push([eMatch[1], name]);
-    if (mfMatch) mfSheets.push([mfMatch[1], name]);
-  });
-  eSheets.sort((a, b) => a[0].localeCompare(b[0]));
-  mfSheets.sort((a, b) => a[0].localeCompare(b[0]));
-
-  if (!eSheets.length || !mfSheets.length) {
-    throw new Error('Workbook must include dated equity and mutual fund sheets.');
-  }
-  if (!workbook.Sheets.Breakup) {
-    throw new Error('Workbook must include a Breakup sheet.');
-  }
-
-  const breakupSummary = parseBreakupSheet(workbook);
-  const historicalHoldings = parseHistoricalHoldings(workbook, eSheets, mfSheets);
-  const latestEquity = buildLatestEquity(historicalHoldings, eSheets[eSheets.length - 1][0]);
-  const latestMf = buildLatestMf(historicalHoldings, mfSheets[mfSheets.length - 1][0]);
-  const portfolioSummary = buildPortfolioSummary(breakupSummary);
-
-  return { breakupSummary, historicalHoldings, latestEquity, latestMf, portfolioSummary };
-}
-
-function parseBreakupSheet(workbook) {
-  const rows = sheetRows(workbook, 'Breakup');
-  const headerRow = rows[0] || [];
-  const dateCols = [];
-  for (let index = 2; index < headerRow.length; index++) {
-    const val = headerRow[index];
-    if (val === null || val === undefined || String(val).trim() === '') {
-      break;
-    }
-    const valStr = String(val ?? '').trim().toLowerCase();
-    if (valStr === 'total' || valStr === 'cagr' || valStr === 'average') {
-      break;
-    }
-    dateCols.push([index, formatWorkbookDate(val, `Period_${index}`)]);
-  }
-
-  const sections = {
-    net_worth: [3, 15],
-    contribution: [17, 27],
-    new_investment: [29, 41],
-    returns: [43, 55],
-    net_change: [57, 69],
-    net_cashflows: [71, 83],
-    xirr: [85, 97],
-    pct_returns: [101, 113]
-  };
-
-  const data = {};
-  Object.entries(sections).forEach(([name, [start, end]]) => {
-    const section = {};
-    for (let rowIndex = start; rowIndex < end; rowIndex++) {
-      const row = rows[rowIndex] || [];
-      const label = row[0] === null || row[0] === undefined || row[0] === '' ? 'Total' : String(row[0]).trim();
-      const assetType = row[1] === null || row[1] === undefined || row[1] === '' ? null : String(row[1]).trim();
-      const values = dateCols.map(([colIndex]) => cleanFloat(row[colIndex]));
-      const key = assetType ? `${label} (${assetType})` : label;
-      section[key] = { label, asset_type: assetType, values };
-    }
-    data[name] = section;
-  });
-
-  data.dates = dateCols.map(([, date]) => date);
-  if (!data.dates.length) {
-    throw new Error('Breakup sheet must include at least one dated portfolio column.');
-  }
-  return data;
-}
-
-function parseHistoricalHoldings(workbook, eSheets, mfSheets) {
-  const historical = { stocks: {}, mfs: {} };
-
-  eSheets.forEach(([dateStr, sheetName]) => {
-    const date = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-    const rows = sheetRows(workbook, sheetName);
-    validateRowsHaveColumns(rows, sheetName, ['Instrument', 'Qty.', 'LTP', 'Invested', 'Cur. val', 'P&L']);
-    rowsToObjects(rows).forEach(row => {
-      const instrument = String(row.Instrument ?? '').trim();
-      if (!instrument || instrument === 'Total') return;
-      const invested = cleanFloat(row.Invested);
-      const pnl = cleanFloat(row['P&L']);
-      const gainPct = invested > 0 ? (pnl / invested) * 100 : 0;
-      const sector = SECTOR_MAP[instrument] || 'Other Equities';
-      if (!historical.stocks[instrument]) {
-        historical.stocks[instrument] = { instrument, sector, history: [] };
-      }
-      historical.stocks[instrument].history.push(buildHistoryPoint(row, date, gainPct));
-    });
-  });
-
-  mfSheets.forEach(([dateStr, sheetName]) => {
-    const date = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-    const rows = sheetRows(workbook, sheetName);
-    validateRowsHaveColumns(rows, sheetName, ['Instrument', 'Qty.', 'LTP', 'Invested', 'Cur. val', 'P&L']);
-    rowsToObjects(rows).forEach(row => {
-      const instrument = String(row.Instrument ?? '').trim();
-      if (!instrument || instrument === 'Total') return;
-      const category = String(row.Category ?? 'Other').trim();
-      const invested = cleanFloat(row.Invested);
-      const pnl = cleanFloat(row['P&L']);
-      const gainPct = invested > 0 ? (pnl / invested) * 100 : 0;
-      if (!historical.mfs[instrument]) {
-        historical.mfs[instrument] = { instrument, category, history: [] };
-      }
-      historical.mfs[instrument].history.push(buildHistoryPoint(row, date, gainPct));
-    });
-  });
-
-  return historical;
-}
-
-function normalizeGainPct(value) {
-  // Retained for compatibility, but gain_pct is now computed mathematically from pnl and invested
-  return value;
-}
-
-function buildHistoryPoint(row, date, gainPct) {
-  return {
-    date,
-    qty: cleanFloat(row['Qty.']),
-    avg_cost: cleanFloat(row['Avg. cost']),
-    ltp: cleanFloat(row.LTP),
-    invested: cleanFloat(row.Invested),
-    cur_val: cleanFloat(row['Cur. val']),
-    pnl: cleanFloat(row['P&L']),
-    gain_pct: gainPct
-  };
-}
-
-function buildLatestEquity(historical, latestDateStr) {
-  const latestDate = `${latestDateStr.slice(0, 4)}-${latestDateStr.slice(4, 6)}-${latestDateStr.slice(6, 8)}`;
-  return Object.values(historical.stocks).flatMap(info => {
-    const last = info.history[info.history.length - 1];
-    if (!last || last.date !== latestDate || last.qty <= 0) return [];
-    return [{
-      instrument: info.instrument,
-      sector: info.sector,
-      qty: last.qty,
-      avg_cost: last.avg_cost,
-      ltp: last.ltp,
-      invested: last.invested,
-      cur_val: last.cur_val,
-      pnl: last.pnl,
-      gain_pct: last.gain_pct
-    }];
-  });
-}
-
-function buildLatestMf(historical, latestDateStr) {
-  const latestDate = `${latestDateStr.slice(0, 4)}-${latestDateStr.slice(4, 6)}-${latestDateStr.slice(6, 8)}`;
-  return Object.values(historical.mfs).flatMap(info => {
-    const last = info.history[info.history.length - 1];
-    if (!last || last.date !== latestDate || last.qty <= 0) return [];
-    return [{
-      scheme: info.instrument,
-      scheme_type: info.category,
-      qty: last.qty,
-      price: last.ltp,
-      avg_nav: last.avg_cost,
-      invested: last.invested,
-      cur_val: last.cur_val,
-      pnl: last.pnl,
-      gain_pct: last.gain_pct
-    }];
-  });
 }
 
 function buildPortfolioSummary(breakup) {
@@ -1869,6 +1518,26 @@ function getAssetColor(label) {
 // ── Tab initialization tracking (lazy init on mobile) ──
 const initializedTabs = new Set();
 
+// Initialize only the tab currently visible — the rest lazy-init via
+// switchTab()/tabInitMap on first visit. Eagerly building every tab's
+// charts/tables on load roughly quadrupled time-to-interactive on mobile.
+function initActiveTabOnly() {
+  // Restore the last-viewed tab (mobile habit: users return to the same view).
+  let saved = null;
+  try { saved = localStorage.getItem(LS_PREFIX + 'last_tab'); } catch (_) {}
+  if (saved && tabInitMap[saved]) { switchTab(saved); return; }
+  const active = document.querySelector('.tab-content.active');
+  const tabId = active ? active.id.replace('-tab', '') : 'overview';
+  initializedTabs.add(tabId);
+  const initFn = tabInitMap[tabId];
+  if (initFn) initFn();
+}
+
+function toggleBottomNavSheet() {
+  const sheet = document.getElementById('bottom-nav-sheet');
+  if (sheet) sheet.classList.toggle('open');
+}
+
 const tabInitMap = {
   'overview': initOverviewTab,
   'stocks': initStocksTab,
@@ -1894,7 +1563,24 @@ function switchTab(tabId) {
       content.classList.remove('active');
     }
   });
-  
+
+  // Mobile bottom nav: highlight the matching item (or "More" when the active
+  // tab lives in the sheet), close the sheet, remember the tab across visits.
+  const sheet = document.getElementById('bottom-nav-sheet');
+  if (sheet) sheet.classList.remove('open');
+  const barBtns = document.querySelectorAll('.bottom-nav-btn[data-tab]');
+  let inBar = false;
+  barBtns.forEach(b => {
+    const on = b.dataset.tab === tabId;
+    b.classList.toggle('active', on);
+    if (on) inBar = true;
+  });
+  const moreBtn = document.getElementById('bottom-nav-more');
+  if (moreBtn) moreBtn.classList.toggle('active', !inBar);
+  document.querySelectorAll('.bottom-nav-sheet-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === tabId));
+  try { localStorage.setItem(LS_PREFIX + 'last_tab', tabId); } catch (_) {}
+
   // Lazy-initialize charts for this tab on first visit
   if (!initializedTabs.has(tabId)) {
     initializedTabs.add(tabId);
@@ -2129,10 +1815,17 @@ const MARKET_MOVER_POOL = [
 const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
 let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m3,m6,y1,y5}}>
 let marketOverviewFetchedAt = 0;
-let marketOverviewMode = 'daily'; // 'daily' | 'mtd' | 'm3' | 'm6' | 'y1' | 'y5'
+let marketOverviewMode = (() => {
+  try {
+    const m = localStorage.getItem(LS_PREFIX + 'market_period');
+    if (['daily', 'mtd', 'm3', 'm6', 'y1', 'y5'].includes(m)) return m;
+  } catch (_) {}
+  return 'daily';
+})(); // 'daily' | 'mtd' | 'm3' | 'm6' | 'y1' | 'y5'
 
 function setMarketOverviewMode(mode) {
   marketOverviewMode = mode;
+  try { localStorage.setItem(LS_PREFIX + 'market_period', mode); } catch (_) {}
   const sel = document.getElementById('market-period-filter');
   if (sel) sel.value = mode;
   renderMarketOverviewCards();
@@ -2150,6 +1843,10 @@ function _closeBefore(series, ms) {
 let marketOverviewLongFetchedAt = 0; // separate TTL for the (larger, rarer-needed) 5y series
 
 async function initMarketOverviewTab() {
+  // Reflect the restored period filter in the dropdown; kick off the long-range
+  // fetch right away if the remembered period needs it.
+  const perSel = document.getElementById('market-period-filter');
+  if (perSel && perSel.value !== marketOverviewMode) perSel.value = marketOverviewMode;
   const fresh = marketOverviewData && (Date.now() - marketOverviewFetchedAt) < MARKET_OVERVIEW_TTL_MS;
   if (fresh) { renderMarketOverviewCards(); _ensureMarketOverviewLongRange(); return; }
   const statusEl = document.getElementById('market-overview-status');
@@ -2358,11 +2055,6 @@ function priceNavDateStr(holding, type) {
 function _fmtDMY(d) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
-// Parse a 'YYYY-MM-DD' string to a local Date (no UTC off-by-one).
-function _parseYMD(s) {
-  const [y, m, d] = String(s).split('-').map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-}
 // The trading day immediately before `date` (skips Sat/Sun; holidays not modelled).
 function _prevTradingDay(date) {
   const x = new Date(date);
@@ -2456,7 +2148,7 @@ function renderDailyOverviewTable() {
 
   // Render Daily Summaries — click cards to filter the table below
   // Recent new investments from the ledger (last 7 days) for the daily summary.
-  const _wkAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const _wkAgo = localDateStr(new Date(Date.now() - 7 * 86400000));
   let recentInv = 0, recentCount = 0;
   (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
     if (!t.date || t.date < _wkAgo) return;
@@ -2578,7 +2270,7 @@ let calendarMtdData = null; // { month: 'YYYY-MM', stockPriceByInstrument: Map, 
 const CALENDAR_MTD_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function currentCalendarMonthStr() {
-  return new Date().toISOString().slice(0, 7);
+  return localDateStr().slice(0, 7);
 }
 
 let _calendarMtdFetchPromise = null;
@@ -2765,7 +2457,7 @@ function renderMonthlyOverviewTable() {
   // previous close" (e.g. all of June, rolled up at the July 1 close), a different,
   // non-calendar-aligned window that would misattribute last month's contributions
   // to this month. Going forward, everything since month start lives in the ledger.
-  const _monthStartStr = _monthStartDate.toISOString().slice(0, 10);
+  const _monthStartStr = localDateStr(_monthStartDate);
   let newInvTotal = 0;
   (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
     if (t.date < _monthStartStr) return;
@@ -2863,55 +2555,6 @@ function renderMonthlyOverviewTable() {
 }
 
 // ==================== TOTAL RETURN XIRR (using transaction_history.json) ====================
-
-function estimatePendingDividends() {
-  if (!transactionHistory?.summary?.dividend_by_company) return [];
-  const tickerMap = transactionHistory.ticker_map || {};
-  const tickerToCompany = {};
-  Object.entries(tickerMap).forEach(([company, ticker]) => { tickerToCompany[ticker] = company; });
-
-  const held = new Set((latestEquity || []).filter(s => s.qty > 0).map(s => s.instrument));
-  const divSummary = transactionHistory.summary.dividend_by_company;
-
-  const divFlows = {};
-  (transactionHistory.xirr_flows || [])
-    .filter(f => f.type === 'dividend' && f.amount > 0)
-    .forEach(f => {
-      if (!divFlows[f.ticker]) divFlows[f.ticker] = [];
-      divFlows[f.ticker].push({ date: f.date, amount: f.amount });
-    });
-
-  const today = new Date().toISOString().slice(0, 10);
-  const results = [];
-  held.forEach(ticker => {
-    const events = divFlows[ticker] || [];
-    if (!events.length) return;
-    events.sort((a, b) => a.date.localeCompare(b.date));
-    const last = events[events.length - 1];
-    if (events.length >= 2) {
-      const intervals = [];
-      for (let i = 1; i < events.length; i++) {
-        const ms = new Date(events[i].date) - new Date(events[i-1].date);
-        intervals.push(ms / (30 * 24 * 3600 * 1000));
-      }
-      const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
-      const monthsSinceLast = (new Date(today) - new Date(last.date)) / (30 * 24 * 3600 * 1000);
-      if (monthsSinceLast >= avgInterval * 0.85) {
-        const company = tickerToCompany[ticker] || ticker;
-        const divData = divSummary[company];
-        const avgAmount = divData ? divData.total / divData.events : last.amount;
-        results.push({
-          ticker, company,
-          lastDate: last.date,
-          estimatedAmount: Math.round(avgAmount),
-          intervalMonths: Math.round(avgInterval),
-          overdue: monthsSinceLast > avgInterval * 1.1,
-        });
-      }
-    }
-  });
-  return results.sort((a, b) => b.estimatedAmount - a.estimatedAmount);
-}
 
 // Whole-portfolio money-weighted XIRR from the breakup Total series:
 // opening Total balance as the first outflow + each period's net new investment
@@ -3029,95 +2672,6 @@ function initOverviewTab() {
   // Render daily and monthly overview tables
   renderDailyOverviewTable();
   renderMonthlyOverviewTable();
-}
-
-function populateMonthlyOverviewSummary() {
-  const container = document.getElementById('overview-monthly-summary');
-  if (!container) return;
-  
-  const nw = breakupSummary.net_worth;
-  const cumInvHist = portfolioSummary.cumulative_investment_history;
-
-  // ── Since Base Date: Calculate changes from base prices to current refreshed prices ──
-
-  // Total portfolio value (in lakhs) from breakup_summary
-  const totalCurrent = nw['Total']?.values?.slice(-1)?.[0] || 0;
-  
-  // Total invested (cumulative) from portfolioSummary.cumulative_investment_history
-  const totalInvested = cumInvHist?.length > 0 ? cumInvHist[cumInvHist.length - 1] : 0;
-  const totalReturns = totalCurrent - totalInvested;
-  const totalReturnsPct = totalInvested > 0 ? (totalReturns / totalInvested) * 100 : 0;
-
-  // Last closed month's change per component (from breakup net_change series).
-  const nc = breakupSummary.net_change || {};
-  const lastChange = (key) => { const v = nc[key]?.values; return v && v.length ? v[v.length - 1] : 0; };
-  const lastMonthLabel = (() => {
-    const d = breakupSummary.dates || [];
-    return d.length ? formatDateString(d[d.length - 1]) : '';
-  })();
-
-  // ── Stocks: total gain vs invested cost (P&L) ──
-  const totalStockCurrentVal = latestEquity.reduce((sum, s) => sum + s.cur_val, 0);
-  const totalStockInvested   = latestEquity.reduce((sum, s) => sum + s.invested, 0);
-  const stockPnlLakhs = (totalStockCurrentVal - totalStockInvested) / 100000;
-  const stockPnlPct = totalStockInvested > 0 ? (stockPnlLakhs * 100000 / totalStockInvested) * 100 : 0;
-  const stockMonthChange = lastChange('Stocks (Equity)');
-
-  // ── MFs: total gain vs invested cost (P&L) ──
-  const totalMfCurrentVal = latestMf.reduce((sum, f) => sum + f.cur_val, 0);
-  const totalMfInvested   = latestMf.reduce((sum, f) => sum + f.invested, 0);
-  const mfPnlLakhs = (totalMfCurrentVal - totalMfInvested) / 100000;
-  const mfPnlPct = totalMfInvested > 0 ? (mfPnlLakhs * 100000 / totalMfInvested) * 100 : 0;
-  const mfMonthChange = lastChange('Mutual Funds (Equity)');
-
-  // ── Debt (PF + PPF + Bonds) ──
-  const pfVal = nw['PF (Debt)']?.values?.slice(-1)?.[0] || 0;
-  const ppfVal = nw['PPF (Debt)']?.values?.slice(-1)?.[0] || 0;
-  const bondsVal = nw['Bonds (Debt)']?.values?.slice(-1)?.[0] || 0;
-  const debtCurrent = pfVal + ppfVal + bondsVal;
-  const debtChange = lastChange('PF (Debt)') + lastChange('PPF (Debt)') + lastChange('Bonds (Debt)');
-
-  const stockCurrentLakhs = totalStockCurrentVal / 100000;
-  const mfCurrentLakhs = totalMfCurrentVal / 100000;
-
-  const latestNI = breakupSummary.new_investment?.['Total Investment']?.values;
-  const newInvThisMonth = latestNI ? (latestNI[latestNI.length - 1] || 0) : 0;
-  const latestRet = breakupSummary.returns?.['Total']?.values;
-  const returnsThisMonth = latestRet ? (latestRet[latestRet.length - 1] || 0) : 0;
-
-  container.innerHTML = `
-    <div class="monthly-kpi-card" style="--kpi-accent: #10b981;">
-      <div class="monthly-kpi-label">Total Portfolio Value</div>
-      <div class="monthly-kpi-value">${formatLakhs(totalCurrent)}</div>
-      <div class="monthly-kpi-sub">Invested: ${formatLakhs(totalInvested)}</div>
-      <div class="monthly-kpi-sub ${totalReturns >= 0 ? 'trend-up' : 'trend-down'}">
-        Total returns: ${totalReturns >= 0 ? '+' : ''}${totalReturns.toFixed(2)} L (${totalReturnsPct >= 0 ? '+' : ''}${totalReturnsPct.toFixed(2)}%)
-      </div>
-      <div class="monthly-kpi-sub">New investment (${lastMonthLabel}): <span class="${newInvThisMonth >= 0 ? 'trend-up' : 'trend-down'}">${newInvThisMonth >= 0 ? '+' : ''}${newInvThisMonth.toFixed(2)} L</span></div>
-      <div class="monthly-kpi-sub">Returns (${lastMonthLabel}): <span class="${returnsThisMonth >= 0 ? 'trend-up' : 'trend-down'}">${returnsThisMonth >= 0 ? '+' : ''}${returnsThisMonth.toFixed(2)} L</span></div>
-    </div>
-    <div class="monthly-kpi-card" style="--kpi-accent: #3b82f6;">
-      <div class="monthly-kpi-label">Stocks</div>
-      <div class="monthly-kpi-value">${formatLakhs(stockCurrentLakhs)}</div>
-      <div class="monthly-kpi-sub ${stockPnlLakhs >= 0 ? 'trend-up' : 'trend-down'}">
-        Total gain: ${stockPnlLakhs >= 0 ? '+' : ''}${stockPnlLakhs.toFixed(2)} L (${stockPnlPct >= 0 ? '+' : ''}${stockPnlPct.toFixed(1)}%)
-      </div>
-      <div class="monthly-kpi-sub">Change (${lastMonthLabel}): <span class="${stockMonthChange >= 0 ? 'trend-up' : 'trend-down'}">${stockMonthChange >= 0 ? '+' : ''}${stockMonthChange.toFixed(2)} L</span></div>
-    </div>
-    <div class="monthly-kpi-card" style="--kpi-accent: #8b5cf6;">
-      <div class="monthly-kpi-label">Mutual Funds</div>
-      <div class="monthly-kpi-value">${formatLakhs(mfCurrentLakhs)}</div>
-      <div class="monthly-kpi-sub ${mfPnlLakhs >= 0 ? 'trend-up' : 'trend-down'}">
-        Total gain: ${mfPnlLakhs >= 0 ? '+' : ''}${mfPnlLakhs.toFixed(2)} L (${mfPnlPct >= 0 ? '+' : ''}${mfPnlPct.toFixed(1)}%)
-      </div>
-      <div class="monthly-kpi-sub">Change (${lastMonthLabel}): <span class="${mfMonthChange >= 0 ? 'trend-up' : 'trend-down'}">${mfMonthChange >= 0 ? '+' : ''}${mfMonthChange.toFixed(2)} L</span></div>
-    </div>
-    <div class="monthly-kpi-card" style="--kpi-accent: #f59e0b;">
-      <div class="monthly-kpi-label">Debt (PF + PPF + Bonds)</div>
-      <div class="monthly-kpi-value">${formatLakhs(debtCurrent)}</div>
-      <div class="monthly-kpi-sub">Change (${lastMonthLabel}): <span class="${debtChange >= 0 ? 'trend-up' : 'trend-down'}">${debtChange >= 0 ? '+' : ''}${debtChange.toFixed(2)} L</span></div>
-    </div>
-  `;
 }
 
 // ==================== HISTORICAL GROWTH TAB ====================
@@ -3465,11 +3019,6 @@ function initGrowthTab() {
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
   renderXirrComparisonTable();
-}
-
-function filterGrowthChart() {
-  // Common tab filter — re-render the whole tab (all charts) for the selected window.
-  applyGrowthTimeFilter();
 }
 
 // ==================== FIXED INCOME TAB (PF / PPF / Bonds) ====================
@@ -4827,38 +4376,10 @@ function filterMfsTable() {
 
 // ==================== DATA GENERATORS ====================
 
-function generateBenchmarkData() {
-  const dates = breakupSummary.dates;
-  const nwTotal = breakupSummary.net_worth["Total"].values;
-  const firstValue = nwTotal[0];
-
-  // Simulated fallback — replaced by fetchBenchmarkData() when network is available.
-  benchmarkData.nifty50.history = dates.map((d, i) => {
-    const growth = Math.pow(1.01, i);
-    const noise = 1 + (Math.sin(i * 0.3) * 0.05);
-    return { date: d, value: firstValue * growth * noise };
-  });
-  benchmarkData.spx.history = dates.map((d, i) => {
-    const growth = Math.pow(1.0083, i);
-    const noise = 1 + (Math.sin(i * 0.25 + 1) * 0.04);
-    return { date: d, value: firstValue * growth * noise };
-  });
-  benchmarkData.sensex.history = dates.map((d, i) => {
-    const growth = Math.pow(1.01, i);
-    const noise = 1 + (Math.sin(i * 0.28 + 0.5) * 0.045);
-    return { date: d, value: firstValue * growth * noise };
-  });
-  benchmarkData.gold.history = dates.map((d, i) => {
-    const growth = Math.pow(1.005, i);
-    const noise = 1 + (Math.sin(i * 0.15 + 2) * 0.03);
-    return { date: d, value: firstValue * growth * noise };
-  });
-}
-
 // ── Real benchmark data (Yahoo Finance monthly series) ────────────────────────
 // Fetches actual monthly closes for Nifty 50, Sensex, S&P 500 and Gold, aligns
-// them to the portfolio's date spine, and caches for 24 h. Falls back silently
-// to the simulated curves if the network call fails.
+// them to the portfolio's date spine, and caches for 24 h. If the fetch fails
+// the benchmark rows/series simply stay empty (rendered as loading/'—').
 
 const BENCHMARK_MONTHLY_CACHE_KEY = 'ag_portfolio_benchmark_monthly';
 const BENCHMARK_MONTHLY_CACHE_TTL = 24 * 60 * 60 * 1000;
@@ -4985,7 +4506,7 @@ function _buildDividendIndex() {
     e.flows.sort((a, b) => a.date.localeCompare(b.date));
     const last = e.flows[e.flows.length - 1].date;
     const cut = new Date(last); cut.setFullYear(cut.getFullYear() - 1);
-    const cutStr = cut.toISOString().slice(0, 10);
+    const cutStr = localDateStr(cut);
     e.ttm = e.flows.filter(f => f.date >= cutStr).reduce((s, f) => s + f.amount, 0);
   });
   return _divIndex;
@@ -5263,16 +4784,6 @@ async function fetchBenchmarkData() {
 }
 
 // ==================== BENCHMARK TAB ====================
-
-function initBenchmarkTab() {
-  // Destroy existing charts before re-creating
-  if (benchmarkComparisonChart) benchmarkComparisonChart.destroy();
-  if (rollingReturnsChart) rollingReturnsChart.destroy();
-
-  renderBenchmarkComparisonChart('nifty50');
-  renderRollingReturnsChart();
-  renderXirrComparisonTable();
-}
 
 function switchCapMode(mode, btn) {
   if (!capChart) return;
@@ -5603,7 +5114,7 @@ function _buildPeriodBuckets(gran) {
 function _patchCurrentBucketFromLedger(buckets, gran, bucketOf) {
   if (!buckets.length) return;
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = localDateStr(today);
   const last = buckets[buckets.length - 1];
   if (bucketOf(todayStr) !== last.label) return; // last bucket isn't "now" — leave it alone
 
@@ -5612,7 +5123,7 @@ function _patchCurrentBucketFromLedger(buckets, gran, bucketOf) {
     : gran === 'H' ? new Date(y, m < 6 ? 0 : 6, 1)
     : gran === 'Y' ? new Date(y, 0, 1)
     : new Date(y, m, 1); // 'M' and default
-  const periodStartStr = periodStart.toISOString().slice(0, 10);
+  const periodStartStr = localDateStr(periodStart);
 
   let liveNewInvRupees = 0;
   (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
@@ -6846,7 +6357,7 @@ function sortMfs(colIdx) {
 // ════════════════════════════════════════════════════════════════════════
 
 function initManageTab() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr();
   ['txn-date', 'bal-date', 'close-date'].forEach(id => {
     const el = document.getElementById(id);
     if (el && !el.value) el.value = today;
@@ -7001,7 +6512,7 @@ function resetTxnForm() {
   document.getElementById('txn-amount').dataset.touched = '';
   document.getElementById('txn-submit-btn').textContent = 'Add Transaction';
   document.getElementById('txn-cancel-btn').style.display = 'none';
-  document.getElementById('txn-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('txn-date').value = localDateStr();
   onTxnAssetClassChange();
 }
 
@@ -7110,7 +6621,7 @@ function resetBalForm() {
   document.getElementById('bal-edit-id').value = '';
   document.getElementById('bal-submit-btn').textContent = 'Save Balance';
   document.getElementById('bal-cancel-btn').style.display = 'none';
-  document.getElementById('bal-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('bal-date').value = localDateStr();
   document.getElementById('bal-contribution').value = '0';
   document.getElementById('bal-interest').value = '0';
   document.getElementById('bal-value-input').value = '';
@@ -7150,7 +6661,7 @@ function autoCloseMonthIfNeeded() {
   const now = new Date();
   // Last day of the previous calendar month
   const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-  const prevMonthEndStr = prevMonthEnd.toISOString().slice(0, 10);
+  const prevMonthEndStr = localDateStr(prevMonthEnd);
   // Compare year-month only (first 7 chars) so "2026-05-31" and "2026-05-01"
   // are treated as the same closed period — prevents a spurious close when the
   // breakup dates use month-start format while we compute month-end dates.
@@ -7179,12 +6690,13 @@ function refreshAfterLedgerChange() {
   try { recomputePortfolioFromLiveData(); } catch (e) { console.error(e); }
   try { updateKpis(); } catch (e) { console.error(e); }
   try { renderDailyOverviewTable(); renderMonthlyOverviewTable(); } catch (e) {}
-  try { initStocksTab(); } catch (e) {}
-  try { initMfsTab(); } catch (e) {}
-  try { initGrowthTab(); } catch (e) {}
-  try { initFixedIncomeTab(); } catch (e) {}
-  try { initNpsTab(); } catch (e) {}
-  try { initMonthlyTab(); } catch (e) {}   // Periodic Performance
+  // Rebuild only tabs the user has actually opened this session; drop the rest
+  // from initializedTabs so they rebuild (with the new ledger state) on first visit.
+  ['stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly'].forEach(tabId => {
+    if (initializedTabs.has(tabId)) {
+      try { tabInitMap[tabId](); } catch (e) {}
+    }
+  });
   try { saveRefreshedPrices(latestEquity, latestMf); } catch (e) {}
 }
 
@@ -7233,3 +6745,106 @@ async function handleImportBackup(e) {
   }
 }
 
+
+// ==================== PULL-TO-REFRESH (mobile) ====================
+// Native pull-to-refresh reloads the whole page; in standalone PWA mode it's
+// disabled entirely. This gives the natural mobile gesture a useful meaning:
+// pull down from the top of the page to trigger a price refresh.
+(function initPullToRefresh() {
+  let startY = null, pulling = false;
+  const THRESH = 80;
+  const ind = () => document.getElementById('ptr-indicator');
+  const atTop = () => (document.scrollingElement?.scrollTop || 0) <= 0;
+  document.addEventListener('touchstart', (e) => {
+    startY = atTop() ? e.touches[0].clientY : null;
+    pulling = false;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (startY == null || !atTop()) return;
+    const dy = e.touches[0].clientY - startY;
+    const el = ind();
+    if (!el || dy < 24) return;
+    pulling = true;
+    el.classList.add('visible');
+    el.classList.toggle('ready', dy > THRESH);
+    el.textContent = dy > THRESH ? '⟳ Release to refresh prices' : '↓ Pull to refresh prices';
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    const el = ind();
+    if (pulling && el && el.classList.contains('ready')) {
+      el.textContent = '⟳ Refreshing prices…';
+      Promise.resolve(typeof refreshPrices === 'function' ? refreshPrices() : null)
+        .finally(() => { el.classList.remove('visible', 'ready'); });
+    } else if (el) {
+      el.classList.remove('visible', 'ready');
+    }
+    startY = null; pulling = false;
+  }, { passive: true });
+})();
+
+// ==================== MONTH-CLOSE CHECKLIST ====================
+// Guided flow for the monthly routine: every opaque component listed with its
+// last recorded value pre-filled — update the ones that changed, save them all
+// in one tap, then hit Close Period. Replaces nine separate form submissions.
+function _lastBalanceFor(component) {
+  const entries = (balances || []).filter(b => b.component === component)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (entries.length) {
+    const last = entries[entries.length - 1];
+    return { value: last.value, date: last.date, source: 'ledger' };
+  }
+  const key = (typeof COMPONENT_BREAKUP !== 'undefined') && COMPONENT_BREAKUP[component]?.key;
+  const vals = key && breakupSummary?.net_worth?.[key]?.values;
+  if (vals && vals.length) {
+    const dates = breakupSummary.dates || [];
+    // breakup values are in lakhs → rupees
+    return { value: (vals[vals.length - 1] || 0) * 100000, date: dates[dates.length - 1] || '', source: 'breakup' };
+  }
+  return { value: 0, date: '', source: 'none' };
+}
+
+function startCloseChecklist() {
+  const box = document.getElementById('close-checklist');
+  if (!box) return;
+  const comps = (typeof OPAQUE_COMPONENTS !== 'undefined') ? OPAQUE_COMPONENTS : [];
+  const rows = comps.map(c => {
+    const last = _lastBalanceFor(c);
+    const lastTxt = last.date ? `${formatINR(last.value)} · ${formatDateString(last.date)}` : 'no record yet';
+    return `<div class="close-check-row" data-component="${c}" data-orig="${last.value}">
+      <div class="close-check-name">${c}<span class="close-check-last">${lastTxt}</span></div>
+      <label>Value ₹<input type="number" step="any" class="close-check-value" value="${Math.round(last.value)}"></label>
+      <label>Contribution ₹<input type="number" step="any" class="close-check-contrib" value="0"></label>
+    </div>`;
+  }).join('');
+  box.innerHTML = `
+    <p class="manage-hint">Update each component's current value (and any fresh contribution this month).
+    Untouched rows are skipped — only changed values are recorded.</p>
+    ${rows}
+    <div class="manage-actions">
+      <button type="button" class="upload-btn" onclick="saveCloseChecklist()">✓ Save entered updates</button>
+      <button type="button" class="ghost-btn" onclick="document.getElementById('close-checklist').innerHTML=''">Cancel</button>
+    </div>
+    <div id="close-checklist-status" class="manage-preview"></div>`;
+}
+
+function saveCloseChecklist() {
+  const box = document.getElementById('close-checklist');
+  const status = document.getElementById('close-checklist-status');
+  if (!box) return;
+  const date = document.getElementById('close-date')?.value || localDateStr();
+  let saved = 0;
+  box.querySelectorAll('.close-check-row').forEach(row => {
+    const value = parseFloat(row.querySelector('.close-check-value').value);
+    const contrib = parseFloat(row.querySelector('.close-check-contrib').value) || 0;
+    const orig = parseFloat(row.dataset.orig);
+    const changed = Number.isFinite(value) && (Math.abs(value - orig) > 0.5 || contrib !== 0);
+    if (!changed) return;
+    addBalance({ date, component: row.dataset.component, value, contribution: contrib, note: 'month-close checklist' });
+    saved++;
+    row.style.opacity = '0.45';
+  });
+  refreshAfterLedgerChange();
+  if (status) status.innerHTML = saved
+    ? `<span class="trend-up">✓ ${saved} balance update${saved > 1 ? 's' : ''} recorded (${date}).</span> Now hit <b>Close Period →</b> when ready.`
+    : 'No rows changed — nothing recorded.';
+}

@@ -332,6 +332,8 @@ async function fetchStockQuote(ticker, source) {
 // stocksOnly=true skips the MF NAV loop — used by the 1-min auto-refresh cycle.
 async function refreshPrices(stocksOnly = false) {
   if (isRefreshing) return;
+  // Data not loaded yet (auto-refresh timer can fire before unlock completes).
+  if (typeof latestEquity === 'undefined' || !Array.isArray(latestEquity) || !Array.isArray(latestMf)) return;
   isRefreshing = true;
 
   const btn = document.getElementById('refresh-prices-btn');
