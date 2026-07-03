@@ -207,12 +207,17 @@ const PERF_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — shorter TTL prevents sta
 async function fetchSparkCloses(symbols, range = '1mo', interval = '1d') {
   const out = new Map();
   const BATCH = 15;
-  for (let i = 0; i < symbols.length; i += BATCH) {
-    const batch = symbols.slice(i, i + BATCH);
+  const batches = [];
+  for (let i = 0; i < symbols.length; i += BATCH) batches.push(symbols.slice(i, i + BATCH));
+
+  // Fire every batch concurrently — with >15 symbols (e.g. Market Overview's ~19)
+  // this used to await each batch in turn, roughly doubling wall-clock time on
+  // networks where each proxied request already carries real latency.
+  await Promise.all(batches.map(async (batch) => {
     const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batch.map(encodeURIComponent).join(',')}&range=${range}&interval=${interval}`;
     try {
       const res = await fetchViaCorsProxy(url, {}, 12000);
-      if (!res.ok) continue;
+      if (!res.ok) return;
       const raw = await res.json();
       for (const r of (raw?.spark?.result || [])) {
         const resp = r?.response?.[0];
@@ -220,10 +225,18 @@ async function fetchSparkCloses(symbols, range = '1mo', interval = '1d') {
         const cl = resp?.indicators?.quote?.[0]?.close;
         if (!ts || !cl) continue;
         const pts = ts.map((t, k) => ({ t: t * 1000, c: cl[k] })).filter(p => p.c != null);
-        out.set(r.symbol, { dates: pts.map(p => p.t), closes: pts.map(p => p.c) });
+        // The spark endpoint's own `meta` already carries the authoritative live
+        // price + true previous close (same fields the dedicated chart endpoint
+        // exposes) — capture it so callers needing "right now" data don't have to
+        // fire a second per-symbol request just for that.
+        const meta = resp?.meta;
+        const live = meta?.regularMarketPrice > 0
+          ? { price: meta.regularMarketPrice, prevClose: meta.chartPreviousClose > 0 ? meta.chartPreviousClose : null }
+          : null;
+        out.set(r.symbol, { dates: pts.map(p => p.t), closes: pts.map(p => p.c), live });
       }
     } catch (_) { /* skip a failed batch; others still contribute */ }
-  }
+  }));
   return out;
 }
 
@@ -2086,11 +2099,14 @@ function switchOverviewSubtab(subtab, btn) {
 const MARKET_PINNED_INDICES = [
   { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National' },
   { symbol: '^BSESN',   label: 'Sensex',          group: 'National' },
+  { symbol: '^CRSMID',  label: 'Nifty Midcap 100', group: 'Market Cap' },
+  { symbol: '^CNXSC',   label: 'Nifty Smallcap 100', group: 'Market Cap' },
   { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral' },
   { symbol: '^CNXIT',   label: 'Nifty IT',        group: 'Sectoral' },
   { symbol: '^CNXFMCG', label: 'Nifty FMCG',      group: 'Sectoral' },
   { symbol: '^CNXPHARMA', label: 'Nifty Healthcare', group: 'Sectoral' },
   { symbol: '^IXIC',    label: 'Nasdaq',          group: 'Global' },
+  { symbol: '000001.SS', label: 'Shanghai Composite', group: 'Global' },
   { symbol: 'GC=F',     label: 'Gold',            group: 'Commodity' },
 ];
 const MARKET_MOVER_POOL = [
@@ -2113,6 +2129,7 @@ function setMarketOverviewMode(mode) {
   const sel = document.getElementById('market-period-filter');
   if (sel) sel.value = mode;
   renderMarketOverviewCards();
+  if (['m3', 'm6', 'y1', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
 }
 
 // Reference close on/before a given timestamp from an ascending {dates,closes} series.
@@ -2123,65 +2140,39 @@ function _closeBefore(series, ms) {
   return val;
 }
 
+let marketOverviewLongFetchedAt = 0; // separate TTL for the (larger, rarer-needed) 5y series
+
 async function initMarketOverviewTab() {
   const fresh = marketOverviewData && (Date.now() - marketOverviewFetchedAt) < MARKET_OVERVIEW_TTL_MS;
-  if (fresh) { renderMarketOverviewCards(); return; }
+  if (fresh) { renderMarketOverviewCards(); _ensureMarketOverviewLongRange(); return; }
   const statusEl = document.getElementById('market-overview-status');
   if (statusEl) statusEl.textContent = 'Loading market data…';
   try {
     const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
     const symbols = all.map(i => i.symbol);
-    // Short (daily) series for the MTD anchor, long (weekly) series for
-    // 3M/6M/1Y/5Y lookback — one batched request each, not per-symbol.
-    const [shortBySym, longBySym] = await Promise.all([
-      fetchSparkCloses(symbols, '1mo', '1d'),
-      fetchSparkCloses(symbols, '5y', '1wk'),
-    ]);
-    // The rolling series above can lag a day or more behind (Yahoo doesn't always
-    // post today's bar promptly), which silently zeroed out MTD/Daily whenever
-    // "today" and the series' last bar landed in different months. Fetch each
-    // symbol's live quote (regularMarketPrice + the true previous close) the same
-    // way fetchNiftySeries() does, and use THAT as "current" instead of trusting
-    // the series' last element to be up to date.
-    const liveBySym = new Map();
-    await Promise.all(symbols.map(async (sym) => {
-      try {
-        const res = await fetchViaCorsProxy(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`, {}, 10000);
-        if (!res.ok) return;
-        const meta = (await res.json())?.chart?.result?.[0]?.meta;
-        if (meta?.regularMarketPrice > 0) {
-          liveBySym.set(sym, { last: meta.regularMarketPrice, prevClose: meta.chartPreviousClose > 0 ? meta.chartPreviousClose : null });
-        }
-      } catch (_) { /* fall back to the rolling series below */ }
-    }));
+    // ONE batched request covers Daily + MTD for every index — the spark
+    // endpoint's own `meta` already carries a live price + true previous close,
+    // so no per-symbol follow-up call is needed (this used to fire 16 separate
+    // requests, the main reason the tab was slow on mobile networks).
+    const shortBySym = await fetchSparkCloses(symbols, '1mo', '1d');
     const now = new Date();
     const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    const daysAgo = (n) => now.getTime() - n * 86400000;
     const data = new Map();
     all.forEach(({ symbol, label, group }) => {
-      const shortSeries = shortBySym.get(symbol);
-      const longSeries = longBySym.get(symbol);
-      const live = liveBySym.get(symbol);
-      const fallbackSrc = (shortSeries && shortSeries.closes.length) ? shortSeries
-        : (longSeries && longSeries.closes.length) ? longSeries : null;
-      const last = live?.last ?? (fallbackSrc ? fallbackSrc.closes[fallbackSrc.closes.length - 1] : null);
-      if (last == null) return;
-      const prev = live?.prevClose
-        ?? (shortSeries && shortSeries.closes.length >= 2 ? shortSeries.closes[shortSeries.closes.length - 2] : null);
+      const series = shortBySym.get(symbol);
+      if (!series || !series.closes.length) return;
+      const last = series.live?.price ?? series.closes[series.closes.length - 1];
+      const prev = series.live?.prevClose ?? (series.closes.length >= 2 ? series.closes[series.closes.length - 2] : null);
       const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
-      const pct = {
-        daily: pctFrom(prev),
-        mtd: pctFrom(_closeBefore(shortSeries, monthStartMs) ?? _closeBefore(longSeries, monthStartMs)),
-        m3: pctFrom(_closeBefore(longSeries, daysAgo(91))),
-        m6: pctFrom(_closeBefore(longSeries, daysAgo(182))),
-        y1: pctFrom(_closeBefore(longSeries, daysAgo(365))),
-        y5: pctFrom(_closeBefore(longSeries, daysAgo(365 * 5))),
-      };
-      data.set(symbol, { label, group, last, pct });
+      data.set(symbol, {
+        label, group, last,
+        pct: { daily: pctFrom(prev), mtd: pctFrom(_closeBefore(series, monthStartMs)) },
+      });
     });
     if (data.size) {
       marketOverviewData = data;
       marketOverviewFetchedAt = Date.now();
+      marketOverviewLongFetchedAt = 0; // force a fresh long-range merge for the new short data
     }
   } catch (e) {
     console.warn('[market-overview] fetch failed:', e.message);
@@ -2192,6 +2183,38 @@ async function initMarketOverviewTab() {
       : 'Could not load market data — check your connection and retry.';
   }
   renderMarketOverviewCards();
+  _ensureMarketOverviewLongRange(); // fetch 3M/6M/1Y/5Y data in the background, not blocking the initial paint
+}
+
+// 3M/6M/1Y/5Y need a much longer series (5y/weekly) that most visits never look
+// at — fetched lazily, after the fast Daily/MTD view is already on screen, so a
+// slow mobile connection isn't stuck waiting on data most people won't select.
+async function _ensureMarketOverviewLongRange() {
+  if (!marketOverviewData) return;
+  if (marketOverviewLongFetchedAt && (Date.now() - marketOverviewLongFetchedAt) < MARKET_OVERVIEW_TTL_MS) return;
+  marketOverviewLongFetchedAt = Date.now(); // claim immediately so concurrent calls don't double-fetch
+  try {
+    const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
+    const longBySym = await fetchSparkCloses(all.map(i => i.symbol), '5y', '1wk');
+    const now = new Date();
+    const daysAgo = (n) => now.getTime() - n * 86400000;
+    all.forEach(({ symbol }) => {
+      const entry = marketOverviewData.get(symbol);
+      const longSeries = longBySym.get(symbol);
+      if (!entry || !longSeries) return;
+      const last = entry.last;
+      const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
+      entry.pct.m3 = pctFrom(_closeBefore(longSeries, daysAgo(91)));
+      entry.pct.m6 = pctFrom(_closeBefore(longSeries, daysAgo(182)));
+      entry.pct.y1 = pctFrom(_closeBefore(longSeries, daysAgo(365)));
+      entry.pct.y5 = pctFrom(_closeBefore(longSeries, daysAgo(365 * 5)));
+      if (entry.pct.mtd == null) entry.pct.mtd = pctFrom(_closeBefore(longSeries, new Date(now.getFullYear(), now.getMonth(), 1).getTime()));
+    });
+    // Re-render if the user is currently looking at a period that just filled in.
+    if (['m3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
+  } catch (e) {
+    console.warn('[market-overview] long-range fetch failed:', e.message);
+  }
 }
 
 function renderMarketOverviewCards() {
@@ -2227,7 +2250,12 @@ function renderMarketOverviewCards() {
     .slice(0, 4);
   const moversHtml = movers.map(i => cardHtml({ symbol: i.symbol, label: i.label, group: 'Top Mover' })).join('');
 
-  grid.innerHTML = pinnedHtml + moversHtml || '<p style="color:var(--text-muted);">No market data available.</p>';
+  const isLongPeriod = ['m3', 'm6', 'y1', 'y5'].includes(pctKey);
+  const stillLoadingLong = isLongPeriod && !pinnedHtml && !moversHtml;
+  grid.innerHTML = pinnedHtml + moversHtml
+    || (stillLoadingLong
+      ? '<p style="color:var(--text-muted);">Loading longer-range data…</p>'
+      : '<p style="color:var(--text-muted);">No market data available.</p>');
 }
 
 // ── Daily Type Filter (Stocks / MFs / All) — click KPI cards ───────────────
@@ -5539,7 +5567,63 @@ function _buildPeriodBuckets(gran) {
       isPartial:  idxs[idxs.length - 1] === n - 1, // last bucket may be incomplete
     });
   }
+  _patchCurrentBucketFromLedger(buckets, gran, bucketOf);
   return buckets;
+}
+
+// The last (current, still-open) bucket sources newInv/deltaNW purely from
+// breakupSummary — which only reflects whatever was folded in at the LAST Close
+// Period. A close dated e.g. "2026-07-01" bakes in everything since the PREVIOUS
+// close (i.e. all of June, however it happens to be dated), then that single data
+// point gets bucketed as "2026-07" — so the "current month" bucket shows last
+// month's closed activity, not this month's, and never reflects transactions
+// entered since that close (dated after it) at all. Recompute the current bucket
+// directly from the live ledger + live net worth, calendar-aligned to today,
+// instead of trusting the breakup aggregate for the still-open period.
+function _patchCurrentBucketFromLedger(buckets, gran, bucketOf) {
+  if (!buckets.length) return;
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const last = buckets[buckets.length - 1];
+  if (bucketOf(todayStr) !== last.label) return; // last bucket isn't "now" — leave it alone
+
+  const y = today.getFullYear(), m = today.getMonth();
+  const periodStart = gran === 'Q' ? new Date(y, Math.floor(m / 3) * 3, 1)
+    : gran === 'H' ? new Date(y, m < 6 ? 0 : 6, 1)
+    : gran === 'Y' ? new Date(y, 0, 1)
+    : new Date(y, m, 1); // 'M' and default
+  const periodStartStr = periodStart.toISOString().slice(0, 10);
+
+  let liveNewInvRupees = 0;
+  (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
+    if (t.date < periodStartStr || t.date > todayStr) return;
+    liveNewInvRupees += t.type === 'sell' ? -t.amount : t.amount;
+  });
+  (typeof balances !== 'undefined' ? balances : []).forEach(b => {
+    if (b.date < periodStartStr || b.date > todayStr) return;
+    liveNewInvRupees += b.contribution || 0;
+  });
+  const newInv = liveNewInvRupees / 100000; // rupees → lakhs, matching breakupSummary units
+
+  // Opening NW = last CLOSED net worth strictly before this calendar period started.
+  const dates = breakupSummary.dates;
+  const nwVals = breakupSummary.net_worth['Total'].values;
+  let openNW = null;
+  for (let i = dates.length - 1; i >= 0; i--) {
+    if (dates[i] < periodStartStr) { openNW = nwVals[i]; break; }
+  }
+  if (openNW == null) openNW = last.openNW; // no earlier close found — fall back
+  const closeNW = (typeof portfolioSummary !== 'undefined' && portfolioSummary?.total_net_worth_lakhs != null)
+    ? portfolioSummary.total_net_worth_lakhs : last.closeNW;
+
+  last.openNW = openNW;
+  last.closeNW = closeNW;
+  last.deltaNW = closeNW - openNW;
+  last.newInv = newInv;
+  last.mktRet = last.deltaNW - newInv;
+  last.deltaNWPct = openNW ? (last.deltaNW / openNW) * 100 : 0;
+  last.mktRetPct = openNW ? (last.mktRet / openNW) * 100 : 0;
+  last.isPartial = true;
 }
 
 function _buildComparisons(buckets, gran) {
