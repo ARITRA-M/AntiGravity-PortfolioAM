@@ -2802,3 +2802,14 @@ table tbody:empty::after {
 @media (max-width: 768px) {
   .periodic-gran-btn { padding: 0.28rem 0.5rem !important; font-size: 0.7rem !important; }
 }
+
+/* ── Market Overview sections (Indian / Global / Sectoral / Gainers / Losers) ── */
+.market-section { margin-bottom: 1.1rem; }
+.market-section-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem 0.1rem;
+}

@@ -2093,7 +2093,7 @@ function renderMarketOverviewCards() {
   if (!marketOverviewData) { grid.innerHTML = ''; return; }
 
   const pctKey = marketOverviewMode;
-  const pinnedSymbols = new Set(MARKET_PINNED_INDICES.map(i => i.symbol));
+  const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
 
   const cardHtml = ({ symbol, label, group }) => {
     const d = marketOverviewData.get(symbol);
@@ -2124,20 +2124,49 @@ function renderMarketOverviewCards() {
       </div>`;
   };
 
-  const pinnedHtml = MARKET_PINNED_INDICES.map(cardHtml).join('');
+  const section = (title, items) => {
+    const html = items.map(cardHtml).join('');
+    if (!html) return '';
+    return `<div class="market-section">
+      <div class="market-section-title">${escapeHtml(title)}</div>
+      <div class="market-index-grid">${html}</div>
+    </div>`;
+  };
 
-  // Top movers from the non-pinned pool, ranked by |change| in the current period.
-  const movers = MARKET_MOVER_POOL
+  // Indian Indices: broad market benchmarks (Nifty 50, Sensex, Midcap/Smallcap
+  // 100) — as distinct from sector-specific indices below.
+  const indianIndices = MARKET_PINNED_INDICES.filter(i => i.group === 'National' || i.group === 'Market Cap');
+  // Global Indices: overseas benchmarks + gold, the non-India reference points.
+  const globalIndices = MARKET_PINNED_INDICES.filter(i => i.group === 'Global' || i.group === 'Commodity');
+  // Sectoral Indices: every sector-specific index, pinned or from the mover pool —
+  // one section instead of splitting "pinned sectors" from "everything else".
+  const sectoralIndices = [
+    ...MARKET_PINNED_INDICES.filter(i => i.group === 'Sectoral'),
+    ...MARKET_MOVER_POOL.map(i => ({ ...i, group: i.group || 'Sectoral' })),
+  ];
+
+  // Top 3 Gainers / Losers: ranked across EVERY tracked index for the current
+  // period (not just the sector pool), split by sign — not by |change| — so a
+  // -1.5% doesn't crowd out the real losers under a "movers" umbrella.
+  const ranked = all
     .map(i => ({ ...i, d: marketOverviewData.get(i.symbol) }))
-    .filter(i => i.d && i.d.pct?.[pctKey] != null && !pinnedSymbols.has(i.symbol))
-    .sort((a, b) => Math.abs(b.d.pct[pctKey]) - Math.abs(a.d.pct[pctKey]))
-    .slice(0, 4);
-  const moversHtml = movers.map(i => cardHtml({ symbol: i.symbol, label: i.label, group: 'Top Mover' })).join('');
+    .filter(i => i.d && i.d.pct?.[pctKey] != null);
+  const gainers = ranked.filter(i => i.d.pct[pctKey] >= 0).sort((a, b) => b.d.pct[pctKey] - a.d.pct[pctKey]).slice(0, 3);
+  const losers = ranked.filter(i => i.d.pct[pctKey] < 0).sort((a, b) => a.d.pct[pctKey] - b.d.pct[pctKey]).slice(0, 3);
+  const gainersHtml = gainers.map(i => cardHtml({ symbol: i.symbol, label: i.label, group: 'Gainer' }));
+  const losersHtml = losers.map(i => cardHtml({ symbol: i.symbol, label: i.label, group: 'Loser' }));
+
+  const sectionsHtml = [
+    section('Indian Indices', indianIndices),
+    section('Global Indices', globalIndices),
+    section('Sectoral Indices', sectoralIndices),
+    gainersHtml.length ? `<div class="market-section"><div class="market-section-title">Top 3 Gainers</div><div class="market-index-grid">${gainersHtml.join('')}</div></div>` : '',
+    losersHtml.length ? `<div class="market-section"><div class="market-section-title">Top 3 Losers</div><div class="market-index-grid">${losersHtml.join('')}</div></div>` : '',
+  ].join('');
 
   const isLongPeriod = ['m3', 'm6', 'y1', 'y5'].includes(pctKey);
-  const stillLoadingLong = isLongPeriod && !pinnedHtml && !moversHtml;
-  grid.innerHTML = pinnedHtml + moversHtml
-    || (stillLoadingLong
+  grid.innerHTML = sectionsHtml
+    || (isLongPeriod
       ? '<p style="color:var(--text-muted);">Loading longer-range data…</p>'
       : '<p style="color:var(--text-muted);">No market data available.</p>');
 }
