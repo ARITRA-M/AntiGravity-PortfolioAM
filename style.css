@@ -649,6 +649,21 @@ tr.row-loss:hover td { background: rgba(239, 68, 68, 0.10); }
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* Applied to .table-wrapper on tables that grow with history (period-by-period
+   snapshots, transaction logs) — caps the visible area to ~8 rows with a
+   vertical scrollbar instead of pushing everything below it down the page as
+   more months/transactions accumulate. Header stays pinned while scrolling. */
+.table-wrapper.scroll-capped {
+  max-height: 420px;
+  overflow-y: auto;
+}
+.table-wrapper.scroll-capped thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-primary);
+}
+
 /* Freeze first column on all scrollable tables */
 .table-wrapper th:first-child,
 .table-wrapper td:first-child {
