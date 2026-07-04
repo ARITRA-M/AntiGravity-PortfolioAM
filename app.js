@@ -1201,6 +1201,18 @@ function recomputePortfolioFromLiveData() {
   portfolioSummary.liquid_lakhs = liveCash;
   portfolioSummary.alternate_lakhs = liveCrypto;
   portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
+  // Resync cumulative_investment_history from the CURRENT breakupSummary. The
+  // committed data/portfolio_summary.json is a point-in-time snapshot — after any
+  // Close Period (e.g. the July auto-close), breakupSummary.dates grows but this
+  // file isn't regenerated until the next commit, leaving the array one entry
+  // short. The Growth tab's "Total Portfolio" cap-vs-valuation chart reads this
+  // array directly, so a stale/shorter series silently drops the newest point
+  // (a value/month gap in what should be a continuous line).
+  {
+    let running = 0;
+    portfolioSummary.cumulative_investment_history =
+      (breakupSummary.new_investment?.['Total Investment']?.values || []).map(v => (running += Number(v) || 0));
+  }
 
   // Update latest breakupSummary data points for Growth/Fixed-Income/NPS tab display.
   // GUARD: never overwrite the immutable frozen-base column. When no month has been
@@ -3441,54 +3453,11 @@ function initFixedIncomeTab() {
     `;
   }).join('');
 
-  // 5. Contribution & Balance History — every entry recorded via Manage Portfolio
-  // for PF/PPF/Bonds, PLUS the pre-ledger (Excel-era) monthly contribution history
-  // pulled straight from the Breakup sheet, so the table covers the full timeline
-  // the same way the Stocks/MF holdings breakdowns show full instrument history.
-  const fiHistoryBody = document.getElementById('fi-history-body');
-  if (fiHistoryBody) {
-    const fiComponentKeys = { 'PF (Debt)': 'PF', 'PPF (Debt)': 'PPF', 'Bonds (Debt)': 'Bonds' };
-    const fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
-    const niSec = breakupSummary.new_investment || {};
-
-    // Historical (Excel-era) monthly entries — one row per period with a nonzero
-    // contribution, up to and including the frozen base column.
-    const historicalRows = [];
-    Object.entries(fiComponentKeys).forEach(([nwKey, label]) => {
-      const vals = niSec[nwKey]?.values || [];
-      const nwVals = nw[nwKey]?.values || [];
-      vals.forEach((v, i) => {
-        const date = dates[i];
-        if (fbBaseDate && date > fbBaseDate) return; // post-base periods are ledger-driven, not historical
-        if (!v) return; // only periods with an actual contribution
-        historicalRows.push({
-          date, component: label,
-          contribution: v * 100000, interest: 0,
-          value: (nwVals[i] || 0) * 100000,
-          note: 'Historical (Excel)',
-        });
-      });
-    });
-
-    // Only entries dated AFTER the frozen base are still "pending" (not yet folded
-    // into breakupSummary via Close Period) — anything on/before it is already
-    // represented in historicalRows above via that period's new_investment value.
-    const ledgerRows = (typeof balances !== 'undefined' ? balances : [])
-      .filter(b => ['PF', 'PPF', 'Bonds'].includes(b.component) && (!fbBaseDate || b.date > fbBaseDate))
-      .map(b => ({ date: b.date, component: b.component, contribution: b.contribution || 0, interest: b.interest || 0, value: b.value, note: b.note || '' }));
-
-    const fiHistory = [...historicalRows, ...ledgerRows].sort((a, b) => b.date.localeCompare(a.date));
-    fiHistoryBody.innerHTML = fiHistory.length ? fiHistory.map(b => `
-      <tr>
-        <td>${b.date}</td>
-        <td>${escapeHtml(b.component)}</td>
-        <td style="text-align: right;">${b.contribution ? formatINR(b.contribution) : '—'}</td>
-        <td style="text-align: right;">${b.interest ? formatINR(b.interest) : '—'}</td>
-        <td style="text-align: right;">${formatINR(b.value)}</td>
-        <td>${escapeHtml(b.note || '')}</td>
-      </tr>
-    `).join('') : '<tr><td colspan="6" style="color:var(--text-muted);">No balance entries yet. Add one via Manage Portfolio → Update Balance.</td></tr>';
-  }
+  // Combined contribution/balance history (PF/PPF/Bonds/NPS/Cash/Crypto) is
+  // rendered once by renderOtherInvestmentsHistory() at the end of initNpsTab()
+  // — initFixedIncomeTab() calls initNpsTab() first (see the top of this
+  // function), so the single combined table is already drawn by the time this
+  // point runs; nothing further to do here.
 }
 
 // ==================== NPS TAB ====================
@@ -3731,47 +3700,68 @@ function initNpsTab() {
     </div>
   `;
 
-  // 4. Update Log — every historical (Excel-era) monthly contribution PLUS
-  // ledger balance entries not yet folded into a Close Period (same pattern as
-  // the Fixed Income tab's history table).
-  const npsHistoryBody = document.getElementById('nps-history-body');
-  if (npsHistoryBody) {
-    const npsComponentKeys = { 'NPS E (Equity)': 'NPS-E', 'NPS C (Debt)': 'NPS-C', 'NPS G (Debt)': 'NPS-G' };
-    const fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
-    const niSec2 = breakupSummary.new_investment || {};
+  renderOtherInvestmentsHistory();
+}
 
-    const historicalRows = [];
-    Object.entries(npsComponentKeys).forEach(([nwKey, label]) => {
-      const vals = niSec2[nwKey]?.values || [];
-      const nwVals = nw[nwKey]?.values || [];
-      vals.forEach((v, i) => {
-        const date = dates[i];
-        if (fbBaseDate && date > fbBaseDate) return;
-        if (!v) return;
-        historicalRows.push({
-          date, component: label,
-          contribution: v * 100000,
-          value: (nwVals[i] || 0) * 100000,
-          note: 'Historical (Excel)',
-        });
+// Combined contribution/balance history for every "Other Investments" balance
+// component (PF, PPF, Bonds, NPS-E/C/G, Cash, Crypto — Gold is excluded since
+// it's auto-derived from SGB/ETF holdings, never a manual balance entry).
+// Replaces the two separate Fixed-Income and NPS history tables: same data,
+// one place, filterable by component instead of split across scrolling.
+function renderOtherInvestmentsHistory() {
+  const body = document.getElementById('other-inv-history-body');
+  if (!body) return;
+  const nw = breakupSummary.net_worth;
+  const dates = breakupSummary.dates;
+  const fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
+  const niSec = breakupSummary.new_investment || {};
+  const componentKeys = {
+    'PF (Debt)': 'PF', 'PPF (Debt)': 'PPF', 'Bonds (Debt)': 'Bonds',
+    'NPS E (Equity)': 'NPS-E', 'NPS C (Debt)': 'NPS-C', 'NPS G (Debt)': 'NPS-G',
+    'Cash (Liquid)': 'Cash', 'Crypto (Alternate)': 'Crypto',
+  };
+
+  // Historical (Excel-era) monthly entries — one row per period with a nonzero
+  // contribution, up to and including the frozen base column.
+  const historicalRows = [];
+  Object.entries(componentKeys).forEach(([nwKey, label]) => {
+    const vals = niSec[nwKey]?.values || [];
+    const nwVals = nw[nwKey]?.values || [];
+    vals.forEach((v, i) => {
+      const date = dates[i];
+      if (fbBaseDate && date > fbBaseDate) return; // post-base periods are ledger-driven, not historical
+      if (!v) return; // only periods with an actual contribution
+      historicalRows.push({
+        date, component: label,
+        contribution: v * 100000,
+        value: (nwVals[i] || 0) * 100000,
+        note: 'Historical (Excel)',
       });
     });
+  });
 
-    const ledgerRows = (typeof balances !== 'undefined' ? balances : [])
-      .filter(b => ['NPS-E', 'NPS-C', 'NPS-G'].includes(b.component) && (!fbBaseDate || b.date > fbBaseDate))
-      .map(b => ({ date: b.date, component: b.component, contribution: b.contribution || 0, value: b.value, note: b.note || '' }));
+  // Only entries dated AFTER the frozen base are still "pending" (not yet folded
+  // into breakupSummary via Close Period) — anything on/before it is already
+  // represented in historicalRows above via that period's new_investment value.
+  const allComponents = Object.values(componentKeys);
+  const ledgerRows = (typeof balances !== 'undefined' ? balances : [])
+    .filter(b => allComponents.includes(b.component) && (!fbBaseDate || b.date > fbBaseDate))
+    .map(b => ({ date: b.date, component: b.component, contribution: b.contribution || 0, value: b.value, note: b.note || '' }));
 
-    const npsHistory = [...historicalRows, ...ledgerRows].sort((a, b) => b.date.localeCompare(a.date));
-    npsHistoryBody.innerHTML = npsHistory.length ? npsHistory.map(b => `
-      <tr>
-        <td>${b.date}</td>
-        <td>${escapeHtml(b.component)}</td>
-        <td style="text-align: right;">${b.contribution ? formatINR(b.contribution) : '—'}</td>
-        <td style="text-align: right;">${formatINR(b.value)}</td>
-        <td>${escapeHtml(b.note || '')}</td>
-      </tr>
-    `).join('') : '<tr><td colspan="5" style="color:var(--text-muted);">No balance entries yet. Add one via Manage Portfolio → Update Balance.</td></tr>';
-  }
+  const filter = document.getElementById('other-inv-history-filter')?.value || 'ALL';
+  let rows = [...historicalRows, ...ledgerRows];
+  if (filter !== 'ALL') rows = rows.filter(r => r.component === filter);
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+
+  body.innerHTML = rows.length ? rows.map(b => `
+    <tr>
+      <td>${b.date}</td>
+      <td>${escapeHtml(b.component)}</td>
+      <td style="text-align: right;">${b.contribution ? formatINR(b.contribution) : '—'}</td>
+      <td style="text-align: right;">${formatINR(b.value)}</td>
+      <td>${escapeHtml(b.note || '')}</td>
+    </tr>
+  `).join('') : '<tr><td colspan="5" style="color:var(--text-muted);">No balance entries yet. Add one via Manage Portfolio → Update Balance.</td></tr>';
 }
 
 // ==================== STOCKS TAB ====================
@@ -7079,23 +7069,39 @@ function renderGoldSection() {
     badge.textContent = `${formatINR(totVal)} · P&L ${pnl >= 0 ? '+' : ''}${formatINR(pnl)}`;
   }
 
-  // Gold value over time from the breakup series
+  // Gold valuation vs cumulative invested — same pattern as the Growth tab's
+  // Capital vs Valuation chart: cumulative invested is a running sum of monthly
+  // new_investment, offset so it starts level with the valuation series (the
+  // frozen-base gold corpus predates the ledger and has no per-month entries).
   const canvas = document.getElementById('gold-value-chart');
   if (!canvas) return;
   const dates = breakupSummary?.dates || [];
   const vals = breakupSummary?.net_worth?.['Gold (Gold)']?.values || [];
+  const invRaw = breakupSummary?.new_investment?.['Gold (Gold)']?.values || [];
+  let running = 0;
+  const cumInvRaw = invRaw.map(v => (running += Number(v) || 0));
+  const offset = (vals.length && cumInvRaw.length) ? vals[0] - cumInvRaw[0] : 0;
+  const cumInv = cumInvRaw.map(v => v + offset);
   if (goldValueChart) goldValueChart.destroy();
   goldValueChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
       labels: dates.map(d => formatDateString(d)),
-      datasets: [{
-        label: 'Gold Value',
-        data: vals,
-        borderColor: '#f59e0b',
-        backgroundColor: 'rgba(245, 158, 11, 0.12)',
-        borderWidth: 2, fill: true, pointRadius: 0, pointHoverRadius: 4, tension: 0.25,
-      }]
+      datasets: [
+        {
+          label: 'Valuation',
+          data: vals,
+          borderColor: '#f59e0b',
+          backgroundColor: 'rgba(245, 158, 11, 0.12)',
+          borderWidth: 3, fill: true, pointRadius: 0, pointHoverRadius: 5,
+        },
+        {
+          label: 'Cumulative Invested',
+          data: cumInv,
+          borderColor: '#6366f1',
+          borderWidth: 2, borderDash: [5, 5], fill: false, pointRadius: 0, pointHoverRadius: 5,
+        },
+      ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -7104,8 +7110,10 @@ function renderGoldSection() {
         x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 10 } },
         y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af', callback: v => '₹' + v + ' L' } }
       },
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ` ₹${(ctx.parsed.y ?? 0).toFixed(2)} L` } } }
+      plugins: {
+        legend: { position: 'top', labels: { color: '#f3f4f6' } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ₹${(ctx.parsed.y ?? 0).toFixed(2)} L` } }
+      }
     }
   });
 }

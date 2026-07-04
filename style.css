@@ -2791,3 +2791,14 @@ table tbody:empty::after {
 @media (max-width: 900px) {
   .period-explorer-grid { grid-template-columns: 1fr; }
 }
+
+/* Periodic Performance granularity buttons (Monthly/Quarterly/...) — slightly
+   more compact than the generic .time-filters .subtab-btn so five of them fit
+   comfortably next to the card title, especially on tablet/narrow desktop. */
+.periodic-gran-btn {
+  padding: 0.3rem 0.65rem !important;
+  font-size: 0.75rem !important;
+}
+@media (max-width: 768px) {
+  .periodic-gran-btn { padding: 0.28rem 0.5rem !important; font-size: 0.7rem !important; }
+}
