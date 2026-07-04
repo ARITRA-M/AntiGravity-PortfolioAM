@@ -1579,11 +1579,6 @@ function initActiveTabOnly() {
   if (initFn) initFn();
 }
 
-function toggleBottomNavSheet() {
-  const sheet = document.getElementById('bottom-nav-sheet');
-  if (sheet) sheet.classList.toggle('open');
-}
-
 const tabInitMap = {
   'overview': initOverviewTab,
   'stocks': initStocksTab,
@@ -1608,20 +1603,8 @@ function switchTab(tabId) {
     }
   });
 
-  // Mobile bottom nav: highlight the matching item (or "More" when the active
-  // tab lives in the sheet), close the sheet, remember the tab across visits.
-  const sheet = document.getElementById('bottom-nav-sheet');
-  if (sheet) sheet.classList.remove('open');
-  const barBtns = document.querySelectorAll('.bottom-nav-btn[data-tab]');
-  let inBar = false;
-  barBtns.forEach(b => {
-    const on = b.dataset.tab === tabId;
-    b.classList.toggle('active', on);
-    if (on) inBar = true;
-  });
-  const moreBtn = document.getElementById('bottom-nav-more');
-  if (moreBtn) moreBtn.classList.toggle('active', !inBar);
-  document.querySelectorAll('.bottom-nav-sheet-btn').forEach(b =>
+  // Mobile bottom nav: highlight the matching item, remember the tab across visits.
+  document.querySelectorAll('.bottom-nav-btn[data-tab]').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === tabId));
   try { localStorage.setItem(LS_PREFIX + 'last_tab', tabId); } catch (_) {}
 
@@ -1840,7 +1823,6 @@ function switchOverviewSubtab(subtab, btn) {
 // NSE's official last-close before being trusted here.
 const MARKET_PINNED_INDICES = [
   { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National', nse: 'NIFTY 50', groww: 'NIFTY' },
-  { symbol: '^BSESN',   label: 'Sensex',          group: 'National' },
   { symbol: 'NIFTY_MIDCAP_100.NS', label: 'Nifty Midcap 100', group: 'Market Cap', nse: 'NIFTY MIDCAP 100', groww: 'NIFTYMIDCAP' },
   { symbol: '^CNXSC',   label: 'Nifty Smallcap 100', group: 'Market Cap', nse: 'NIFTY SMALLCAP 100', groww: 'NIFTYSMALL' },
   { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral', nse: 'NIFTY BANK', groww: 'BANKNIFTY' },
@@ -3293,6 +3275,12 @@ function initFixedIncomeTab() {
   document.getElementById('fi-bonds-gain').innerText = (bondsGain >= 0 ? '+' : '') + bondsGain.toFixed(2) + ' L';
   document.getElementById('fi-bonds-gain').className = bondsGain >= 0 ? 'trend-up' : 'trend-down';
 
+  const goldCurrent = nw['Gold (Gold)']?.values?.slice(-1)?.[0] || 0;
+  const goldGain = getMonthlyChangeLakhs('Gold (Gold)');
+  document.getElementById('fi-gold-value').innerText = formatLakhs(goldCurrent);
+  document.getElementById('fi-gold-gain').innerText = (goldGain >= 0 ? '+' : '') + goldGain.toFixed(2) + ' L';
+  document.getElementById('fi-gold-gain').className = goldGain >= 0 ? 'trend-up' : 'trend-down';
+
   // 1. PF Growth Chart
   const pfVals = nw['PF (Debt)']?.values || [];
   const pfNewInvVals = breakupSummary.new_investment?.['PF (Debt)']?.values || [];
@@ -3482,11 +3470,6 @@ function initFixedIncomeTab() {
     `;
   }).join('');
 
-  // Combined contribution/balance history (PF/PPF/Bonds/NPS/Cash/Crypto) is
-  // rendered once by renderOtherInvestmentsHistory() at the end of initNpsTab()
-  // — initFixedIncomeTab() calls initNpsTab() first (see the top of this
-  // function), so the single combined table is already drawn by the time this
-  // point runs; nothing further to do here.
 }
 
 // ==================== NPS TAB ====================
@@ -3729,68 +3712,6 @@ function initNpsTab() {
     </div>
   `;
 
-  renderOtherInvestmentsHistory();
-}
-
-// Combined contribution/balance history for every "Other Investments" balance
-// component (PF, PPF, Bonds, NPS-E/C/G, Cash, Crypto — Gold is excluded since
-// it's auto-derived from SGB/ETF holdings, never a manual balance entry).
-// Replaces the two separate Fixed-Income and NPS history tables: same data,
-// one place, filterable by component instead of split across scrolling.
-function renderOtherInvestmentsHistory() {
-  const body = document.getElementById('other-inv-history-body');
-  if (!body) return;
-  const nw = breakupSummary.net_worth;
-  const dates = breakupSummary.dates;
-  const fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
-  const niSec = breakupSummary.new_investment || {};
-  const componentKeys = {
-    'PF (Debt)': 'PF', 'PPF (Debt)': 'PPF', 'Bonds (Debt)': 'Bonds',
-    'NPS E (Equity)': 'NPS-E', 'NPS C (Debt)': 'NPS-C', 'NPS G (Debt)': 'NPS-G',
-    'Cash (Liquid)': 'Cash', 'Crypto (Alternate)': 'Crypto',
-  };
-
-  // Historical (Excel-era) monthly entries — one row per period with a nonzero
-  // contribution, up to and including the frozen base column.
-  const historicalRows = [];
-  Object.entries(componentKeys).forEach(([nwKey, label]) => {
-    const vals = niSec[nwKey]?.values || [];
-    const nwVals = nw[nwKey]?.values || [];
-    vals.forEach((v, i) => {
-      const date = dates[i];
-      if (fbBaseDate && date > fbBaseDate) return; // post-base periods are ledger-driven, not historical
-      if (!v) return; // only periods with an actual contribution
-      historicalRows.push({
-        date, component: label,
-        contribution: v * 100000,
-        value: (nwVals[i] || 0) * 100000,
-        note: 'Historical (Excel)',
-      });
-    });
-  });
-
-  // Only entries dated AFTER the frozen base are still "pending" (not yet folded
-  // into breakupSummary via Close Period) — anything on/before it is already
-  // represented in historicalRows above via that period's new_investment value.
-  const allComponents = Object.values(componentKeys);
-  const ledgerRows = (typeof balances !== 'undefined' ? balances : [])
-    .filter(b => allComponents.includes(b.component) && (!fbBaseDate || b.date > fbBaseDate))
-    .map(b => ({ date: b.date, component: b.component, contribution: b.contribution || 0, value: b.value, note: b.note || '' }));
-
-  const filter = document.getElementById('other-inv-history-filter')?.value || 'ALL';
-  let rows = [...historicalRows, ...ledgerRows];
-  if (filter !== 'ALL') rows = rows.filter(r => r.component === filter);
-  rows.sort((a, b) => b.date.localeCompare(a.date));
-
-  body.innerHTML = rows.length ? rows.map(b => `
-    <tr>
-      <td>${b.date}</td>
-      <td>${escapeHtml(b.component)}</td>
-      <td style="text-align: right;">${b.contribution ? formatINR(b.contribution) : '—'}</td>
-      <td style="text-align: right;">${formatINR(b.value)}</td>
-      <td>${escapeHtml(b.note || '')}</td>
-    </tr>
-  `).join('') : '<tr><td colspan="5" style="color:var(--text-muted);">No balance entries yet. Add one via Manage Portfolio → Update Balance.</td></tr>';
 }
 
 // ==================== STOCKS TAB ====================

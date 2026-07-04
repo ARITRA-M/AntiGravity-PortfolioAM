@@ -430,7 +430,12 @@ app.get('/api/live-mf-nav/:schemeCode', async (req, res) => {
   const cached = getCached(cacheKey);
   if (cached) return res.json({ ...cached, cached: true });
 
-  const url = `https://api.mfapi.in/mf/${schemeCode}`;
+  // /latest returns just today's NAV (~300 bytes) instead of the fund's entire
+  // history (measured: 122KB / 14.5s for one fund) — with many funds refreshing
+  // concurrently the full-history endpoint made refreshes appear to hang right
+  // as the MF phase started. The client supplies its own previous NAV (from its
+  // last saved snapshot) since this endpoint doesn't carry history.
+  const url = `https://api.mfapi.in/mf/${schemeCode}/latest`;
 
   try {
     const response = await fetchWithTimeout(url, {
@@ -447,13 +452,11 @@ app.get('/api/live-mf-nav/:schemeCode', async (req, res) => {
     const parsed = await response.json();
     if (parsed && parsed.data && parsed.data.length > 0) {
       const latest = parsed.data[0];
-      const previous = parsed.data.find((entry, index) => index > 0 && Number(entry.nav) > 0);
       const result = {
         schemeCode,
         schemeName: parsed.meta?.scheme_name || '',
         nav: parseFloat(latest.nav),
-        prevNav: previous ? parseFloat(previous.nav) : null,
-        date: latest.date
+        navDate: latest.date,
       };
       setCache(cacheKey, result);
       res.json(result);

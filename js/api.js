@@ -144,8 +144,13 @@ function buildDirectUrl(endpointType, param) {
       // ticker. Stripping it maps to dead symbols frozen since Jul 2024.
       return `${yahooBase}${encodeURIComponent(param)}.NS`;
     case 'live-mf-nav':
-      // mfapi.in has open CORS — call directly with NO proxy
-      return { url: `https://api.mfapi.in/mf/${param}`, directCors: true };
+      // The /latest variant returns just today's NAV (~300 bytes, <1s) instead
+      // of the fund's ENTIRE history (measured: 122KB, 14.5s for one fund) —
+      // with 18+ funds refreshing concurrently, the full-history endpoint was
+      // the actual cause of refreshes appearing to hang right as MFs started.
+      // Previous NAV for the daily-change figure now comes from the LAST
+      // refresh's own saved snapshot (see refreshOneMf), not from history.
+      return { url: `https://api.mfapi.in/mf/${param}/latest`, directCors: true };
     case 'search-mf-scheme':
       return { url: `https://api.mfapi.in/mf/search?q=${encodeURIComponent(param)}`, directCors: true };
     default:
@@ -601,20 +606,27 @@ async function refreshPrices(stocksOnly = false) {
 
         let data;
         if (window.__staticMode) {
-          // On GitHub Pages, mfapi.in is fetched directly — parse its native format
+          // On GitHub Pages, mfapi.in is fetched directly — parse its native format.
+          // /latest returns a single-entry data[] (today's NAV only); the previous
+          // NAV for the daily-change figure comes from our own last saved snapshot
+          // below, not from mfapi.in's (much larger, much slower) full history.
           const raw = await resp.json();
           if (raw?.data?.length > 0) {
             const latest = raw.data[0];
-            const prev = raw.data.find((e, i) => i > 0 && Number(e.nav) > 0);
-            data = {
-              nav: parseFloat(latest.nav),
-              prevNav: prev ? parseFloat(prev.nav) : null,
-              navDate: latest.date || null // mfapi gives the NAV's own date (DD-MM-YYYY)
-            };
+            data = { nav: parseFloat(latest.nav), navDate: latest.date || null };
           }
         } else {
-          // Local server returns already-parsed { nav, prevNav, navDate? }
+          // Local server returns already-parsed { nav, navDate? }
           data = await resp.json();
+        }
+        if (data?.nav && data.nav > 0) {
+          const snap = loadPriceSnapshot(fund.scheme);
+          // A new navDate means a genuinely new trading day's NAV posted since the
+          // last refresh — that prior NAV becomes today's "previous". Re-refreshing
+          // within the same day (navDate unchanged) keeps whatever prevNav is
+          // already on record instead of collapsing the daily change to zero.
+          data.prevNav = (snap && snap.navDate && snap.navDate !== data.navDate) ? snap.nav
+            : (snap ? (snap.prevNav ?? null) : null);
         }
 
         if (data?.nav && data.nav > 0) {
@@ -628,8 +640,10 @@ async function refreshPrices(stocksOnly = false) {
           fund.thisMonthGain = (fund.price - fund.basePrice) * fund.qty;
           mfSuccess++;
           mfDetails.push({ scheme: fund.scheme, status: 'success', nav: data.nav, prevNav: data.prevNav, navDate: data.navDate || null, error: null });
-          // Persist snapshot for fallback on future failures
-          savePriceSnapshot(fund.scheme, { nav: data.nav, prevNav: data.prevNav, refreshDate: refreshDateStr });
+          // Persist snapshot for fallback on future failures AND as the source of
+          // "previous NAV" on the next refresh (navDate is what makes that compare
+          // possible — see above).
+          savePriceSnapshot(fund.scheme, { nav: data.nav, prevNav: data.prevNav, navDate: data.navDate, refreshDate: refreshDateStr });
         } else {
           // Primary source failed — use snapshot fallback
           const snap = loadPriceSnapshot(fund.scheme);

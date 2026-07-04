@@ -2627,7 +2627,7 @@ tr:hover td {
 }
 
 /* ── Mobile bottom navigation ─────────────────────────────────────────── */
-.bottom-nav, .bottom-nav-sheet { display: none; }
+.bottom-nav { display: none; }
 
 @media (max-width: 768px) {
   /* Top tab strip is replaced by the thumb-reachable bottom bar */
@@ -2667,34 +2667,6 @@ tr:hover td {
   .bottom-nav-btn.active { color: var(--text-primary); }
   .bottom-nav-btn.active .bn-icon { transform: translateY(-1px); }
   .bottom-nav-btn.active .bn-label { color: var(--accent-indigo); }
-
-  .bottom-nav-sheet {
-    position: fixed;
-    left: 0.5rem; right: 0.5rem;
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-    z-index: 299;
-    background: var(--bg-secondary);
-    border: 1px solid var(--card-border);
-    border-radius: 14px;
-    padding: 0.4rem;
-    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
-    flex-direction: column;
-    gap: 2px;
-  }
-  .bottom-nav-sheet.open { display: flex; }
-  .bottom-nav-sheet-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    font-family: var(--font-sans);
-    font-size: 0.9rem;
-    font-weight: 600;
-    text-align: left;
-    padding: 0.65rem 0.9rem;
-    border-radius: 10px;
-    cursor: pointer;
-  }
-  .bottom-nav-sheet-btn.active { color: var(--text-primary); background: rgba(99, 102, 241, 0.15); }
 }
 
 /* ── Loading skeletons ────────────────────────────────────────────────── */
@@ -2812,4 +2784,26 @@ table tbody:empty::after {
   text-transform: uppercase;
   color: var(--text-muted);
   margin: 0 0 0.5rem 0.1rem;
+}
+
+/* ── Compact Portfolio Changes / Top Stock Movers cards on mobile ──────── */
+@media (max-width: 768px) {
+  .monthly-summary-grid { gap: 0.5rem; padding: 0.5rem; }
+  .monthly-kpi-card { gap: 0.6rem; padding: 0.65rem; border-radius: 10px; }
+  .monthly-kpi-icon { font-size: 1.2rem; width: 32px; height: 32px; border-radius: 8px; }
+  .monthly-kpi-label { font-size: 0.68rem; margin-bottom: 0.1rem; }
+  .monthly-kpi-value { font-size: 0.95rem; margin-bottom: 0.05rem; }
+  .monthly-kpi-sub { font-size: 0.65rem; }
+
+  .monthly-movers-list { gap: 0.4rem; padding: 0.5rem; }
+  .mover-item { padding: 0.5rem; border-radius: 6px; }
+  .mover-name { font-size: 0.8rem; }
+  .mover-sector { font-size: 0.65rem; }
+  .movers-subheading { font-size: 0.78rem; margin: 0 0 0.35rem 0.5rem; }
+}
+
+@media (max-width: 480px) {
+  .monthly-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .monthly-kpi-card { flex-direction: column; align-items: flex-start; gap: 0.35rem; }
+  .monthly-kpi-icon { width: 26px; height: 26px; font-size: 1rem; }
 }

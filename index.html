@@ -558,6 +558,11 @@
           <div class="tab-kpi-value" id="fi-bonds-value"></div>
           <div class="tab-kpi-sub">This Month: <span id="fi-bonds-gain" class="trend-up">+0.00 L</span></div>
         </div>
+        <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
+          <div class="tab-kpi-label">🥇 Gold (Current)</div>
+          <div class="tab-kpi-value" id="fi-gold-value"></div>
+          <div class="tab-kpi-sub">This Month: <span id="fi-gold-gain" class="trend-up">+0.00 L</span></div>
+        </div>
       </div>
       <div class="tab-kpi-bar" style="margin-bottom: 2rem;">
         <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
@@ -661,40 +666,7 @@
           <div class="nps-summary" id="nps-summary"></div>
         </div>
 
-        <!-- Combined Contribution & Balance History — all Other Investments components -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Contribution &amp; Balance History</h3>
-            <div class="table-header-controls">
-              <select id="other-inv-history-filter" class="select-filter" onchange="renderOtherInvestmentsHistory()">
-                <option value="ALL">All Components</option>
-                <option value="PF">PF</option>
-                <option value="PPF">PPF</option>
-                <option value="Bonds">Bonds</option>
-                <option value="NPS-E">NPS E</option>
-                <option value="NPS-C">NPS C</option>
-                <option value="NPS-G">NPS G</option>
-                <option value="Cash">Cash</option>
-                <option value="Crypto">Crypto</option>
-              </select>
-            </div>
-          </div>
-          <p class="manage-hint">Every balance update entered via Manage Portfolio, across PF, PPF, Bonds, NPS, Cash, and Crypto — filter to one component or see them all together.</p>
-          <div class="table-wrapper">
-            <table id="other-inv-history-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Component</th>
-                  <th style="text-align: right;">Contribution (₹)</th>
-                  <th style="text-align: right;">Value (₹)</th>
-                  <th>Note</th>
-                </tr>
-              </thead>
-              <tbody id="other-inv-history-body"></tbody>
-            </table>
-          </div>
-        </div>
+        <p class="manage-hint" style="grid-column: 1 / -1;">Looking for balance update history (PF, PPF, Bonds, NPS, Cash, Crypto)? It's in <strong>Periodic Performance → Transaction Log</strong>, which also covers every stock/MF trade and monthly return in one filterable, editable place.</p>
       </div>
     </div>
 
@@ -995,12 +967,8 @@
     <button class="bottom-nav-btn" data-tab="mfs" onclick="switchTab('mfs')"><span class="bn-icon">💰</span><span class="bn-label">MF</span></button>
     <button class="bottom-nav-btn" data-tab="growth" onclick="switchTab('growth')"><span class="bn-icon">🚀</span><span class="bn-label">Growth</span></button>
     <button class="bottom-nav-btn" data-tab="monthly" onclick="switchTab('monthly')"><span class="bn-icon">📅</span><span class="bn-label">Periodic</span></button>
-    <button class="bottom-nav-btn" id="bottom-nav-more" onclick="toggleBottomNavSheet()"><span class="bn-icon">⋯</span><span class="bn-label">More</span></button>
+    <button class="bottom-nav-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')"><span class="bn-icon">🏦</span><span class="bn-label">Other</span></button>
   </nav>
-  <div class="bottom-nav-sheet" id="bottom-nav-sheet">
-    <button class="bottom-nav-sheet-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')">🏦 Other Investments</button>
-    <button class="bottom-nav-sheet-btn" data-tab="manage" onclick="switchTab('manage')">✏️ Manage Portfolio</button>
-  </div>
   </div>
 
 
