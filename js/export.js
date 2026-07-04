@@ -342,12 +342,16 @@ function appendDatedHoldingSheets(wb, hist) {
   const MF_COLS = ['Scheme', 'Scheme Type', 'Quantity', 'Current Price', 'Average Buy NAV',
                    'Amount Invested', 'Current Valuation', 'Unrealised Gain/Loss', 'Gain/ Loss %'];
 
-  // Collect all dated snapshots
+  // Collect dated snapshots — only canonical month-end (Breakup) dates. The
+  // ledger also injects mid-month transaction-day entries into history; those
+  // would otherwise become bogus dated sheets with a couple of rows each.
+  const monthEnds = new Set((typeof breakupSummary !== 'undefined' && breakupSummary?.dates) || []);
   const byDateE  = {};
   const byDateMf = {};
 
   Object.values(hist.stocks || {}).forEach(info => {
     (info.history || []).forEach(h => {
+      if (monthEnds.size && !monthEnds.has(h.date)) return;
       const key = h.date.replace(/-/g, '');
       (byDateE[key] = byDateE[key] || []).push({
         instrument: info.instrument, qty: h.qty, avg_cost: h.avg_cost,
@@ -358,6 +362,7 @@ function appendDatedHoldingSheets(wb, hist) {
 
   Object.values(hist.mfs || {}).forEach(info => {
     (info.history || []).forEach(h => {
+      if (monthEnds.size && !monthEnds.has(h.date)) return;
       const key = h.date.replace(/-/g, '');
       (byDateMf[key] = byDateMf[key] || []).push({
         scheme: info.instrument, category: info.category || '',
@@ -539,7 +544,7 @@ function buildTransactionsSheet() {
     }));
   }
 
-  rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  rows.sort((a, b) => (b.date || '').localeCompare(a.date || '')); // newest first
 
   rows.forEach((r, i) => {
     const row = i + 1;

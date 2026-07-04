@@ -2780,3 +2780,14 @@ table tbody:empty::after {
   .close-check-row { gap: 0.4rem; }
   .close-check-row input { width: 96px; }
 }
+
+/* ── Period Explorer (Periodic Performance tab) ───────────────────────── */
+.period-explorer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .period-explorer-grid { grid-template-columns: 1fr; }
+}

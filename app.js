@@ -1,5 +1,5 @@
 // Tab IDs
-const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly', 'update-log', 'manage'];
+const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'monthly', 'manage'];
 
 // App version for cache busting — auto-derived from today's date so JSON files
 // are never served stale after a deploy. The server.js commit script no longer
@@ -38,7 +38,6 @@ function isGoldHolding(stock) {
 // Chart references
 let allocationChart = null;
 let componentXirrChart = null;
-let allocationShiftChart = null;
 let netWorthGrowthChart = null;
 let capitalVsValuationChart = null;
 let sectorChart = null;
@@ -1307,15 +1306,12 @@ function refreshAllTabs() {
     }
   }
 
-  // If lastRefreshReport exists, force-update the update-log content.
-  // This handles the case where refreshPrices() just built a new report
-  // and the user may already be on (or will navigate to) the update-log tab.
-  // The report is synced to window.lastRefreshReport by api.js.
+  // Re-render the update log (now a collapsible card in Manage) if it's open.
   const report = window.lastRefreshReport || lastRefreshReport;
   if (report) {
-    const container = document.getElementById('update-log-content');
-    if (container && container.parentElement.classList.contains('active')) {
-      initUpdateLogTab();
+    const wrap = document.getElementById('update-log-wrap');
+    if (wrap && wrap.style.display !== 'none') {
+      try { initUpdateLogTab(); } catch (_) {}
     }
   }
 }
@@ -1477,7 +1473,7 @@ function buildPortfolioSummary(breakup) {
 
   let running = 0;
   const investments = (breakup.new_investment['Total Investment']?.values || []).map(value => {
-    running += value;
+    running += Number(value) || 0; // a null/NaN month must not poison the whole cumulative series
     return running;
   });
 
@@ -1544,9 +1540,7 @@ const tabInitMap = {
   'mfs': initMfsTab,
   'growth': initGrowthTab,
   'fixed-income': initFixedIncomeTab,
-  'nps': initNpsTab,
   'monthly': initMonthlyTab,
-  'update-log': initUpdateLogTab,
   'manage': initManageTab
 };
 
@@ -1588,10 +1582,6 @@ function switchTab(tabId) {
     if (initFn) initFn();
   }
   
-  // Always re-initialize update-log tab on every visit (data changes after refresh)
-  if (tabId === 'update-log') {
-    initUpdateLogTab();
-  }
   
   // Re-render charts on visible tab to ensure proper sizing
   setTimeout(() => {
@@ -1792,7 +1782,7 @@ function switchOverviewSubtab(subtab, btn) {
 const MARKET_PINNED_INDICES = [
   { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National' },
   { symbol: '^BSESN',   label: 'Sensex',          group: 'National' },
-  { symbol: '^CRSMID',  label: 'Nifty Midcap 100', group: 'Market Cap' },
+  { symbol: 'NIFTY_MIDCAP_100.NS', label: 'Nifty Midcap 100', group: 'Market Cap' },
   { symbol: '^CNXSC',   label: 'Nifty Smallcap 100', group: 'Market Cap' },
   { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral' },
   { symbol: '^CNXIT',   label: 'Nifty IT',        group: 'Sectoral' },
@@ -1858,43 +1848,61 @@ async function initMarketOverviewTab() {
     // endpoint's own `meta` already carries a live price + true previous close,
     // so no per-symbol follow-up call is needed (this used to fire 16 separate
     // requests, the main reason the tab was slow on mobile networks).
-    const shortBySym = await fetchSparkCloses(symbols, '1mo', '1d');
+    // Two batched requests in parallel:
+    //  - 1mo/1d closes for MTD (and the long-range merge later)
+    //  - 1d/1d for the DAILY change: with range=1d, Yahoo's chartPreviousClose is
+    //    by definition the last close BEFORE today, i.e. the true previous trading
+    //    day — immune to the multi-day holes the 1mo close series has for NSE
+    //    sectoral indices (Realty/FMCG were missing a whole week of bars).
+    const [shortBySym, dailyBySym] = await Promise.all([
+      fetchSparkCloses(symbols, '1mo', '1d'),
+      fetchSparkCloses(symbols, '1d', '1d').catch(() => new Map()),
+    ]);
     const now = new Date();
     const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const data = new Map();
     all.forEach(({ symbol, label, group }) => {
       const series = shortBySym.get(symbol);
-      if (!series || !series.closes.length) return;
-      // `chartPreviousClose` (meta) turns out to be unreliable on its own — it can
-      // lag several sessions behind even when `regularMarketPrice` and the close
-      // series are both current, producing nonsense ±5-15% "daily" swings. The
-      // close series is self-consistent, so prefer it: if the array's last close
-      // already equals the live price (today's bar has posted), the previous
-      // trading day is simply the array's second-to-last entry. Only when the
-      // live price is AHEAD of the array (today's bar hasn't posted yet) does the
-      // array's last entry itself serve as "previous", with chartPreviousClose as
-      // a last-resort fallback if there isn't enough array history at all.
-      const arrLast = series.closes[series.closes.length - 1];
-      const liveAheadOfArray = series.live?.price != null && Math.abs(series.live.price - arrLast) > 1e-6;
-      const last = series.live?.price ?? arrLast;
-      const prev = liveAheadOfArray
-        ? arrLast
-        : (series.closes.length >= 2 ? series.closes[series.closes.length - 2] : series.live?.prevClose ?? null);
-      // "Daily" must compare against the previous TRADING DAY. Yahoo's series
-      // sometimes has multi-day holes (Nifty Realty was missing a whole week),
-      // which silently turns "daily" into a week's move. If the reference bar is
-      // more than 4 calendar days behind, show no daily figure at all.
-      const lastTs = series.dates[series.dates.length - 1];
-      const prevTs = liveAheadOfArray
-        ? lastTs
-        : (series.dates.length >= 2 ? series.dates[series.dates.length - 2] : lastTs);
-      const refTs = liveAheadOfArray ? Date.now() : lastTs;
-      const dailyGapOk = (refTs - prevTs) <= 4 * 86400000;
-      const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
-      data.set(symbol, {
-        label, group, last,
-        pct: { daily: dailyGapOk ? pctFrom(prev) : null, mtd: pctFrom(_closeBefore(series, monthStartMs)) },
-      });
+      const daily1d = dailyBySym.get(symbol)?.live; // { price, prevClose } — recency-guarded
+      if ((!series || !series.closes.length) && !daily1d) return;
+
+      const arrLast = series?.closes?.length ? series.closes[series.closes.length - 1] : null;
+      const last = daily1d?.price ?? series?.live?.price ?? arrLast;
+
+      // DAILY: prefer the 1d-range quote (live price vs true previous-day close).
+      // Fallback: consecutive bars of the 1mo series, but only if they're really
+      // adjacent trading days — the series can have multi-day holes that would
+      // silently turn "daily" into a week's move.
+      let daily = null;
+      if (daily1d?.price > 0 && daily1d?.prevClose > 0) {
+        daily = ((daily1d.price - daily1d.prevClose) / daily1d.prevClose) * 100;
+      } else if (series && series.closes.length >= 2) {
+        const lastTs = series.dates[series.dates.length - 1];
+        const prevTs = series.dates[series.dates.length - 2];
+        const liveAheadOfArray = series.live?.price != null && Math.abs(series.live.price - arrLast) > 1e-6;
+        if (liveAheadOfArray && (Date.now() - lastTs) <= 4 * 86400000) {
+          daily = ((series.live.price - arrLast) / arrLast) * 100;
+        } else if (!liveAheadOfArray && (lastTs - prevTs) <= 4 * 86400000) {
+          const prev = series.closes[series.closes.length - 2];
+          daily = prev ? ((arrLast - prev) / prev) * 100 : null;
+        }
+      }
+
+      // MTD: last close strictly before month start. If the series' hole makes
+      // that reference more than 5 days older than the boundary (Realty's ref was
+      // Jun 25 for a Jul MTD), the figure overstates the month — suppress it.
+      let mtd = null;
+      if (series && last != null) {
+        let refIdx = -1;
+        for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartMs) refIdx = i;
+        if (refIdx >= 0 && (monthStartMs - series.dates[refIdx]) <= 5 * 86400000) {
+          const ref = series.closes[refIdx];
+          if (ref) mtd = ((last - ref) / ref) * 100;
+        }
+      }
+
+      if (last == null) return;
+      data.set(symbol, { label, group, last, pct: { daily, mtd } });
     });
     if (data.size) {
       marketOverviewData = data;
@@ -1935,7 +1943,16 @@ async function _ensureMarketOverviewLongRange() {
       entry.pct.m6 = pctFrom(_closeBefore(longSeries, daysAgo(182)));
       entry.pct.y1 = pctFrom(_closeBefore(longSeries, daysAgo(365)));
       entry.pct.y5 = pctFrom(_closeBefore(longSeries, daysAgo(365 * 5)));
-      if (entry.pct.mtd == null) entry.pct.mtd = pctFrom(_closeBefore(longSeries, new Date(now.getFullYear(), now.getMonth(), 1).getTime()));
+      if (entry.pct.mtd == null) {
+        // Same 5-day guard as the short-series MTD: a weekly bar too far before
+        // the month boundary would overstate the month's move.
+        const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        let refIdx = -1;
+        for (let i = 0; i < longSeries.dates.length; i++) if (longSeries.dates[i] < mStart) refIdx = i;
+        if (refIdx >= 0 && (mStart - longSeries.dates[refIdx]) <= 5 * 86400000) {
+          entry.pct.mtd = pctFrom(longSeries.closes[refIdx]);
+        }
+      }
     });
     // Re-render if the user is currently looking at a period that just filled in.
     if (['m3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
@@ -2055,11 +2072,19 @@ function getStockHistoryKey(symbol) {
 // "NAV Date" column. MFs carry navDate (already DD-MM-YYYY from mfapi); stocks carry
 // priceAsOf (epoch ms — the market session the LTP belongs to, not the refresh time).
 function priceNavDateStr(holding, type) {
-  if (type === 'MF') return holding.navDate || null;
-  if (holding.priceAsOf) {
+  if (type === 'MF' && holding.navDate) return holding.navDate;
+  if (type !== 'MF' && holding.priceAsOf) {
     return new Date(holding.priceAsOf).toLocaleDateString('en-GB', {
       timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric'
     }).replace(/\//g, '-');
+  }
+  // No live refresh yet this session — the price is from the last committed
+  // snapshot, so show that date instead of a blank (the column used to be
+  // empty until the first refresh, which read as a bug).
+  const dates = (typeof breakupSummary !== 'undefined' && breakupSummary?.dates) || [];
+  if (dates.length) {
+    const d = dates[dates.length - 1];
+    return `${d.slice(8,10)}-${d.slice(5,7)}-${d.slice(0,4)}`;
   }
   return null;
 }
@@ -2167,6 +2192,13 @@ function renderDailyOverviewTable() {
     if (!t.date || t.date < _wkAgo) return;
     if (t.type === 'buy') { recentInv += (t.amount || 0); recentCount++; }
     else if (t.type === 'sell') { recentInv -= (t.amount || 0); recentCount++; }
+  });
+  // Balance contributions (PF/PPF/NPS/...) are new investment too — the Monthly
+  // Overview counts them, so L7D must as well or the two cards contradict each
+  // other (₹0.5L vs ₹0.97L for the same week).
+  (typeof balances !== 'undefined' ? balances : []).forEach(b => {
+    if (!b.date || b.date < _wkAgo) return;
+    if (b.contribution) { recentInv += b.contribution; recentCount++; }
   });
 
   const dailySummaryEl = document.getElementById('daily-summary-kpis');
@@ -2727,6 +2759,29 @@ function _capValSeries(assetType) {
   return { val: nw['Total'].values, cumInv: (portfolioSummary.cumulative_investment_history || []).slice(), label: 'Total Portfolio' };
 }
 
+// Data table under the Net Worth Progression chart — the exact values per
+// period, newest first, with the same window as the charts.
+function renderNetWorthSnapshotTable(dates, sliceIdx) {
+  const body = document.getElementById('networth-snapshot-body');
+  if (!body) return;
+  const SL = arr => (arr || []).slice(sliceIdx);
+  const nwT  = SL(breakupSummary.net_worth['Total']?.values);
+  const chg  = SL(breakupSummary.net_change?.['Total Change']?.values);
+  const inv  = SL(breakupSummary.new_investment?.['Total Investment']?.values);
+  const ret  = SL(breakupSummary.returns?.['Total Growth']?.values);
+  const cls = v => v == null ? '' : (v >= 0 ? 'trend-up' : 'trend-down');
+  const fmt = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + ' L';
+  const rows = dates.map((d, i) => ({ d, nw: nwT[i], chg: chg[i], inv: inv[i], ret: ret[i] })).reverse();
+  body.innerHTML = rows.map(r => `
+    <tr>
+      <td>${formatDateString(r.d)}</td>
+      <td style="text-align:right; font-weight:600;">${r.nw != null ? '₹' + r.nw.toFixed(2) + ' L' : '—'}</td>
+      <td style="text-align:right;" class="${cls(r.chg)}">${fmt(r.chg)}</td>
+      <td style="text-align:right;">${r.inv != null ? '₹' + r.inv.toFixed(2) + ' L' : '—'}</td>
+      <td style="text-align:right;" class="${cls(r.ret)}">${fmt(r.ret)}</td>
+    </tr>`).join('');
+}
+
 // Re-render the whole Growth & Benchmark tab for the current common filters.
 function applyGrowthTimeFilter() { initGrowthTab(); }
 
@@ -2738,7 +2793,6 @@ function initGrowthTab() {
   if (rollingReturnsChart) rollingReturnsChart.destroy();
   if (allocationChart) allocationChart.destroy();
   if (componentXirrChart) componentXirrChart.destroy();
-  if (allocationShiftChart) allocationShiftChart.destroy();
 
   // Common time-filter window: slice all series + dates to the selected period so
   // each chart's axes rescale to that window (not just a cropped viewport).
@@ -2786,10 +2840,18 @@ function initGrowthTab() {
         }
       },
       plugins: {
-        legend: { position: 'top', labels: { color: '#f3f4f6' } }
+        legend: { position: 'top', labels: { color: '#f3f4f6' } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ₹${(ctx.parsed.y ?? 0).toFixed(2)} L`,
+            footer: (items) => ` Total Net Worth: ₹${items.reduce((t, i) => t + (i.parsed.y || 0), 0).toFixed(2)} L`
+          }
+        }
       }
     }
   });
+
+  renderNetWorthSnapshotTable(dates, sliceIdx);
 
   // Capital vs Valuation Line Chart — asset type from the dedicated filter.
   const assetSel = document.getElementById('capval-asset-filter');
@@ -2846,10 +2908,12 @@ function initGrowthTab() {
     }
   });
 
-  // ── Asset Allocation, XIRR, and Allocation Shift (moved from Overview tab) ──
-  
-  // 1. Asset Allocation Over Time (Stacked Bar, 100%)
-  // Group net_worth keys into 5 asset categories
+  // ── Asset Allocation & XIRR ──
+
+  // 1. Asset Allocation Over Time (Stacked Bar, 100%) — category groups or
+  // individual components (the old separate "Allocation Shift" chart showed the
+  // component view; merged here behind one toggle).
+  const allocView = document.getElementById('alloc-view-filter')?.value || 'category';
   const categoryMap = {
     'Equity':    ['Stocks (Equity)', 'Mutual Funds (Equity)', 'NPS E (Equity)'],
     'Debt':      ['NPS C (Debt)', 'NPS G (Debt)', 'PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)'],
@@ -2874,13 +2938,28 @@ function initGrowthTab() {
     Object.keys(categoryMap).reduce((sum, cat) => sum + catValues[cat][i], 0)
   );
   
-  const allocStackedDatasets = Object.keys(categoryMap).map(cat => ({
-    label: cat,
-    data: catValues[cat].map((v, i) => totalPerDate[i] > 0 ? (v / totalPerDate[i]) * 100 : 0),
-    backgroundColor: getAssetColor(cat) + 'cc',
-    borderColor: getAssetColor(cat),
-    borderWidth: 0.5
-  }));
+  let allocStackedDatasets;
+  if (allocView === 'component') {
+    // Component-level split straight from the breakup contribution section
+    const contribSec = breakupSummary.contribution;
+    allocStackedDatasets = Object.keys(contribSec)
+      .filter(key => key !== 'Total')
+      .map(key => ({
+        label: contribSec[key].label,
+        data: SL(contribSec[key].values).map(v => (v || 0) * 100),
+        backgroundColor: getAssetColor(contribSec[key].label) + 'cc',
+        borderColor: getAssetColor(contribSec[key].label),
+        borderWidth: 0.5
+      }));
+  } else {
+    allocStackedDatasets = Object.keys(categoryMap).map(cat => ({
+      label: cat,
+      data: catValues[cat].map((v, i) => totalPerDate[i] > 0 ? (v / totalPerDate[i]) * 100 : 0),
+      backgroundColor: getAssetColor(cat) + 'cc',
+      borderColor: getAssetColor(cat),
+      borderWidth: 0.5
+    }));
+  }
   
   const ctxAlloc = document.getElementById('allocation-stacked-bar-chart').getContext('2d');
   
@@ -2983,59 +3062,16 @@ function initGrowthTab() {
     }
   });
 
-  // 3. Historical Allocation Shift Area Chart
-  // dates already declared above
-  const contribSec = breakupSummary.contribution;
-  const contribDatasets = [];
-  
-  Object.keys(contribSec).forEach(key => {
-    if (key !== 'Total') {
-      const label = contribSec[key].label;
-      const vals = SL(contribSec[key].values).map(v => v * 100);
-
-      contribDatasets.push({
-        label: label,
-        data: vals,
-        backgroundColor: getAssetColor(label) + 'cc',
-        borderColor: getAssetColor(label),
-        borderWidth: 1,
-        fill: true
-      });
-    }
-  });
-  
-  const ctxShift = document.getElementById('allocation-shift-chart').getContext('2d');
-  allocationShiftChart = new Chart(ctxShift, {
-    type: 'line',
-    data: {
-      labels: dates.map(d => formatDateString(d)),
-      datasets: contribDatasets
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
-        y: {
-          stacked: true,
-          grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (value) => value + '%' }
-        }
-      },
-      plugins: {
-        legend: { position: 'top', labels: { color: '#f3f4f6' } }
-      }
-    }
-  });
-
   // Initialize benchmark comparison chart (default: Nifty 50)
   renderBenchmarkComparisonChart('nifty50');
   renderRollingReturnsChart();
   renderXirrComparisonTable();
 }
 
-// ==================== FIXED INCOME TAB (PF / PPF / Bonds) ====================
+// ============ FIXED INCOME & NPS TAB (PF / PPF / Bonds / Gold / NPS) ============
 function initFixedIncomeTab() {
+  try { renderGoldSection(); } catch (e) { console.error('renderGoldSection failed:', e); }
+  try { initNpsTab(); } catch (e) { console.error('initNpsTab failed:', e); }
   // Destroy existing charts before re-creating
   if (window.pfGrowthChart) window.pfGrowthChart.destroy();
   if (window.ppfGrowthChart) window.ppfGrowthChart.destroy();
@@ -6718,7 +6754,7 @@ function refreshAfterLedgerChange() {
   try { renderDailyOverviewTable(); renderMonthlyOverviewTable(); } catch (e) {}
   // Rebuild only tabs the user has actually opened this session; drop the rest
   // from initializedTabs so they rebuild (with the new ledger state) on first visit.
-  ['stocks', 'mfs', 'growth', 'fixed-income', 'nps', 'monthly'].forEach(tabId => {
+  ['stocks', 'mfs', 'growth', 'fixed-income', 'monthly'].forEach(tabId => {
     if (initializedTabs.has(tabId)) {
       try { tabInitMap[tabId](); } catch (e) {}
     }
@@ -6873,4 +6909,78 @@ function saveCloseChecklist() {
   if (status) status.innerHTML = saved
     ? `<span class="trend-up">✓ ${saved} balance update${saved > 1 ? 's' : ''} recorded (${date}).</span> Now hit <b>Close Period →</b> when ready.`
     : 'No rows changed — nothing recorded.';
+}
+
+
+// ==================== UPDATE LOG (inside Manage tab) ====================
+function toggleUpdateLog() {
+  const wrap = document.getElementById('update-log-wrap');
+  const btn = document.getElementById('update-log-toggle');
+  if (!wrap) return;
+  const show = wrap.style.display === 'none';
+  wrap.style.display = show ? '' : 'none';
+  if (btn) btn.textContent = show ? 'Hide' : 'Show';
+  if (show) { try { initUpdateLogTab(); } catch (_) {} }
+}
+
+// ==================== GOLD SECTION (Fixed Income & NPS tab) ====================
+// SGB tranches + gold ETFs live inside latestEquity for pricing; surface them
+// as an explicit section with their own table and value-over-time chart.
+let goldValueChart = null;
+function renderGoldSection() {
+  const body = document.getElementById('gold-holdings-body');
+  if (!body) return;
+  const holdings = (latestEquity || []).filter(s => isGoldHolding(s));
+  let totInv = 0, totVal = 0;
+  body.innerHTML = holdings
+    .sort((a, b) => b.cur_val - a.cur_val)
+    .map(h => {
+      totInv += h.invested || 0; totVal += h.cur_val || 0;
+      const pnl = (h.cur_val || 0) - (h.invested || 0);
+      const pct = h.invested > 0 ? (pnl / h.invested) * 100 : 0;
+      const cls = pnl >= 0 ? 'trend-up' : 'trend-down';
+      return `<tr>
+        <td>${escapeHtml(h.instrument)}</td>
+        <td style="text-align:right;">${h.qty}</td>
+        <td style="text-align:right;">${formatINR(h.invested)}</td>
+        <td style="text-align:right;">${formatINR(h.cur_val)}</td>
+        <td style="text-align:right;" class="${cls}">${pnl >= 0 ? '+' : ''}${formatINR(pnl)}</td>
+        <td style="text-align:right;" class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" style="color:var(--text-muted);">No gold holdings.</td></tr>';
+  const badge = document.getElementById('gold-total-badge');
+  if (badge) {
+    const pnl = totVal - totInv;
+    badge.textContent = `${formatINR(totVal)} · P&L ${pnl >= 0 ? '+' : ''}${formatINR(pnl)}`;
+  }
+
+  // Gold value over time from the breakup series
+  const canvas = document.getElementById('gold-value-chart');
+  if (!canvas) return;
+  const dates = breakupSummary?.dates || [];
+  const vals = breakupSummary?.net_worth?.['Gold (Gold)']?.values || [];
+  if (goldValueChart) goldValueChart.destroy();
+  goldValueChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: dates.map(d => formatDateString(d)),
+      datasets: [{
+        label: 'Gold Value',
+        data: vals,
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.12)',
+        borderWidth: 2, fill: true, pointRadius: 0, pointHoverRadius: 4, tension: 0.25,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 10 } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af', callback: v => '₹' + v + ' L' } }
+      },
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ₹${(ctx.parsed.y ?? 0).toFixed(2)} L` } } }
+    }
+  });
 }

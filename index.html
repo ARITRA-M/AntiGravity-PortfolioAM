@@ -84,10 +84,8 @@
       <button class="tab-btn" onclick="switchTab('stocks')">Stock Analytics</button>
       <button class="tab-btn" onclick="switchTab('mfs')">Mutual Fund Analytics</button>
       <button class="tab-btn" onclick="switchTab('growth')">Growth & Benchmark</button>
-      <button class="tab-btn" onclick="switchTab('fixed-income')">Fixed Income</button>
-      <button class="tab-btn" onclick="switchTab('nps')">NPS</button>
+      <button class="tab-btn" onclick="switchTab('fixed-income')">Fixed Income &amp; NPS</button>
       <button class="tab-btn" onclick="switchTab('monthly')">Periodic Performance</button>
-      <button class="tab-btn" onclick="switchTab('update-log')">📋 Update Log</button>
       <button class="tab-btn" onclick="switchTab('manage')">✏️ Manage Portfolio</button>
     </div>
 
@@ -161,7 +159,7 @@
                     <th onclick="sortDailyOverview(3)" style="text-align: right;">Current Rate (₹)</th>
                     <th onclick="sortDailyOverview(4)" style="text-align: right;">Change (₹)</th>
                     <th onclick="sortDailyOverview(5)" style="text-align: right;">Change %</th>
-                    <th onclick="sortDailyOverview(6)" style="text-align: right;" title="The date this rate is for (not the refresh time)">Rate Date</th>
+                    <th onclick="sortDailyOverview(6)" style="text-align: right;" title="When this price was last updated">Last Update</th>
                   </tr>
                 </thead>
                 <tbody id="daily-overview-body">
@@ -194,7 +192,7 @@
                     <th onclick="sortMonthlyOverview(3)" style="text-align: right;">Current Value (₹ L)</th>
                     <th onclick="sortMonthlyOverview(4)" style="text-align: right;">Gain (₹ L)</th>
                     <th onclick="sortMonthlyOverview(5)" style="text-align: right;">Gain %</th>
-                    <th onclick="sortMonthlyOverview(6)" style="text-align: right;" title="The date this rate is for (not the refresh time)">Rate Date</th>
+                    <th onclick="sortMonthlyOverview(6)" style="text-align: right;" title="When this price was last updated">Last Update</th>
                   </tr>
                 </thead>
                 <tbody id="monthly-overview-body">
@@ -238,44 +236,14 @@
             <option value="ALL">All Time</option>
             <option value="5Y">Past 5 Years</option>
             <option value="3Y">Past 3 Years</option>
-            <option value="1Y">Past 1 Year</option>
+            <option value="1Y" selected>Past 1 Year</option>
             <option value="6M">Past 6 Months</option>
             <option value="3M">Past 3 Months</option>
           </select>
         </div>
       </div>
       <div class="dashboard-grid">
-        <!-- Asset Allocation Over Time (Stacked Bar) -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Asset Allocation Over Time (%)</h3>
-          </div>
-          <div class="chart-container">
-            <canvas id="allocation-stacked-bar-chart"></canvas>
-          </div>
-        </div>
-
-        <!-- Component XIRR Over Time -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Annualized Returns (XIRR) Over Time</h3>
-          </div>
-          <div class="chart-container">
-            <canvas id="component-xirr-chart"></canvas>
-          </div>
-        </div>
-
-        <!-- Historical Allocation Shift (moved from overview) -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Historical Asset Allocation Shift (%)</h3>
-          </div>
-          <div class="chart-container">
-            <canvas id="allocation-shift-chart"></canvas>
-          </div>
-        </div>
-
-        <!-- Net Worth Growth Trend (Area) -->
+        <!-- 1. Net Worth Progression (headline chart) -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Net Worth Progression</h3>
@@ -283,9 +251,17 @@
           <div class="chart-container">
             <canvas id="net-worth-growth-chart"></canvas>
           </div>
+          <div class="table-wrapper" style="margin-top:1rem;">
+            <table id="networth-snapshot-table" class="modern-table">
+              <thead>
+                <tr><th>Period</th><th style="text-align:right">Net Worth</th><th style="text-align:right">Change</th><th style="text-align:right">New Investment</th><th style="text-align:right">Market Return</th></tr>
+              </thead>
+              <tbody id="networth-snapshot-body"></tbody>
+            </table>
+          </div>
         </div>
 
-        <!-- Invested vs Valuation Trend -->
+        <!-- 2. Invested vs Valuation Trend -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Valuation Growth vs. Total Cumulative Capital Invested</h3>
@@ -302,7 +278,6 @@
             <canvas id="capital-vs-valuation-chart"></canvas>
           </div>
         </div>
-
         <!-- Benchmark Comparison Chart -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
@@ -348,7 +323,33 @@
           </div>
         </div>
 
-        <!-- Rolling Returns Comparison -->
+        <!-- 5. Asset Allocation Over Time (category or component view) -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Asset Allocation Over Time (%)</h3>
+            <div class="time-filters">
+              <select id="alloc-view-filter" class="select-filter" onchange="applyGrowthTimeFilter()" title="Category groups (Equity/Debt/...) or the individual components">
+                <option value="category" selected>By Category</option>
+                <option value="component">By Component</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="allocation-stacked-bar-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- 6. Component XIRR Over Time -->
+        <div class="chart-card full-width-card">
+          <div class="chart-header">
+            <h3>Annualized Returns (XIRR) Over Time</h3>
+          </div>
+          <div class="chart-container">
+            <canvas id="component-xirr-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- 7. Rolling Returns Comparison -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Rolling Returns Comparison (1Y)</h3>
@@ -360,7 +361,6 @@
       </div>
     </div>
 
-    <!-- ==================== STOCKS TAB ==================== -->
     <div id="stocks-tab" class="tab-content">
       <!-- Stocks context KPI bar -->
       <div class="tab-kpi-bar">
@@ -639,10 +639,27 @@
           </div>
         </div>
       </div>
-    </div>
+      <!-- ── Gold section: SGBs + gold ETFs tracked explicitly ── -->
+      <div class="chart-card full-width-card" style="margin-bottom:2rem;">
+        <div class="chart-header">
+          <h3>🥇 Gold Holdings <span style="font-weight:400;font-size:0.75rem;color:var(--text-muted);">SGB tranches &amp; gold ETFs (tradeable gold)</span></h3>
+          <span id="gold-total-badge" style="font-size:0.85rem;color:var(--text-secondary);"></span>
+        </div>
+        <div class="table-wrapper">
+          <table class="modern-table" id="gold-holdings-table">
+            <thead>
+              <tr><th>Instrument</th><th style="text-align:right">Qty</th><th style="text-align:right">Invested</th><th style="text-align:right">Current Value</th><th style="text-align:right">P&amp;L</th><th style="text-align:right">Gain %</th></tr>
+            </thead>
+            <tbody id="gold-holdings-body"></tbody>
+          </table>
+        </div>
+        <div class="chart-container" style="height:220px;margin-top:1rem;">
+          <canvas id="gold-value-chart"></canvas>
+        </div>
+      </div>
 
-    <!-- ==================== NPS TAB ==================== -->
-    <div id="nps-tab" class="tab-content">
+      <!-- ── NPS section (merged from the former NPS tab) ── -->
+      <div class="chart-header" style="margin:0 0 1rem;"><h3>🛡️ NPS</h3></div>
       <div class="tab-kpi-bar" style="margin-bottom: 2rem;">
         <div class="tab-kpi-card" style="--card-accent: #3b82f6;">
           <div class="tab-kpi-label">NPS E (Equity)</div>
@@ -723,7 +740,7 @@
       </div>
     </div>
 
-    <!-- ==================== MONTHLY CHANGES TAB ==================== -->
+    <!-- ==================== NPS TAB ==================== -->
     <div id="monthly-tab" class="tab-content">
 
       <!-- ── Periodic Performance Analytics ── -->
@@ -750,56 +767,7 @@
         </div>
       </div>
 
-      <!-- Monthly Performance Heatmap Filter Bar (Top) -->
-      <div class="chart-card full-width-card heatmap-filter-card">
-        <div class="chart-header">
-          <h3>📅 Select Period — Click heatmap cells to filter</h3>
-          <div class="time-filters">
-            <button class="heatmap-clear-btn" onclick="clearHeatmapSelection()">Clear Selection</button>
-            <button class="heatmap-select-all-btn" onclick="selectAllHeatmap()">All Time</button>
-          </div>
-        </div>
-        <div class="heatmap-container" id="monthly-heatmap">
-          <!-- Dynamically populated -->
-        </div>
-        <div class="heatmap-selection-info" id="heatmap-selection-info">
-          <span>No period selected — showing all data</span>
-        </div>
-      </div>
-
       <div class="dashboard-grid">
-        <!-- Monthly Summary Cards -->
-        <div class="chart-card full-width-card">
-          <div class="chart-header">
-            <h3>Portfolio Changes</h3>
-          </div>
-          <div class="monthly-summary-grid" id="monthly-summary-cards">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-
-        <!-- Top Winners & Losers — toggle between % return and absolute ₹ -->
-        <div class="chart-card full-width-card movers-section">
-          <div class="chart-header">
-            <h3>Top Stock Movers <span id="movers-period-label" class="movers-mode-label"></span></h3>
-            <div class="time-filters">
-              <button id="movers-mode-pct" class="subtab-btn active" onclick="switchMoversMode('pct', this)">By % Return</button>
-              <button id="movers-mode-abs" class="subtab-btn" onclick="switchMoversMode('abs', this)">By Absolute ₹</button>
-            </div>
-          </div>
-          <div class="movers-grid-wrapper movers-inner-grid">
-            <div>
-              <h4 id="movers-winners-heading" class="movers-subheading">Top Winners</h4>
-              <div class="monthly-movers-list" id="monthly-gainers-list"></div>
-            </div>
-            <div>
-              <h4 id="movers-losers-heading" class="movers-subheading">Top Losers</h4>
-              <div class="monthly-movers-list" id="monthly-losers-list"></div>
-            </div>
-          </div>
-        </div>
-
-
         <!-- Trading Activity Log -->
         <div class="chart-card full-width-card">
           <div class="chart-header">
@@ -839,23 +807,53 @@
             </table>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Update Log Tab -->
-    <div id="update-log-tab" class="tab-content">
-      <div class="dashboard-grid">
-        <div class="chart-card full-width-card">
+        <!-- Period Explorer: pick a period on the heatmap, see its changes & movers -->
+        <div class="chart-card full-width-card heatmap-filter-card">
           <div class="chart-header">
-            <h3>📋 Latest Update Log</h3>
+            <h3>📅 Period Explorer — click heatmap cells to filter</h3>
+            <div class="time-filters">
+              <button class="heatmap-clear-btn" onclick="clearHeatmapSelection()">Clear Selection</button>
+              <button class="heatmap-select-all-btn" onclick="selectAllHeatmap()">All Time</button>
+            </div>
           </div>
-          <div id="update-log-content">
-            <!-- Dynamically populated by initUpdateLogTab() -->
+        <div class="heatmap-container" id="monthly-heatmap">
+          <!-- Dynamically populated -->
+        </div>
+        <div class="heatmap-selection-info" id="heatmap-selection-info">
+          <span>No period selected — showing all data</span>
+        </div>
+
+          <div class="period-explorer-grid">
+            <div>
+              <h4 class="movers-subheading" style="margin-top:1.25rem;">Portfolio Changes</h4>
+              <div class="monthly-summary-grid" id="monthly-summary-cards"></div>
+            </div>
+            <div class="movers-section">
+              <div class="chart-header" style="margin-top:1.25rem;">
+                <h4 class="movers-subheading" style="margin:0;">Top Stock Movers <span id="movers-period-label" class="movers-mode-label"></span></h4>
+                <div class="time-filters">
+                  <button id="movers-mode-pct" class="subtab-btn active" onclick="switchMoversMode('pct', this)">By %</button>
+                  <button id="movers-mode-abs" class="subtab-btn" onclick="switchMoversMode('abs', this)">By ₹</button>
+                </div>
+              </div>
+              <div class="movers-grid-wrapper movers-inner-grid">
+                <div>
+                  <h4 id="movers-winners-heading" class="movers-subheading">Top Winners</h4>
+                  <div class="monthly-movers-list" id="monthly-gainers-list"></div>
+                </div>
+                <div>
+                  <h4 id="movers-losers-heading" class="movers-subheading">Top Losers</h4>
+                  <div class="monthly-movers-list" id="monthly-losers-list"></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Update Log Tab -->
     <!-- ════════════════════ MANAGE PORTFOLIO TAB ════════════════════ -->
     <div id="manage-tab" class="tab-content">
       <!-- Handy calculator for working out values while filling the forms below -->
@@ -998,6 +996,16 @@
           <div id="close-preview" class="manage-preview"></div>
         </div>
 
+        <!-- Latest price-refresh log (was its own tab) -->
+        <div class="chart-card manage-card">
+          <div class="chart-header"><h3>📋 Update Log</h3>
+            <button type="button" class="ghost-btn" onclick="toggleUpdateLog()" id="update-log-toggle">Show</button>
+          </div>
+          <div id="update-log-wrap" style="display:none;">
+            <div id="update-log-content"></div>
+          </div>
+        </div>
+
         <!-- Backup / Restore -->
         <div class="chart-card manage-card">
           <div class="chart-header"><h3>💾 Backup &amp; Restore</h3></div>
@@ -1027,9 +1035,7 @@
     <button class="bottom-nav-btn" id="bottom-nav-more" onclick="toggleBottomNavSheet()"><span class="bn-icon">⋯</span><span class="bn-label">More</span></button>
   </nav>
   <div class="bottom-nav-sheet" id="bottom-nav-sheet">
-    <button class="bottom-nav-sheet-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')">🏦 Fixed Income</button>
-    <button class="bottom-nav-sheet-btn" data-tab="nps" onclick="switchTab('nps')">🛡️ NPS</button>
-    <button class="bottom-nav-sheet-btn" data-tab="update-log" onclick="switchTab('update-log')">📋 Update Log</button>
+    <button class="bottom-nav-sheet-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')">🏦 Fixed Income &amp; NPS</button>
     <button class="bottom-nav-sheet-btn" data-tab="manage" onclick="switchTab('manage')">✏️ Manage Portfolio</button>
   </div>
   </div>
