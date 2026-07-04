@@ -1880,10 +1880,20 @@ async function initMarketOverviewTab() {
       const prev = liveAheadOfArray
         ? arrLast
         : (series.closes.length >= 2 ? series.closes[series.closes.length - 2] : series.live?.prevClose ?? null);
+      // "Daily" must compare against the previous TRADING DAY. Yahoo's series
+      // sometimes has multi-day holes (Nifty Realty was missing a whole week),
+      // which silently turns "daily" into a week's move. If the reference bar is
+      // more than 4 calendar days behind, show no daily figure at all.
+      const lastTs = series.dates[series.dates.length - 1];
+      const prevTs = liveAheadOfArray
+        ? lastTs
+        : (series.dates.length >= 2 ? series.dates[series.dates.length - 2] : lastTs);
+      const refTs = liveAheadOfArray ? Date.now() : lastTs;
+      const dailyGapOk = (refTs - prevTs) <= 4 * 86400000;
       const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
       data.set(symbol, {
         label, group, last,
-        pct: { daily: pctFrom(prev), mtd: pctFrom(_closeBefore(series, monthStartMs)) },
+        pct: { daily: dailyGapOk ? pctFrom(prev) : null, mtd: pctFrom(_closeBefore(series, monthStartMs)) },
       });
     });
     if (data.size) {
@@ -1945,14 +1955,17 @@ function renderMarketOverviewCards() {
   const cardHtml = ({ symbol, label, group }) => {
     const d = marketOverviewData.get(symbol);
     const pct = d?.pct?.[pctKey];
-    if (!d || pct == null) return '';
-    const cls = pct >= 0 ? 'trend-up' : 'trend-down';
-    const accent = pct >= 0 ? '#34d399' : '#f87171';
+    if (!d) return '';
+    // pct can be legitimately unavailable (e.g. daily suppressed because Yahoo's
+    // series has a multi-day hole) — show the card with a dash, not a wrong number.
+    const cls = pct == null ? '' : (pct >= 0 ? 'trend-up' : 'trend-down');
+    const accent = pct == null ? '#64748b' : (pct >= 0 ? '#34d399' : '#f87171');
+    const pctTxt = pct == null ? '—' : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
     return `
       <div class="market-index-card" style="--card-accent: ${accent};">
         <div class="mi-group">${escapeHtml(group)}</div>
         <div class="mi-label">${escapeHtml(label)}</div>
-        <div class="mi-pct ${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</div>
+        <div class="mi-pct ${cls}">${pctTxt}</div>
         <div class="mi-last">${d.last.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
       </div>`;
   };
@@ -3659,6 +3672,19 @@ function initStocksTab() {
   const _bsStockVals = (breakupSummary.net_worth?.['Stocks (Equity)']?.values) || [];
   const breakupStockRs = {};
   (breakupSummary.dates || []).forEach((d, i) => { breakupStockRs[d] = (_bsStockVals[i] || 0) * 100000; });
+  // Coverage guard: if a date's tracked holdings capture under 25% of the
+  // authoritative breakup value, the proportions are meaningless and the scale
+  // factor would blow a sliver up to the full bar (a partial month once rendered
+  // one ETF as the entire equity book). Drop such dates from the time axis.
+  for (let i = sortedStockDates.length - 1; i >= 0; i--) {
+    const d = sortedStockDates[i];
+    const raw = Object.values(dateSectorMap[d]).reduce((s, v) => s + v, 0);
+    const target = breakupStockRs[d];
+    if (target > 0 && raw < 0.25 * target) {
+      sortedStockDates.splice(i, 1);
+      delete dateSectorMap[d];
+    }
+  }
   const dateScale = {};
   sortedStockDates.forEach(date => {
     const rawTotal = Object.values(dateSectorMap[date]).reduce((s, v) => s + v, 0);

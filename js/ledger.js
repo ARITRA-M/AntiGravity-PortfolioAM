@@ -257,6 +257,11 @@ function integrateLedger() {
   // Previously this ran only when transactions existed, so deleting the last
   // transaction left stale phantoms in the cache uncorrected.
   if (frozenBase) applyLedgerToHoldings();
+  // Self-heal: every holding must carry a close-snapshot stamp at baseDate (the
+  // sector/market-cap time charts read them; a device whose cached history missed
+  // a close renders a garbage last bar otherwise). frozenBase.basePrice IS the
+  // ltp at that close, so missing stamps can be reconstructed exactly.
+  if (frozenBase && historicalHoldings) restampBaseDateSnapshots();
   // Always re-run baseline after frozenBase is set up. The first call in loadData()
   // runs before loadLedger() populates frozenBase (it's null then), so basePrice
   // falls back to current ltp → thisMonthGain = 0. This corrects that.
@@ -506,6 +511,32 @@ function applyLedgerToHoldings() {
   return true;
 }
 
+// Ensure every frozen-base holding has a close-snapshot history entry at
+// baseDate (no `cf` — replay entries carry one). Reconstructed from the base's
+// own qty/invested/basePrice, so it's exact and idempotent.
+function restampBaseDateSnapshots() {
+  const D = frozenBase.baseDate;
+  if (!D) return;
+  (frozenBase.equity || []).forEach(s => {
+    const e = historicalHoldings.stocks[s.instrument] ||
+      (historicalHoldings.stocks[s.instrument] = { instrument: s.instrument, sector: s.sector, history: [] });
+    if (e.history.some(p => p.date === D && p.cf == null)) return;
+    const cur = s.qty * (s.basePrice || 0), pnl = cur - s.invested;
+    e.history.push({ date: D, qty: s.qty, avg_cost: s.avg_cost, ltp: s.basePrice,
+      invested: s.invested, cur_val: cur, pnl, gain_pct: s.invested > 0 ? pnl / s.invested * 100 : 0 });
+    e.history.sort((a, b) => a.date.localeCompare(b.date));
+  });
+  (frozenBase.mf || []).forEach(s => {
+    const e = historicalHoldings.mfs[s.scheme] ||
+      (historicalHoldings.mfs[s.scheme] = { instrument: s.scheme, category: s.scheme_type, history: [] });
+    if (e.history.some(p => p.date === D && p.cf == null)) return;
+    const cur = s.qty * (s.basePrice || 0), pnl = cur - s.invested;
+    e.history.push({ date: D, qty: s.qty, avg_cost: s.avg_nav, ltp: s.basePrice,
+      invested: s.invested, cur_val: cur, pnl, gain_pct: s.invested > 0 ? pnl / s.invested * 100 : 0 });
+    e.history.sort((a, b) => a.date.localeCompare(b.date));
+  });
+}
+
 // Reconstruct each holding's post-base history from the transaction ledger so
 // every history-derived view (inline transaction history, Trading Activity log,
 // per-holding XIRR/returns) reflects transactions immediately — not only after a
@@ -516,11 +547,15 @@ function rebuildHoldingHistoryFromLedger() {
   const baseDate = frozenBase.baseDate;
 
   // 1. Drop any post-base history (rebuilt each call); keep the frozen base.
+  // Replay-origin entries carry a `cf` field; close-snapshot stamps don't. A
+  // replay entry dated exactly AT baseDate must be dropped too, otherwise each
+  // rebuild appends another copy (they accumulated once per load previously).
+  const keep = p => p.date < baseDate || (p.date === baseDate && p.cf == null);
   Object.values(historicalHoldings.stocks || {}).forEach(h => {
-    h.history = (h.history || []).filter(p => p.date <= baseDate);
+    h.history = (h.history || []).filter(keep);
   });
   Object.values(historicalHoldings.mfs || {}).forEach(h => {
-    h.history = (h.history || []).filter(p => p.date <= baseDate);
+    h.history = (h.history || []).filter(keep);
   });
 
   // 2. Seed running cost-basis state from the frozen base snapshot.
@@ -642,24 +677,51 @@ function addTransaction(txn) {
   return t;
 }
 
+// Reverse a folded transaction's effect out of the frozenBase snapshot. A folded
+// txn is already baked into the base's qty/invested; before it can be unfolded
+// (edit) or removed (delete), the base must give it back — otherwise the replayed
+// edit double-counts it (this exact bug inflated net worth by the txn amount).
+function _reverseFromBase(t) {
+  if (!frozenBase || _isTxnFolded(t, frozenBase.baseDate) !== true) return;
+  const qty = Number(t.qty) || 0;
+  const amount = t.amount != null ? Number(t.amount) : qty * (Number(t.price) || 0);
+  if (t.assetClass === 'mf') {
+    const h = (frozenBase.mf || []).find(f => f.scheme === t.instrument);
+    if (!h) return;
+    if (t.type === 'sell') { h.qty += qty; h.invested += h.avg_nav * qty; }
+    else { h.qty -= qty; h.invested -= amount; }
+    if (h.qty > 0) h.avg_nav = h.invested / h.qty;
+  } else {
+    const canon = canonicalInstrument(t.instrument, 'stock');
+    const h = (frozenBase.equity || []).find(s => s.instrument === canon);
+    if (!h) return;
+    if (t.type === 'sell') { h.qty += qty; h.invested += h.avg_cost * qty; }
+    else if (t.type === 'split' || t.type === 'bonus') { h.qty -= qty; }
+    else { h.qty -= qty; h.invested -= amount; }
+    if (h.qty > 0) h.avg_cost = h.invested / h.qty;
+  }
+}
+
 function updateTransaction(id, patch) {
   const t = transactions.find(x => x.id === id);
   if (!t) return null;
+  // If it was folded into a Close Period snapshot, back its OLD values out of
+  // the frozen base first, so unfolding + replaying the edited values is exact.
+  _reverseFromBase(t);
   Object.assign(t, patch);
   if (patch.qty != null || patch.price != null) {
     t.amount = Number(t.qty) * Number(t.price);
   }
   // Editing is an explicit "please re-apply me" signal — un-fold so the next
-  // derivation replays it against current holdings, even if it was previously
-  // folded into a Close Period snapshot. Without this, editing a transaction
-  // that's already folded (or a legacy one defaulting to folded via the date
-  // fallback) silently has no effect on the current portfolio value.
+  // derivation replays it against current holdings.
   t.folded = false;
   saveLedger(); markLedgerDirty();
   return t;
 }
 
 function deleteTransaction(id) {
+  const t = transactions.find(x => x.id === id);
+  if (t) _reverseFromBase(t); // folded txns live in the base; removal must undo that too
   transactions = transactions.filter(x => x.id !== id);
   saveLedger(); markLedgerDirty();
 }
