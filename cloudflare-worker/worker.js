@@ -15,6 +15,12 @@
 const ALLOWED_HOSTS = new Set([
   'query1.finance.yahoo.com',
   'query2.finance.yahoo.com',
+  // NSE's own index API — used as the primary source for Nifty index moves.
+  // Unlike Yahoo, it always returns a complete, correct daily/30-day/365-day
+  // change for every NSE index (Yahoo's series has multi-day gaps for several
+  // sectoral indices). Requires a browser-like User-Agent (see below);
+  // otherwise NSE returns a bot-block page instead of JSON.
+  'www.nseindia.com',
 ]);
 
 const CORS = {
@@ -44,10 +50,19 @@ export default {
     }
 
     try {
+      // NSE rejects requests without a full browser User-Agent (+ Accept) with a
+      // bot-challenge page instead of JSON; Yahoo doesn't care either way, so one
+      // header set works for both.
+      const isNse = t.hostname === 'www.nseindia.com';
       // Light edge caching (30s) smooths repeated quote lookups and reduces the
-      // chance of Yahoo rate-limiting during a full portfolio refresh.
+      // chance of rate-limiting during a full portfolio refresh.
       const upstream = await fetch(target, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
+        headers: {
+          'User-Agent': isNse
+            ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+            : 'Mozilla/5.0',
+          ...(isNse ? { 'Accept': 'application/json', 'Referer': 'https://www.nseindia.com/market-data/live-market-indices' } : {}),
+        },
         cf: { cacheTtl: 30, cacheEverything: true },
       });
       const body = await upstream.arrayBuffer();

@@ -246,6 +246,25 @@ async function fetchSparkCloses(symbols, range = '1mo', interval = '1d') {
   return out;
 }
 
+// NSE's own index API — always returns a complete daily/30-day/365-day change
+// for every Nifty index in one call, unlike Yahoo whose close series has
+// multi-day gaps for several sectoral indices (Realty, FMCG, Smallcap...).
+// Requires the Cloudflare Worker proxy (adds a browser User-Agent NSE demands);
+// the public CORS proxies can't reach nseindia.com, so this silently returns an
+// empty Map when only they're available — callers already have a Yahoo fallback.
+async function fetchNseIndices() {
+  const out = new Map(); // key: NSE "index" name → raw record
+  try {
+    const res = await fetchViaCorsProxy('https://www.nseindia.com/api/allIndices', {}, 10000);
+    if (!res.ok) return out;
+    const raw = await res.json();
+    for (const rec of (raw?.data || [])) {
+      if (rec?.index) out.set(rec.index, rec);
+    }
+  } catch (_) { /* NSE unreachable this session — Yahoo fallback below covers it */ }
+  return out;
+}
+
 // Value of `lookup` (sorted ascending {dates,closes}) on or before time `t`.
 function closeAtOrBefore(series, t) {
   if (!series || !series.dates.length) return null;
@@ -1779,28 +1798,37 @@ function switchOverviewSubtab(subtab, btn) {
 // ── Market Overview: national/sectoral/global index cards with Daily/MTD toggle ──
 // Pinned indices always show; a few extra "top movers" from the sectoral pool are
 // surfaced dynamically based on whichever moved the most that day.
+// `nse` = the exact "index" name NSE's own allIndices API uses for this
+// index. When present it is the PRIMARY source (always-complete daily/30d/365d
+// change, unlike Yahoo's gap-prone series for several NSE sectoral indices);
+// Yahoo (`symbol`) is used for anything NSE doesn't cover (Sensex is a BSE
+// index, plus the global indices) and as a fallback if the NSE fetch fails.
 const MARKET_PINNED_INDICES = [
-  { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National' },
+  { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National', nse: 'NIFTY 50' },
   { symbol: '^BSESN',   label: 'Sensex',          group: 'National' },
-  { symbol: 'NIFTY_MIDCAP_100.NS', label: 'Nifty Midcap 100', group: 'Market Cap' },
-  { symbol: '^CNXSC',   label: 'Nifty Smallcap 100', group: 'Market Cap' },
-  { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral' },
-  { symbol: '^CNXIT',   label: 'Nifty IT',        group: 'Sectoral' },
-  { symbol: '^CNXFMCG', label: 'Nifty FMCG',      group: 'Sectoral' },
-  { symbol: '^CNXPHARMA', label: 'Nifty Healthcare', group: 'Sectoral' },
+  { symbol: 'NIFTY_MIDCAP_100.NS', label: 'Nifty Midcap 100', group: 'Market Cap', nse: 'NIFTY MIDCAP 100' },
+  { symbol: '^CNXSC',   label: 'Nifty Smallcap 100', group: 'Market Cap', nse: 'NIFTY SMALLCAP 100' },
+  { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral', nse: 'NIFTY BANK' },
+  { symbol: '^CNXIT',   label: 'Nifty IT',        group: 'Sectoral', nse: 'NIFTY IT' },
+  { symbol: '^CNXFMCG', label: 'Nifty FMCG',      group: 'Sectoral', nse: 'NIFTY FMCG' },
+  // ^CNXPHARMA is Nifty PHARMA, a different NSE index from "NIFTY HEALTHCARE
+  // INDEX" (mixing the two — same label, different underlying values — is what
+  // produced a nonsense -35% MTD figure: NSE's Healthcare `last` combined with
+  // Yahoo's Pharma month-start close).
+  { symbol: '^CNXPHARMA', label: 'Nifty Pharma', group: 'Sectoral', nse: 'NIFTY PHARMA' },
   { symbol: '^IXIC',    label: 'Nasdaq',          group: 'Global' },
   { symbol: '000001.SS', label: 'Shanghai Composite', group: 'Global' },
   { symbol: 'GC=F',     label: 'Gold',            group: 'Commodity' },
 ];
 const MARKET_MOVER_POOL = [
-  { symbol: '^CNXAUTO',   label: 'Nifty Auto' },
-  { symbol: '^CNXMETAL',  label: 'Nifty Metal' },
-  { symbol: '^CNXREALTY', label: 'Nifty Realty' },
-  { symbol: '^CNXENERGY', label: 'Nifty Energy' },
-  { symbol: '^CNXFIN',    label: 'Nifty Fin Services' },
-  { symbol: '^CNXPSUBANK', label: 'Nifty PSU Bank' },
-  { symbol: '^CNXMEDIA',  label: 'Nifty Media' },
-  { symbol: '^CNXINFRA',  label: 'Nifty Infra' },
+  { symbol: '^CNXAUTO',   label: 'Nifty Auto', nse: 'NIFTY AUTO' },
+  { symbol: '^CNXMETAL',  label: 'Nifty Metal', nse: 'NIFTY METAL' },
+  { symbol: '^CNXREALTY', label: 'Nifty Realty', nse: 'NIFTY REALTY' },
+  { symbol: '^CNXENERGY', label: 'Nifty Energy', nse: 'NIFTY ENERGY' },
+  { symbol: '^CNXFIN',    label: 'Nifty Fin Services', nse: 'NIFTY FINANCIAL SERVICES' },
+  { symbol: '^CNXPSUBANK', label: 'Nifty PSU Bank', nse: 'NIFTY PSU BANK' },
+  { symbol: '^CNXMEDIA',  label: 'Nifty Media', nse: 'NIFTY MEDIA' },
+  { symbol: '^CNXINFRA',  label: 'Nifty Infra', nse: 'NIFTY INFRASTRUCTURE' },
 ];
 const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
 let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m3,m6,y1,y5}}>
@@ -1854,27 +1882,36 @@ async function initMarketOverviewTab() {
     //    by definition the last close BEFORE today, i.e. the true previous trading
     //    day — immune to the multi-day holes the 1mo close series has for NSE
     //    sectoral indices (Realty/FMCG were missing a whole week of bars).
-    const [shortBySym, dailyBySym] = await Promise.all([
+    const [shortBySym, dailyBySym, nseBySym] = await Promise.all([
       fetchSparkCloses(symbols, '1mo', '1d'),
       fetchSparkCloses(symbols, '1d', '1d').catch(() => new Map()),
+      fetchNseIndices(),
     ]);
     const now = new Date();
     const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const data = new Map();
-    all.forEach(({ symbol, label, group }) => {
+    all.forEach(({ symbol, label, group, nse }) => {
       const series = shortBySym.get(symbol);
       const daily1d = dailyBySym.get(symbol)?.live; // { price, prevClose } — recency-guarded
-      if ((!series || !series.closes.length) && !daily1d) return;
+      const nseRec = nse ? nseBySym.get(nse) : null;
+      if ((!series || !series.closes.length) && !daily1d && !nseRec) return;
 
       const arrLast = series?.closes?.length ? series.closes[series.closes.length - 1] : null;
-      const last = daily1d?.price ?? series?.live?.price ?? arrLast;
+      const last = nseRec?.last ?? daily1d?.price ?? series?.live?.price ?? arrLast;
 
-      // DAILY: prefer the 1d-range quote (live price vs true previous-day close).
-      // Fallback: consecutive bars of the 1mo series, but only if they're really
-      // adjacent trading days — the series can have multi-day holes that would
-      // silently turn "daily" into a week's move.
+      // Sanity check: if NSE's `last` and the Yahoo series's own last close disagree
+      // by more than ~2% they're almost certainly two different indices under the
+      // same label (this is exactly how "Nifty Pharma"/"Nifty Healthcare Index"
+      // got cross-wired into a nonsense -35% MTD) — don't mix the two series below.
+      const seriesUsable = !(nseRec?.last != null && arrLast != null && Math.abs(nseRec.last - arrLast) / arrLast > 0.02);
+
+      // DAILY: NSE's own feed always has an accurate previous-close for every
+      // index it covers — no gap-guard needed. Falls back to the 1d-range Yahoo
+      // quote, then to consecutive (gap-checked) bars of the 1mo series.
       let daily = null;
-      if (daily1d?.price > 0 && daily1d?.prevClose > 0) {
+      if (nseRec?.percentChange != null) {
+        daily = nseRec.percentChange;
+      } else if (daily1d?.price > 0 && daily1d?.prevClose > 0) {
         daily = ((daily1d.price - daily1d.prevClose) / daily1d.prevClose) * 100;
       } else if (series && series.closes.length >= 2) {
         const lastTs = series.dates[series.dates.length - 1];
@@ -1888,11 +1925,15 @@ async function initMarketOverviewTab() {
         }
       }
 
-      // MTD: last close strictly before month start. If the series' hole makes
-      // that reference more than 5 days older than the boundary (Realty's ref was
-      // Jun 25 for a Jul MTD), the figure overstates the month — suppress it.
-      let mtd = null;
-      if (series && last != null) {
+      // MTD: last close strictly before calendar month-start. If the series' hole
+      // makes that reference more than 5 days older than the boundary (Realty's
+      // ref was Jun 25 for a Jul MTD), the figure overstates the month — suppress
+      // rather than show a wrong number. When exact MTD isn't available, fall
+      // back to NSE's rolling 30-day change (always populated, but NOT calendar-
+      // exact) so the card shows an honestly-labelled approximation instead of a
+      // blank; renderMarketOverviewCards marks it with "~" and a tooltip.
+      let mtd = null, mtdApprox = false;
+      if (series && last != null && seriesUsable) {
         let refIdx = -1;
         for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartMs) refIdx = i;
         if (refIdx >= 0 && (monthStartMs - series.dates[refIdx]) <= 5 * 86400000) {
@@ -1900,9 +1941,13 @@ async function initMarketOverviewTab() {
           if (ref) mtd = ((last - ref) / ref) * 100;
         }
       }
+      if (mtd == null && nseRec?.perChange30d != null) {
+        mtd = nseRec.perChange30d;
+        mtdApprox = true;
+      }
 
       if (last == null) return;
-      data.set(symbol, { label, group, last, pct: { daily, mtd } });
+      data.set(symbol, { label, group, last, pct: { daily, mtd, mtdApprox } });
     });
     if (data.size) {
       marketOverviewData = data;
@@ -1977,12 +2022,16 @@ function renderMarketOverviewCards() {
     // series has a multi-day hole) — show the card with a dash, not a wrong number.
     const cls = pct == null ? '' : (pct >= 0 ? 'trend-up' : 'trend-down');
     const accent = pct == null ? '#64748b' : (pct >= 0 ? '#34d399' : '#f87171');
-    const pctTxt = pct == null ? '—' : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+    // MTD without an exact calendar month-start close falls back to NSE's rolling
+    // 30-day change — mark it with "~" so it isn't mistaken for the precise figure.
+    const isApprox = pctKey === 'mtd' && d.pct?.mtdApprox;
+    const pctTxt = pct == null ? '—' : `${isApprox ? '~' : ''}${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+    const title = isApprox ? ' title="Exact month-to-date close unavailable — showing rolling 30-day change instead"' : '';
     return `
       <div class="market-index-card" style="--card-accent: ${accent};">
         <div class="mi-group">${escapeHtml(group)}</div>
         <div class="mi-label">${escapeHtml(label)}</div>
-        <div class="mi-pct ${cls}">${pctTxt}</div>
+        <div class="mi-pct ${cls}"${title}>${pctTxt}</div>
         <div class="mi-last">${d.last.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
       </div>`;
   };
