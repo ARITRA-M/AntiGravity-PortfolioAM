@@ -6051,11 +6051,13 @@ function renderMonthlyHeatmap() {
         const isSelected = heatmapSelectedIndices.has(m.index);
         const selectedClass = isSelected ? 'selected' : '';
         
+        const [monthTxt, yearTxt] = m.label.split(' ');
         return `
           <div class="heatmap-cell ${selectedClass}" style="background: ${color}"
                onclick="selectHeatmapRange(${m.index})"
                title="${m.label}: ${change >= 0 ? '+' : ''}${change.toFixed(1)}% — Click to select range">
-            <div class="heatmap-month">${m.label.split(' ')[0]}</div>
+            <div class="heatmap-year">${yearTxt || ''}</div>
+            <div class="heatmap-month">${monthTxt}</div>
             <div class="heatmap-change">${change >= 0 ? '+' : ''}${change.toFixed(1)}%</div>
           </div>
         `;
