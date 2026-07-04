@@ -1853,10 +1853,10 @@ let marketOverviewFetchedAt = 0;
 let marketOverviewMode = (() => {
   try {
     const m = localStorage.getItem(LS_PREFIX + 'market_period');
-    if (['daily', 'mtd', 'm3', 'm6', 'y1', 'y5'].includes(m)) return m;
+    if (['daily', 'mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(m)) return m;
   } catch (_) {}
   return 'daily';
-})(); // 'daily' | 'mtd' | 'm3' | 'm6' | 'y1' | 'y5'
+})(); // 'daily' | 'mtd' | 'm1' | 'm3' | 'm6' | 'y1' | 'y5'
 
 function setMarketOverviewMode(mode) {
   marketOverviewMode = mode;
@@ -1866,7 +1866,20 @@ function setMarketOverviewMode(mode) {
   renderMarketOverviewCards();
   // mtd included: the long-range pass also repairs approximate/missing MTD
   // figures from Groww's complete daily series.
-  if (['mtd', 'm3', 'm6', 'y1', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
+  if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
+}
+
+// Month-to-date reference boundary. Groww timestamps each daily bar at 00:00 IST
+// of the FOLLOWING day, so a month's last trading close lands exactly on the next
+// month's 00:00 boundary; Yahoo timestamps bars at 09:15 IST of the trading day
+// itself. A strict "< monthStart" therefore drops Groww's month-end close and
+// reads MTD from the 2nd-last day of the prior month — this is what made Nifty
+// Realty show +7.38% (Jun 29 → last) when the true Jul-MTD (Jun 30 → last) was
+// ~3.7%. Shifting the boundary 6h into the month captures Groww's boundary-
+// straddling close (at +0h) while still excluding either source's first trading
+// bar of the new month (Yahoo opens at +9.25h, Groww's next bar is at +24h).
+function _monthStartRefMs(now) {
+  return new Date(now.getFullYear(), now.getMonth(), 1).getTime() + 6 * 3600 * 1000;
 }
 
 // Reference close on/before a given timestamp from an ascending {dates,closes} series.
@@ -1944,29 +1957,36 @@ async function initMarketOverviewTab() {
         }
       }
 
-      // MTD: last close strictly before calendar month-start. If the series' hole
-      // makes that reference more than 5 days older than the boundary (Realty's
-      // ref was Jun 25 for a Jul MTD), the figure overstates the month — suppress
-      // rather than show a wrong number. When exact MTD isn't available, fall
-      // back to NSE's rolling 30-day change (always populated, but NOT calendar-
-      // exact) so the card shows an honestly-labelled approximation instead of a
-      // blank; renderMarketOverviewCards marks it with "~" and a tooltip.
-      let mtd = null, mtdApprox = false;
+      // MTD: last close strictly before calendar month-start. This is the exact
+      // CALENDAR month-to-date figure — never a rolling-30-day stand-in (mixing
+      // the two is what made Nifty Realty read +7.38% when the true Jul-MTD was
+      // ~half that: its 1mo Yahoo series has a month-start hole, so the old code
+      // silently substituted NSE's rolling perChange30d). If the exact close
+      // isn't available, MTD is left blank here and the Groww repair pass fills
+      // it precisely; the rolling-30-day move now has its own explicit "1M" card.
+      let mtd = null;
       if (series && last != null && seriesUsable) {
+        const monthStartRef = _monthStartRefMs(now);
         let refIdx = -1;
-        for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartMs) refIdx = i;
+        for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartRef) refIdx = i;
         if (refIdx >= 0 && (monthStartMs - series.dates[refIdx]) <= 5 * 86400000) {
           const ref = series.closes[refIdx];
           if (ref) mtd = ((last - ref) / ref) * 100;
         }
       }
-      if (mtd == null && nseRec?.perChange30d != null) {
-        mtd = nseRec.perChange30d;
-        mtdApprox = true;
+
+      // 1M: rolling ~30-day change. NSE's perChange30d is exactly this; else
+      // derive from the series close ~30 calendar days back.
+      let m1 = null;
+      if (nseRec?.perChange30d != null) {
+        m1 = nseRec.perChange30d;
+      } else if (series && last != null && seriesUsable) {
+        const ref30 = _closeBefore(series, Date.now() - 30 * 86400000);
+        if (ref30) m1 = ((last - ref30) / ref30) * 100;
       }
 
       if (last == null) return;
-      data.set(symbol, { label, group, last, pct: { daily, mtd, mtdApprox } });
+      data.set(symbol, { label, group, last, pct: { daily, mtd, m1 } });
     });
     if (data.size) {
       marketOverviewData = data;
@@ -2009,6 +2029,7 @@ async function _ensureMarketOverviewLongRange() {
       if (!longSeries || longSeries.closes.length < 2) { entry.pct.longUnsupported = true; return; }
       const last = entry.last;
       const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
+      if (entry.pct.m1 == null) entry.pct.m1 = pctFrom(_closeBefore(longSeries, daysAgo(30)));
       entry.pct.m3 = pctFrom(_closeBefore(longSeries, daysAgo(91)));
       entry.pct.m6 = pctFrom(_closeBefore(longSeries, daysAgo(182)));
       entry.pct.y1 = pctFrom(_closeBefore(longSeries, daysAgo(365)));
@@ -2017,9 +2038,10 @@ async function _ensureMarketOverviewLongRange() {
         // Same 5-day guard as the short-series MTD: a weekly bar too far before
         // the month boundary would overstate the month's move.
         const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        const mStartRef = _monthStartRefMs(now);
         let refIdx = -1;
-        for (let i = 0; i < longSeries.dates.length; i++) if (longSeries.dates[i] < mStart) refIdx = i;
-        if (refIdx >= 0 && (mStart - longSeries.dates[refIdx]) <= 5 * 86400000) {
+        for (let i = 0; i < longSeries.dates.length; i++) if (longSeries.dates[i] < mStartRef) refIdx = i;
+        if (refIdx >= 0 && (mStart - longSeries.dates[refIdx]) <= 8 * 86400000) {
           entry.pct.mtd = pctFrom(longSeries.closes[refIdx]);
         }
       }
@@ -2034,7 +2056,7 @@ async function _ensureMarketOverviewLongRange() {
       const e = marketOverviewData.get(symbol);
       if (!e) return false;
       const p = e.pct;
-      return p.longUnsupported || p.mtd == null || p.mtdApprox ||
+      return p.longUnsupported || p.mtd == null || p.m1 == null ||
              p.m3 == null || p.m6 == null || p.y1 == null || p.y5 == null;
     });
     await Promise.all(needsRepair.map(async ({ symbol, groww }) => {
@@ -2048,9 +2070,9 @@ async function _ensureMarketOverviewLongRange() {
         const gLast = s.closes[s.closes.length - 1];
         if (Math.abs(gLast - entry.last) / entry.last > 0.02) return;
         const pctFrom = (base) => (base ? ((entry.last - base) / base) * 100 : null);
-        const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        const mtdRef = _closeBefore(s, mStart);
-        if (mtdRef) { entry.pct.mtd = pctFrom(mtdRef); entry.pct.mtdApprox = false; }
+        const mtdRef = _closeBefore(s, _monthStartRefMs(now));
+        if (mtdRef) entry.pct.mtd = pctFrom(mtdRef);
+        entry.pct.m1 = pctFrom(_closeBefore(s, daysAgo(30)))  ?? entry.pct.m1;
         entry.pct.m3 = pctFrom(_closeBefore(s, daysAgo(91)))  ?? entry.pct.m3;
         entry.pct.m6 = pctFrom(_closeBefore(s, daysAgo(182))) ?? entry.pct.m6;
         entry.pct.y1 = pctFrom(_closeBefore(s, daysAgo(365))) ?? entry.pct.y1;
@@ -2063,7 +2085,7 @@ async function _ensureMarketOverviewLongRange() {
     }));
 
     // Re-render if the user is currently looking at a period that just filled in.
-    if (['mtd', 'm3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
+    if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
   } catch (e) {
     console.warn('[market-overview] long-range fetch failed:', e.message);
   }
@@ -2085,18 +2107,16 @@ function renderMarketOverviewCards() {
     // anywhere on Yahoo for 3M/6M/1Y/5Y — a permanent data-source gap, not a
     // transient fetch failure. Show it distinctly ("n/a") so it doesn't look
     // like a bug that a refresh will fix.
-    const isLongUnsupported = ['m3', 'm6', 'y1', 'y5'].includes(pctKey) && d.pct?.longUnsupported;
+    const isLongUnsupported = ['m1', 'm3', 'm6', 'y1', 'y5'].includes(pctKey) && d.pct?.longUnsupported;
     // pct can be legitimately unavailable (e.g. daily suppressed because Yahoo's
-    // series has a multi-day hole) — show the card with a dash, not a wrong number.
+    // series has a multi-day hole, or exact MTD not yet filled) — show the card
+    // with a dash, not a wrong number.
     const cls = pct == null ? '' : (pct >= 0 ? 'trend-up' : 'trend-down');
     const accent = pct == null ? '#64748b' : (pct >= 0 ? '#34d399' : '#f87171');
-    // MTD without an exact calendar month-start close falls back to NSE's rolling
-    // 30-day change — mark it with "~" so it isn't mistaken for the precise figure.
-    const isApprox = pctKey === 'mtd' && d.pct?.mtdApprox;
-    const pctTxt = isLongUnsupported ? 'n/a' : (pct == null ? '—' : `${isApprox ? '~' : ''}${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`);
+    const pctTxt = isLongUnsupported ? 'n/a' : (pct == null ? '—' : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`);
     const title = isLongUnsupported
       ? ' title="No historical price data is available for this index from any free data source"'
-      : (isApprox ? ' title="Exact month-to-date close unavailable — showing rolling 30-day change instead"' : '');
+      : '';
     return `
       <div class="market-index-card" style="--card-accent: ${accent};">
         <div class="mi-group">${escapeHtml(group)}</div>
@@ -2146,7 +2166,7 @@ function renderMarketOverviewCards() {
     losersHtml.length ? `<div class="market-section"><div class="market-section-title">Top 3 Losers</div><div class="market-index-grid">${losersHtml.join('')}</div></div>` : '',
   ].join('');
 
-  const isLongPeriod = ['m3', 'm6', 'y1', 'y5'].includes(pctKey);
+  const isLongPeriod = ['m1', 'm3', 'm6', 'y1', 'y5'].includes(pctKey);
   grid.innerHTML = sectionsHtml
     || (isLongPeriod
       ? '<p style="color:var(--text-muted);">Loading longer-range data…</p>'
@@ -3275,7 +3295,15 @@ function initFixedIncomeTab() {
   document.getElementById('fi-bonds-gain').innerText = (bondsGain >= 0 ? '+' : '') + bondsGain.toFixed(2) + ' L';
   document.getElementById('fi-bonds-gain').className = bondsGain >= 0 ? 'trend-up' : 'trend-down';
 
-  const goldCurrent = nw['Gold (Gold)']?.values?.slice(-1)?.[0] || 0;
+  // Use the LIVE gold valuation (Σ qty×ltp of SGB tranches + GOLDBEES) that the
+  // main KPI card shows, not the raw breakup column. When no month has closed
+  // since the frozen base, breakup's last Gold value is still the base-date
+  // snapshot — reading it here made this sub-card disagree with the main KPI
+  // (e.g. 5.32 vs the live 5.09). portfolioSummary.gold_lakhs is kept current by
+  // recomputePortfolioFromLiveData on every price refresh.
+  const goldCurrent = (portfolioSummary && portfolioSummary.gold_lakhs != null)
+    ? portfolioSummary.gold_lakhs
+    : (nw['Gold (Gold)']?.values?.slice(-1)?.[0] || 0);
   const goldGain = getMonthlyChangeLakhs('Gold (Gold)');
   document.getElementById('fi-gold-value').innerText = formatLakhs(goldCurrent);
   document.getElementById('fi-gold-gain').innerText = (goldGain >= 0 ? '+' : '') + goldGain.toFixed(2) + ' L';
