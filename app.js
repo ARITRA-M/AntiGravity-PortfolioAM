@@ -1981,7 +1981,13 @@ async function _ensureMarketOverviewLongRange() {
     all.forEach(({ symbol }) => {
       const entry = marketOverviewData.get(symbol);
       const longSeries = longBySym.get(symbol);
-      if (!entry || !longSeries) return;
+      if (!entry) return;
+      // Some indices (Nifty Smallcap 100 confirmed) have NO historical series in
+      // Yahoo at all — every range/interval returns a single "today" bar. That's
+      // a genuine data-source gap, not a transient fetch failure, so flag it
+      // distinctly: the card shows "n/a" with an explanatory tooltip instead of
+      // a bare dash that looks like it'll resolve on the next refresh.
+      if (!longSeries || longSeries.closes.length < 2) { entry.pct.longUnsupported = true; return; }
       const last = entry.last;
       const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
       entry.pct.m3 = pctFrom(_closeBefore(longSeries, daysAgo(91)));
@@ -2018,6 +2024,11 @@ function renderMarketOverviewCards() {
     const d = marketOverviewData.get(symbol);
     const pct = d?.pct?.[pctKey];
     if (!d) return '';
+    // Some indices (Nifty Smallcap 100 confirmed) have no historical series
+    // anywhere on Yahoo for 3M/6M/1Y/5Y — a permanent data-source gap, not a
+    // transient fetch failure. Show it distinctly ("n/a") so it doesn't look
+    // like a bug that a refresh will fix.
+    const isLongUnsupported = ['m3', 'm6', 'y1', 'y5'].includes(pctKey) && d.pct?.longUnsupported;
     // pct can be legitimately unavailable (e.g. daily suppressed because Yahoo's
     // series has a multi-day hole) — show the card with a dash, not a wrong number.
     const cls = pct == null ? '' : (pct >= 0 ? 'trend-up' : 'trend-down');
@@ -2025,8 +2036,10 @@ function renderMarketOverviewCards() {
     // MTD without an exact calendar month-start close falls back to NSE's rolling
     // 30-day change — mark it with "~" so it isn't mistaken for the precise figure.
     const isApprox = pctKey === 'mtd' && d.pct?.mtdApprox;
-    const pctTxt = pct == null ? '—' : `${isApprox ? '~' : ''}${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
-    const title = isApprox ? ' title="Exact month-to-date close unavailable — showing rolling 30-day change instead"' : '';
+    const pctTxt = isLongUnsupported ? 'n/a' : (pct == null ? '—' : `${isApprox ? '~' : ''}${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`);
+    const title = isLongUnsupported
+      ? ' title="No historical price data is available for this index from any free data source"'
+      : (isApprox ? ' title="Exact month-to-date close unavailable — showing rolling 30-day change instead"' : '');
     return `
       <div class="market-index-card" style="--card-accent: ${accent};">
         <div class="mi-group">${escapeHtml(group)}</div>
