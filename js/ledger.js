@@ -864,10 +864,13 @@ function closeMonth(dateStr) {
       (typeof frozenBase !== 'undefined') && frozenBase) {
     const frozenEquity = frozenBase.equity || [];
     const frozenStkVal  = frozenEquity.filter(h => !isGoldHolding(h)).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0) / L;
-    const frozenGoldVal = frozenEquity.filter(isGoldHolding).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0) / L;
     const frozenMfVal  = (frozenBase.mf   || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.price ?? 0), 0) / L;
     stockValue = rawStockVal + (uploadedSnapshot.stockLakhs - frozenStkVal);
-    goldValue  = rawGoldVal  + ((uploadedSnapshot.goldLakhs ?? 0) - frozenGoldVal);
+    // Gold: no reconciliation gap — SGBs are now priced at their own real market
+    // quotes (Groww), so Σ qty×ltp IS the true bucket value. The old gap only
+    // bridged the GOLDBEES×100 proxy's understatement of SGBs vs the Excel-era
+    // valuations; carrying it forward would double-count the correction.
+    goldValue  = rawGoldVal;
     mfValue    = rawMfVal   + (uploadedSnapshot.mfLakhs    - frozenMfVal);
   }
 

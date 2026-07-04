@@ -21,6 +21,10 @@ const ALLOWED_HOSTS = new Set([
   // sectoral indices). Requires a browser-like User-Agent (see below);
   // otherwise NSE returns a bot-block page instead of JSON.
   'www.nseindia.com',
+  // Groww's public price API — the only free source for Sovereign Gold Bond
+  // tranche quotes (Yahoo doesn't list SGB tickers at all, and the GOLDBEES
+  // proxy understates them by ~20%).
+  'groww.in',
 ]);
 
 const CORS = {

@@ -265,6 +265,22 @@ async function fetchNseIndices() {
   return out;
 }
 
+// Daily close series for an NSE index from Groww's public charting API — the
+// only free source with COMPLETE history for every Nifty index (verified: full
+// 5y dailies even for Nifty Smallcap 100, which Yahoo has no history for).
+// Candle format: [epochSeconds, open, high, low, close, ...].
+async function fetchGrowwCandles(code, days = 365 * 5 + 30) {
+  const end = Date.now();
+  const start = end - days * 86400000;
+  const url = `https://groww.in/v1/api/charting_service/v4/chart/exchange/NSE/segment/CASH/${encodeURIComponent(code)}` +
+    `?endTimeInMillis=${end}&intervalInMinutes=1440&startTimeInMillis=${start}`;
+  const res = await fetchViaCorsProxy(url, {}, 12000);
+  if (!res.ok) throw new Error('Groww HTTP ' + res.status);
+  const raw = await res.json();
+  const candles = (raw?.candles || []).filter(c => c && c[4] > 0);
+  return { dates: candles.map(c => c[0] * 1000), closes: candles.map(c => c[4]) };
+}
+
 // Value of `lookup` (sorted ascending {dates,closes}) on or before time `t`.
 function closeAtOrBefore(series, t) {
   if (!series || !series.dates.length) return null;
@@ -1135,13 +1151,16 @@ function recomputePortfolioFromLiveData() {
     // existing saved frozenBase data that predates the rename.
     const frozenEquity = frozenBase.equity || [];
     const frozenStockVal = frozenEquity.filter(h => !isGoldHolding(h)).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0);
-    const frozenGoldVal  = frozenEquity.filter(isGoldHolding).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0);
     const frozenMfVal   = (frozenBase.mf || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.price ?? 0), 0);
     const stockReconcGap = uploadedSnapshot.stockLakhs - frozenStockVal / 100000;
-    const goldReconcGap  = (uploadedSnapshot.goldLakhs ?? 0) - frozenGoldVal / 100000;
     const mfReconcGap    = uploadedSnapshot.mfLakhs   - frozenMfVal   / 100000;
     liveStockLakhs = nonGoldEquity.reduce((s, h) => s + h.qty * h.ltp, 0) / 100000 + stockReconcGap;
-    liveGoldLakhs  = goldEquity.reduce(   (s, h) => s + h.qty * h.ltp, 0) / 100000 + goldReconcGap;
+    // Gold carries NO reconciliation gap: every gold asset (SGB tranches +
+    // GOLDBEES) is fully tracked and now priced at its own real market quote,
+    // so the bucket is exactly Σ qty×ltp. The old gap existed only because the
+    // GOLDBEES×100 proxy understated SGBs vs the Excel-era valuations — keeping
+    // it after switching to real quotes would double-count the correction.
+    liveGoldLakhs  = goldEquity.reduce(   (s, h) => s + h.qty * h.ltp, 0) / 100000;
     liveMfLakhs    = latestMf.reduce(   (s, h) => s + h.qty * h.price,  0) / 100000 + mfReconcGap;
   } else {
     const exactStockGain = nonGoldEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
@@ -1803,32 +1822,36 @@ function switchOverviewSubtab(subtab, btn) {
 // change, unlike Yahoo's gap-prone series for several NSE sectoral indices);
 // Yahoo (`symbol`) is used for anything NSE doesn't cover (Sensex is a BSE
 // index, plus the global indices) and as a fallback if the NSE fetch fails.
+// `groww` = the scrip code Groww's public charting API uses for this index —
+// the repair source for MTD/3M/6M/1Y/5Y where Yahoo's series has holes or (as
+// with Nifty Smallcap 100) no history at all. Each code was verified against
+// NSE's official last-close before being trusted here.
 const MARKET_PINNED_INDICES = [
-  { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National', nse: 'NIFTY 50' },
+  { symbol: '^NSEI',    label: 'Nifty 50',        group: 'National', nse: 'NIFTY 50', groww: 'NIFTY' },
   { symbol: '^BSESN',   label: 'Sensex',          group: 'National' },
-  { symbol: 'NIFTY_MIDCAP_100.NS', label: 'Nifty Midcap 100', group: 'Market Cap', nse: 'NIFTY MIDCAP 100' },
-  { symbol: '^CNXSC',   label: 'Nifty Smallcap 100', group: 'Market Cap', nse: 'NIFTY SMALLCAP 100' },
-  { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral', nse: 'NIFTY BANK' },
-  { symbol: '^CNXIT',   label: 'Nifty IT',        group: 'Sectoral', nse: 'NIFTY IT' },
-  { symbol: '^CNXFMCG', label: 'Nifty FMCG',      group: 'Sectoral', nse: 'NIFTY FMCG' },
+  { symbol: 'NIFTY_MIDCAP_100.NS', label: 'Nifty Midcap 100', group: 'Market Cap', nse: 'NIFTY MIDCAP 100', groww: 'NIFTYMIDCAP' },
+  { symbol: '^CNXSC',   label: 'Nifty Smallcap 100', group: 'Market Cap', nse: 'NIFTY SMALLCAP 100', groww: 'NIFTYSMALL' },
+  { symbol: '^NSEBANK', label: 'Bank Nifty',      group: 'Sectoral', nse: 'NIFTY BANK', groww: 'BANKNIFTY' },
+  { symbol: '^CNXIT',   label: 'Nifty IT',        group: 'Sectoral', nse: 'NIFTY IT', groww: 'NIFTYIT' },
+  { symbol: '^CNXFMCG', label: 'Nifty FMCG',      group: 'Sectoral', nse: 'NIFTY FMCG', groww: 'NIFTYFMCG' },
   // ^CNXPHARMA is Nifty PHARMA, a different NSE index from "NIFTY HEALTHCARE
   // INDEX" (mixing the two — same label, different underlying values — is what
   // produced a nonsense -35% MTD figure: NSE's Healthcare `last` combined with
   // Yahoo's Pharma month-start close).
-  { symbol: '^CNXPHARMA', label: 'Nifty Pharma', group: 'Sectoral', nse: 'NIFTY PHARMA' },
+  { symbol: '^CNXPHARMA', label: 'Nifty Pharma', group: 'Sectoral', nse: 'NIFTY PHARMA', groww: 'NIFTYPHARMA' },
   { symbol: '^IXIC',    label: 'Nasdaq',          group: 'Global' },
   { symbol: '000001.SS', label: 'Shanghai Composite', group: 'Global' },
   { symbol: 'GC=F',     label: 'Gold',            group: 'Commodity' },
 ];
 const MARKET_MOVER_POOL = [
-  { symbol: '^CNXAUTO',   label: 'Nifty Auto', nse: 'NIFTY AUTO' },
-  { symbol: '^CNXMETAL',  label: 'Nifty Metal', nse: 'NIFTY METAL' },
-  { symbol: '^CNXREALTY', label: 'Nifty Realty', nse: 'NIFTY REALTY' },
-  { symbol: '^CNXENERGY', label: 'Nifty Energy', nse: 'NIFTY ENERGY' },
-  { symbol: '^CNXFIN',    label: 'Nifty Fin Services', nse: 'NIFTY FINANCIAL SERVICES' },
-  { symbol: '^CNXPSUBANK', label: 'Nifty PSU Bank', nse: 'NIFTY PSU BANK' },
-  { symbol: '^CNXMEDIA',  label: 'Nifty Media', nse: 'NIFTY MEDIA' },
-  { symbol: '^CNXINFRA',  label: 'Nifty Infra', nse: 'NIFTY INFRASTRUCTURE' },
+  { symbol: '^CNXAUTO',   label: 'Nifty Auto', nse: 'NIFTY AUTO', groww: 'NIFTYAUTO' },
+  { symbol: '^CNXMETAL',  label: 'Nifty Metal', nse: 'NIFTY METAL', groww: 'NIFTYMETAL' },
+  { symbol: '^CNXREALTY', label: 'Nifty Realty', nse: 'NIFTY REALTY', groww: 'NIFTYREALTY' },
+  { symbol: '^CNXENERGY', label: 'Nifty Energy', nse: 'NIFTY ENERGY', groww: 'NIFTYENERGY' },
+  { symbol: '^CNXFIN',    label: 'Nifty Fin Services', nse: 'NIFTY FINANCIAL SERVICES', groww: 'FINNIFTY' },
+  { symbol: '^CNXPSUBANK', label: 'Nifty PSU Bank', nse: 'NIFTY PSU BANK', groww: 'NIFTYPSUBANK' },
+  { symbol: '^CNXMEDIA',  label: 'Nifty Media', nse: 'NIFTY MEDIA', groww: 'NIFTYMEDIA' },
+  { symbol: '^CNXINFRA',  label: 'Nifty Infra', nse: 'NIFTY INFRASTRUCTURE', groww: 'NIFTYINFRAST' },
 ];
 const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
 let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m3,m6,y1,y5}}>
@@ -1847,7 +1870,9 @@ function setMarketOverviewMode(mode) {
   const sel = document.getElementById('market-period-filter');
   if (sel) sel.value = mode;
   renderMarketOverviewCards();
-  if (['m3', 'm6', 'y1', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
+  // mtd included: the long-range pass also repairs approximate/missing MTD
+  // figures from Groww's complete daily series.
+  if (['mtd', 'm3', 'm6', 'y1', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
 }
 
 // Reference close on/before a given timestamp from an ascending {dates,closes} series.
@@ -2005,8 +2030,46 @@ async function _ensureMarketOverviewLongRange() {
         }
       }
     });
+    // Repair pass: for any Nifty index whose figures are still missing or only
+    // approximate after the Yahoo merge (its series has holes, or — Smallcap
+    // 100 — no history at all), pull the COMPLETE daily series from Groww's
+    // charting API and compute everything exactly. Runs in parallel and only
+    // for the deficient indices, so the common case adds zero extra requests.
+    const needsRepair = all.filter(({ symbol, groww }) => {
+      if (!groww) return false;
+      const e = marketOverviewData.get(symbol);
+      if (!e) return false;
+      const p = e.pct;
+      return p.longUnsupported || p.mtd == null || p.mtdApprox ||
+             p.m3 == null || p.m6 == null || p.y1 == null || p.y5 == null;
+    });
+    await Promise.all(needsRepair.map(async ({ symbol, groww }) => {
+      try {
+        const s = await fetchGrowwCandles(groww);
+        if (!s.closes.length) return;
+        const entry = marketOverviewData.get(symbol);
+        // Cross-source sanity: Groww's latest close must agree with the price we
+        // display (same guard that caught the Pharma/Healthcare mixup) — a >2%
+        // disagreement means a wrong scrip-code mapping, so keep hands off.
+        const gLast = s.closes[s.closes.length - 1];
+        if (Math.abs(gLast - entry.last) / entry.last > 0.02) return;
+        const pctFrom = (base) => (base ? ((entry.last - base) / base) * 100 : null);
+        const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        const mtdRef = _closeBefore(s, mStart);
+        if (mtdRef) { entry.pct.mtd = pctFrom(mtdRef); entry.pct.mtdApprox = false; }
+        entry.pct.m3 = pctFrom(_closeBefore(s, daysAgo(91)))  ?? entry.pct.m3;
+        entry.pct.m6 = pctFrom(_closeBefore(s, daysAgo(182))) ?? entry.pct.m6;
+        entry.pct.y1 = pctFrom(_closeBefore(s, daysAgo(365))) ?? entry.pct.y1;
+        entry.pct.y5 = pctFrom(_closeBefore(s, daysAgo(365 * 5))) ?? entry.pct.y5;
+        // First close in the series stands in for 5Y when the index is younger
+        // (Groww's smallcap history starts Apr 2021).
+        if (entry.pct.y5 == null && s.closes[0]) entry.pct.y5 = pctFrom(s.closes[0]);
+        entry.pct.longUnsupported = false;
+      } catch (_) { /* keep whatever the Yahoo merge produced */ }
+    }));
+
     // Re-render if the user is currently looking at a period that just filled in.
-    if (['m3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
+    if (['mtd', 'm3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
   } catch (e) {
     console.warn('[market-overview] long-range fetch failed:', e.message);
   }

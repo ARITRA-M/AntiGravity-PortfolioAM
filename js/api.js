@@ -366,19 +366,33 @@ async function refreshPrices(stocksOnly = false) {
       status.textContent = `${label} (${done}/${totalItems + latestMf.length})…`;
     };
 
-    // Fetch GOLDBEES.NS once for all SGB refreshes (1 gram gold proxy = GOLDBEES × 100).
-    // Capture prevClose too so SGBs get a daily change in the overview (gold's daily
-    // move), instead of showing blank — they were updated to a current value but had
-    // no yesterdayClose, so the daily-change column was empty.
+    // SGB pricing — two sources, in preference order:
+    //  1. The tranche's OWN market quote from Groww's public price API (Yahoo
+    //     doesn't list SGB tickers at all). SGBs trade well above spot-gold
+    //     proxies (≈+20% observed), so proxy pricing understated the Gold
+    //     bucket by ≈₹0.6L+ — the root of the Gold-section-vs-breakup mismatch.
+    //  2. Fallback: GOLDBEES × 100 (1-gram gold proxy), as before.
     let goldPricePerGram = null;
     let goldPrevPerGram = null;
+    const sgbQuotes = new Map(); // instrument → { price, prevClose }
     const sgbInstruments = latestEquity.filter(s => s.instrument.startsWith('SGB'));
     if (sgbInstruments.length > 0) {
-      try {
-        const { price, prevClose } = await fetchStockQuote('GOLDBEES', 'yahoo');
-        if (price && price > 0) goldPricePerGram = price * 100;
-        if (prevClose && prevClose > 0) goldPrevPerGram = prevClose * 100;
-      } catch (_) { /* use snapshot fallback per SGB below */ }
+      await Promise.all(sgbInstruments.map(async (s) => {
+        try {
+          const url = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/NSE/segment/CASH/${encodeURIComponent(s.instrument)}/latest`;
+          const resp = await fetchViaCorsProxy(url, {}, 8000);
+          if (!resp.ok) return;
+          const q = await resp.json();
+          if (q && q.ltp > 0) sgbQuotes.set(s.instrument, { price: q.ltp, prevClose: q.close > 0 ? q.close : null });
+        } catch (_) { /* falls back to the gold proxy below */ }
+      }));
+      if (sgbQuotes.size < sgbInstruments.length) {
+        try {
+          const { price, prevClose } = await fetchStockQuote('GOLDBEES', 'yahoo');
+          if (price && price > 0) goldPricePerGram = price * 100;
+          if (prevClose && prevClose > 0) goldPrevPerGram = prevClose * 100;
+        } catch (_) { /* use snapshot fallback per SGB below */ }
+      }
     }
 
     // 1. Refresh Stock Prices.
@@ -419,27 +433,28 @@ async function refreshPrices(stocksOnly = false) {
         return;
       }
 
-      // SGBs — priced at current gold price per gram (GOLDBEES × 100 proxy)
+      // SGBs — the tranche's own market quote (Groww) when available; otherwise
+      // the gold-per-gram proxy (GOLDBEES × 100), then the last saved snapshot.
       if (ticker.startsWith('SGB')) {
         if (stock.basePrice === undefined) stock.basePrice = stock.ltp;
-        const goldPrice = goldPricePerGram ?? loadPriceSnapshot(ticker)?.price ?? null;
-        if (goldPrice && goldPrice > 0) {
-          // Daily change uses gold's previous close (proxy). Snapshot fallback keeps
-          // yesterdayClose stable when only the prevClose lookup fails.
-          const goldPrev = goldPrevPerGram ?? loadPriceSnapshot(ticker)?.prevClose ?? null;
-          stock.ltp = goldPrice;
-          stock.yesterdayClose = goldPrev;
-          stock.cur_val = stock.qty * goldPrice;
+        const own = sgbQuotes.get(ticker);
+        const price = own?.price ?? goldPricePerGram ?? loadPriceSnapshot(ticker)?.price ?? null;
+        if (price && price > 0) {
+          const prev = own?.prevClose ?? goldPrevPerGram ?? loadPriceSnapshot(ticker)?.prevClose ?? null;
+          stock.ltp = price;
+          stock.yesterdayClose = prev;
+          stock.cur_val = stock.qty * price;
           stock.pnl = stock.cur_val - stock.invested;
           stock.gain_pct = stock.invested > 0 ? (stock.pnl / stock.invested) * 100 : 0;
           stock.lastRefreshDate = refreshDateStr;
+          stock.priceAsOf = Date.now();
           stock.thisMonthGain = (stock.ltp - stock.basePrice) * stock.qty;
           stockSuccess++;
-          stockDetails.push({ instrument: ticker, status: 'success', price: goldPrice, prevClose: goldPrev, error: null });
-          savePriceSnapshot(ticker, { price: goldPrice, prevClose: goldPrev, refreshDate: refreshDateStr });
+          stockDetails.push({ instrument: ticker, status: 'success', price, prevClose: prev, error: null });
+          savePriceSnapshot(ticker, { price, prevClose: prev, refreshDate: refreshDateStr });
         } else {
           stockFail++;
-          stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'Gold price unavailable' });
+          stockDetails.push({ instrument: ticker, status: 'fail', price: null, prevClose: null, error: 'SGB/gold price unavailable' });
         }
         updateProgress(ticker);
         return;
