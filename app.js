@@ -1848,8 +1848,36 @@ const MARKET_MOVER_POOL = [
   { symbol: '^CNXINFRA',  label: 'Nifty Infra', nse: 'NIFTY INFRASTRUCTURE', groww: 'NIFTYINFRAST' },
 ];
 const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
-let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m3,m6,y1,y5}}>
+const MARKET_OVERVIEW_CACHE_KEY = 'ag_market_overview_cache';
+let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m1,m3,m6,y1,y5}}>
 let marketOverviewFetchedAt = 0;
+
+// Persist the computed overview across reloads: the tab used to refetch three
+// network round-trips (Yahoo ×2 + NSE) before painting ANYTHING on every page
+// load. With the cache, a revisit paints instantly from localStorage; if the
+// data is older than the TTL the normal fetch still runs and repaints.
+function _saveMarketOverviewCache() {
+  try {
+    localStorage.setItem(MARKET_OVERVIEW_CACHE_KEY, JSON.stringify({
+      fetchedAt: marketOverviewFetchedAt,
+      longFetchedAt: marketOverviewLongFetchedAt,
+      entries: [...marketOverviewData.entries()],
+    }));
+  } catch (_) { /* quota/private mode — cache is best-effort */ }
+}
+
+function _restoreMarketOverviewCache() {
+  try {
+    const raw = localStorage.getItem(MARKET_OVERVIEW_CACHE_KEY);
+    if (!raw) return false;
+    const c = JSON.parse(raw);
+    if (!c?.entries?.length) return false;
+    marketOverviewData = new Map(c.entries);
+    marketOverviewFetchedAt = c.fetchedAt || 0;
+    marketOverviewLongFetchedAt = c.longFetchedAt || 0;
+    return true;
+  } catch (_) { return false; }
+}
 let marketOverviewMode = (() => {
   try {
     const m = localStorage.getItem(LS_PREFIX + 'market_period');
@@ -1869,18 +1897,15 @@ function setMarketOverviewMode(mode) {
   if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
 }
 
-// Month-to-date reference boundary. Groww timestamps each daily bar at 00:00 IST
-// of the FOLLOWING day, so a month's last trading close lands exactly on the next
-// month's 00:00 boundary; Yahoo timestamps bars at 09:15 IST of the trading day
-// itself. A strict "< monthStart" therefore drops Groww's month-end close and
-// reads MTD from the 2nd-last day of the prior month — this is what made Nifty
-// Realty show +7.38% (Jun 29 → last) when the true Jul-MTD (Jun 30 → last) was
-// ~3.7%. Shifting the boundary 6h into the month captures Groww's boundary-
-// straddling close (at +0h) while still excluding either source's first trading
-// bar of the new month (Yahoo opens at +9.25h, Groww's next bar is at +24h).
-function _monthStartRefMs(now) {
-  return new Date(now.getFullYear(), now.getMonth(), 1).getTime() + 6 * 3600 * 1000;
-}
+// TIMESTAMP SEMANTICS (verified against NSE's official last/previousClose and
+// the count of trading sessions in the month): BOTH sources stamp a daily bar
+// within its own trading day — Yahoo at market open (09:15 IST), Groww at the
+// day's 00:00 IST. So a strict "< monthStart" comparison is correct for both:
+// the prior month's final close is the last bar before the boundary, and the
+// new month's first bar (Groww: exactly ON the boundary) is excluded. Do NOT
+// shift the boundary to "capture" Groww's boundary bar — that bar is the NEW
+// month's first close, and treating it as the month-end reference understates
+// MTD (it once turned Realty's true +7.38% into +3.67%).
 
 // Reference close on/before a given timestamp from an ascending {dates,closes} series.
 function _closeBefore(series, ms) {
@@ -1897,10 +1922,14 @@ async function initMarketOverviewTab() {
   // fetch right away if the remembered period needs it.
   const perSel = document.getElementById('market-period-filter');
   if (perSel && perSel.value !== marketOverviewMode) perSel.value = marketOverviewMode;
+  // No in-memory data yet (fresh page load)? Restore the last computed overview
+  // from localStorage and paint it immediately — the slow part of this tab was
+  // never the rendering, it's the three proxied network round-trips.
+  if (!marketOverviewData && _restoreMarketOverviewCache()) renderMarketOverviewCards();
   const fresh = marketOverviewData && (Date.now() - marketOverviewFetchedAt) < MARKET_OVERVIEW_TTL_MS;
   if (fresh) { renderMarketOverviewCards(); _ensureMarketOverviewLongRange(); return; }
   const statusEl = document.getElementById('market-overview-status');
-  if (statusEl) statusEl.textContent = 'Loading market data…';
+  if (statusEl) statusEl.textContent = marketOverviewData ? 'Refreshing market data…' : 'Loading market data…';
   try {
     const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
     const symbols = all.map(i => i.symbol);
@@ -1966,9 +1995,8 @@ async function initMarketOverviewTab() {
       // it precisely; the rolling-30-day move now has its own explicit "1M" card.
       let mtd = null;
       if (series && last != null && seriesUsable) {
-        const monthStartRef = _monthStartRefMs(now);
         let refIdx = -1;
-        for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartRef) refIdx = i;
+        for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartMs) refIdx = i;
         if (refIdx >= 0 && (monthStartMs - series.dates[refIdx]) <= 5 * 86400000) {
           const ref = series.closes[refIdx];
           if (ref) mtd = ((last - ref) / ref) * 100;
@@ -1992,6 +2020,7 @@ async function initMarketOverviewTab() {
       marketOverviewData = data;
       marketOverviewFetchedAt = Date.now();
       marketOverviewLongFetchedAt = 0; // force a fresh long-range merge for the new short data
+      _saveMarketOverviewCache();
     }
   } catch (e) {
     console.warn('[market-overview] fetch failed:', e.message);
@@ -2038,10 +2067,9 @@ async function _ensureMarketOverviewLongRange() {
         // Same 5-day guard as the short-series MTD: a weekly bar too far before
         // the month boundary would overstate the month's move.
         const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        const mStartRef = _monthStartRefMs(now);
         let refIdx = -1;
-        for (let i = 0; i < longSeries.dates.length; i++) if (longSeries.dates[i] < mStartRef) refIdx = i;
-        if (refIdx >= 0 && (mStart - longSeries.dates[refIdx]) <= 8 * 86400000) {
+        for (let i = 0; i < longSeries.dates.length; i++) if (longSeries.dates[i] < mStart) refIdx = i;
+        if (refIdx >= 0 && (mStart - longSeries.dates[refIdx]) <= 5 * 86400000) {
           entry.pct.mtd = pctFrom(longSeries.closes[refIdx]);
         }
       }
@@ -2070,7 +2098,8 @@ async function _ensureMarketOverviewLongRange() {
         const gLast = s.closes[s.closes.length - 1];
         if (Math.abs(gLast - entry.last) / entry.last > 0.02) return;
         const pctFrom = (base) => (base ? ((entry.last - base) / base) * 100 : null);
-        const mtdRef = _closeBefore(s, _monthStartRefMs(now));
+        const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        const mtdRef = _closeBefore(s, mStart);
         if (mtdRef) entry.pct.mtd = pctFrom(mtdRef);
         entry.pct.m1 = pctFrom(_closeBefore(s, daysAgo(30)))  ?? entry.pct.m1;
         entry.pct.m3 = pctFrom(_closeBefore(s, daysAgo(91)))  ?? entry.pct.m3;
@@ -2084,6 +2113,7 @@ async function _ensureMarketOverviewLongRange() {
       } catch (_) { /* keep whatever the Yahoo merge produced */ }
     }));
 
+    _saveMarketOverviewCache(); // long-range figures are the expensive part — keep them across reloads
     // Re-render if the user is currently looking at a period that just filled in.
     if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
   } catch (e) {
