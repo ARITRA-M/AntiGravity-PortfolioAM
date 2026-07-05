@@ -2147,8 +2147,11 @@ function renderMarketOverviewCards() {
     const title = isLongUnsupported
       ? ' title="No historical price data is available for this index from any free data source"'
       : '';
+    const openCls = symbol === _miChartSymbol ? ' mi-open' : '';
     return `
-      <div class="market-index-card" style="--card-accent: ${accent};">
+      <div class="market-index-card mi-clickable${openCls}" style="--card-accent: ${accent};"
+           onclick="toggleMarketIndexChart('${symbol.replace(/'/g, '')}', this)"
+           title="Click for a price chart vs Nifty 50">
         <div class="mi-group">${escapeHtml(group)}</div>
         <div class="mi-label">${escapeHtml(label)}</div>
         <div class="mi-pct ${cls}"${title}>${pctTxt}</div>
@@ -2201,6 +2204,144 @@ function renderMarketOverviewCards() {
     || (isLongPeriod
       ? '<p style="color:var(--text-muted);">Loading longer-range data…</p>'
       : '<p style="color:var(--text-muted);">No market data available.</p>');
+
+  // A re-render (period change, background refresh) rebuilds the grid HTML and
+  // silently drops the open chart panel — re-attach it to the first card of the
+  // still-open symbol so the chart survives filter changes.
+  if (_miChartSymbol) {
+    const card = grid.querySelector('.market-index-card.mi-open');
+    if (card) _openMarketIndexChart(_miChartSymbol, card);
+    else _miChartSymbol = null;
+  }
+}
+
+// ── Inline index chart (click a market overview card) ──────────────────────
+let _miChartSymbol = null;   // symbol whose chart panel is currently open
+let _miChart = null;         // Chart.js instance in the open panel
+const _miSeriesCache = new Map(); // symbol → { at, series:{dates,closes} } (full daily history)
+
+// Full daily close series for an overview index. Nifty indices come from
+// Groww (complete 5y dailies for every index); global ones from Yahoo spark.
+async function _getMarketIndexSeries(symbol) {
+  const hit = _miSeriesCache.get(symbol);
+  if (hit && (Date.now() - hit.at) < MARKET_OVERVIEW_TTL_MS) return hit.series;
+  const meta = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL].find(i => i.symbol === symbol);
+  let series = null;
+  if (meta?.groww) {
+    series = await fetchGrowwCandles(meta.groww);
+  } else {
+    // 1y of dailies covers every period except 5Y; weekly bars for the rest.
+    const [daily, weekly] = await Promise.all([
+      fetchSparkCloses([symbol], '1y', '1d'),
+      fetchSparkCloses([symbol], '5y', '1wk'),
+    ]);
+    const d = daily.get(symbol), w = weekly.get(symbol);
+    if (d?.closes?.length) {
+      const firstDaily = d.dates[0];
+      const older = w?.dates?.map((t, i) => ({ t, c: w.closes[i] })).filter(p => p.t < firstDaily) || [];
+      series = {
+        dates: [...older.map(p => p.t), ...d.dates],
+        closes: [...older.map(p => p.c), ...d.closes],
+      };
+    } else if (w?.closes?.length) {
+      series = { dates: w.dates, closes: w.closes };
+    }
+  }
+  if (!series || !series.closes.length) throw new Error('no series');
+  _miSeriesCache.set(symbol, { at: Date.now(), series });
+  return series;
+}
+
+function toggleMarketIndexChart(symbol, cardEl) {
+  if (_miChartSymbol === symbol) { _closeMarketIndexChart(); return; }
+  _closeMarketIndexChart();
+  _miChartSymbol = symbol;
+  cardEl.classList.add('mi-open');
+  _openMarketIndexChart(symbol, cardEl);
+}
+
+function _closeMarketIndexChart() {
+  if (_miChart) { _miChart.destroy(); _miChart = null; }
+  document.querySelectorAll('.market-chart-panel').forEach(p => p.remove());
+  document.querySelectorAll('.market-index-card.mi-open').forEach(c => c.classList.remove('mi-open'));
+  _miChartSymbol = null;
+}
+
+async function _openMarketIndexChart(symbol, cardEl) {
+  // The grid re-render path calls this with the old chart's canvas already gone.
+  if (_miChart) { _miChart.destroy(); _miChart = null; }
+  const meta = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL].find(i => i.symbol === symbol);
+  const label = meta?.label || symbol;
+  const panel = document.createElement('div');
+  panel.className = 'market-chart-panel';
+  panel.innerHTML = `
+    <div class="market-chart-head">
+      <span class="market-chart-title">${escapeHtml(label)} vs Nifty 50 — indexed to 100</span>
+      <button class="market-chart-close" onclick="event.stopPropagation(); _closeMarketIndexChart()" title="Close">✕</button>
+    </div>
+    <div class="market-chart-body"><canvas></canvas></div>
+    <p class="market-chart-status">Loading chart…</p>`;
+  // Full-width row right below the clicked card, inside the same grid.
+  cardEl.insertAdjacentElement('afterend', panel);
+
+  try {
+    const wantNifty = symbol !== '^NSEI';
+    const [main, nifty] = await Promise.all([
+      _getMarketIndexSeries(symbol),
+      wantNifty ? _getMarketIndexSeries('^NSEI').catch(() => null) : null,
+    ]);
+    // A stale click (user closed / switched index while fetching) must not draw.
+    if (_miChartSymbol !== symbol || !panel.isConnected) return;
+
+    const days = { daily: 30, mtd: 0, m1: 30, m3: 91, m6: 182, y1: 365, y5: 365 * 5 }[marketOverviewMode] ?? 365;
+    const now = new Date();
+    const cutoff = marketOverviewMode === 'mtd'
+      ? new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+      : Date.now() - days * 86400000;
+    const pts = main.dates.map((t, i) => ({ t, c: main.closes[i] })).filter(p => p.t >= cutoff);
+    if (pts.length < 2) { panel.querySelector('.market-chart-status').textContent = 'Not enough data for this period.'; return; }
+
+    const base = pts[0].c;
+    const mainIdx = pts.map(p => +(p.c / base * 100).toFixed(2));
+    let niftyIdx = null;
+    if (nifty) {
+      const nBase = closeAtOrBefore(nifty, pts[0].t);
+      if (nBase) niftyIdx = pts.map(p => {
+        const v = closeAtOrBefore(nifty, p.t);
+        return v ? +(v / nBase * 100).toFixed(2) : null;
+      });
+    }
+    const labels = pts.map(p => new Date(p.t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: days > 365 ? '2-digit' : undefined }));
+
+    panel.querySelector('.market-chart-status').remove();
+    const datasets = [{
+      label, data: mainIdx, borderColor: '#818cf8', backgroundColor: 'rgba(129,140,248,0.08)',
+      fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2,
+    }];
+    if (niftyIdx) datasets.push({
+      label: 'Nifty 50', data: niftyIdx, borderColor: '#64748b', borderDash: [5, 4],
+      borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false,
+    });
+    _miChart = new Chart(panel.querySelector('canvas').getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#94a3b8', boxWidth: 18 } },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y} (${(c.parsed.y - 100).toFixed(2)}%)` } },
+        },
+        scales: {
+          x: { ticks: { color: '#64748b', maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
+          y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        },
+      },
+    });
+  } catch (e) {
+    const st = panel.querySelector('.market-chart-status');
+    if (st) st.textContent = 'Could not load chart data — check your connection and retry.';
+  }
 }
 
 // ── Daily Type Filter (Stocks / MFs / All) — click KPI cards ───────────────

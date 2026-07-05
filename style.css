@@ -2070,7 +2070,36 @@ tr:hover td {
   margin-top: 0.25rem;
 }
 
+.market-index-card.mi-clickable { cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
+.market-index-card.mi-clickable:hover { border-color: rgba(129, 140, 248, 0.5); transform: translateY(-1px); }
+.market-index-card.mi-open { border-color: #818cf8; box-shadow: 0 0 10px rgba(129, 140, 248, 0.2); }
+
+/* Inline chart panel — full-width row inserted right after the clicked card */
+.market-chart-panel {
+  grid-column: 1 / -1;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+}
+.market-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.market-chart-title { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
+.market-chart-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 0.95rem; cursor: pointer; padding: 0.15rem 0.4rem; border-radius: 6px;
+}
+.market-chart-close:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); }
+.market-chart-body { height: 260px; position: relative; }
+.market-chart-body canvas { width: 100% !important; height: 100% !important; }
+.market-chart-status { font-size: 0.8rem; color: var(--text-muted); margin: 0.5rem 0 0; }
+
 @media (max-width: 768px) {
+  .market-chart-body { height: 210px; }
   .market-index-grid {
     grid-template-columns: repeat(3, 1fr);
     gap: 0.5rem;
