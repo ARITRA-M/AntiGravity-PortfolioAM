@@ -266,6 +266,10 @@ function integrateLedger() {
   // runs before loadLedger() populates frozenBase (it's null then), so basePrice
   // falls back to current ltp → thisMonthGain = 0. This corrects that.
   if (frozenBase && typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
+  // Derive the ledger-era breakup columns from the ledger — this is what makes
+  // backdated/edited/deleted entries reflect in every table and chart without a
+  // Close Period. Idempotent, so safe on every load.
+  if (frozenBase) rebuildBreakupFromLedger();
 }
 
 // Persist / load the post-closeMonth breakup so appended periods survive reload
@@ -1043,8 +1047,11 @@ function closeMonth(dateStr) {
     npsELakhs: ctx.opaque['NPS-E'].value,
   };
   // Advance the frozen base to this close so future derivations start here.
+  // eraStart (the immutable Excel-history boundary) must survive the advance —
+  // baseDate moves every close, eraStart never does.
   frozenBase = {
     baseDate: D,
+    eraStart: frozenBase?.eraStart || _ledgerEraStart(),
     stockLakhs: stockValue,
     mfLakhs: mfValue,
     goldLakhs: goldValue,
@@ -1075,6 +1082,236 @@ function closeMonth(dateStr) {
     newInvestment: totalNewInv,
     portfolioXirr: breakupSummary.xirr['Average']?.values.slice(-1)[0] ?? null,
   };
+}
+
+// ── Ledger-derived history ──────────────────────────────────────────────────
+// Recompute every ledger-era breakup column directly from the ledger, so the
+// monthly time series is a DERIVED view: adding, editing, or deleting a balance
+// entry or transaction — even one dated into a past month — reflects everywhere
+// (tables, charts, KPIs) immediately, with no dependence on Close Period.
+// Close Period survives as the price-snapshot mechanism only: tradeable
+// month-end VALUES keep their close-time snapshots (historical prices can't be
+// recreated), while opaque values, all new-investment figures, and every
+// derived section (net change, returns, cashflows, % returns, allocation
+// shares, totals, XIRR) are recomputed here. Pure function of
+// (Excel-era columns, ledger) → idempotent; runs on every load and after every
+// ledger mutation.
+//
+// The Excel workbook's final Breakup column is the immutable-history boundary;
+// columns after it are ledger-authored and always rebuilt. frozenBase.baseDate
+// can't serve as this anchor (closeMonth advances it every month), so the era
+// start is persisted separately on frozenBase.
+const LEDGER_ERA_START_DEFAULT = '2026-05-01'; // last Excel-authored Breakup column
+
+function _ledgerEraStart() {
+  if (frozenBase?.eraStart) return frozenBase.eraStart;
+  const dates = breakupSummary?.dates || [];
+  const es = dates.includes(LEDGER_ERA_START_DEFAULT)
+    ? LEDGER_ERA_START_DEFAULT
+    : (frozenBase?.baseDate || dates[dates.length - 1] || '');
+  if (frozenBase) frozenBase.eraStart = es;
+  return es;
+}
+
+function _endOfMonthStr(dateStr) {
+  const [y, m] = dateStr.split('-').map(Number);
+  const d = new Date(y, m, 0); // day 0 of next month = last day of this month
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function rebuildBreakupFromLedger() {
+  if (!breakupSummary || !breakupSummary.dates?.length || !frozenBase) return false;
+  const dates = breakupSummary.dates;
+  const eraStart = _ledgerEraStart();
+  const firstLedgerIdx = dates.findIndex(d => d > eraStart);
+  if (firstLedgerIdx < 0) return false; // no ledger-era columns yet
+  const L = 1e5;
+  const winEnd = dates.map(_endOfMonthStr);
+  const nw = breakupSummary.net_worth;
+  const isTotal = label =>
+    /^(Total|Total Investment|Total Growth|Total Change|Average|Total Return %)$/.test(label);
+
+  // Gold trades are tradeables inside the equity list but belong to the Gold
+  // bucket — same split closeMonth makes.
+  const goldNames = new Set();
+  (typeof latestEquity !== 'undefined' ? latestEquity || [] : []).forEach(h => { if (isGoldHolding(h)) goldNames.add(h.instrument); });
+  (frozenBase.equity || []).forEach(h => { if (isGoldHolding(h)) goldNames.add(h.instrument); });
+  const isGoldTxn = t => t.assetClass === 'stock' &&
+    (goldNames.has(t.instrument) || isGoldHolding({ instrument: t.instrument }));
+
+  // Bucket a ledger item into its column: item ∈ column i iff
+  // winEnd[i-1] < date ≤ winEnd[i]. A pre-era date (backfill the immutable
+  // Excel columns can't absorb) folds into the FIRST ledger column so its
+  // cashflow still enters every series; the Transaction Log keeps the true
+  // date. Dates after the last column's month (the live, un-closed month)
+  // return -1 — they show via the live KPI path and enter at the next close.
+  const colFor = (date) => {
+    if (date > winEnd[dates.length - 1]) return -1;
+    for (let i = firstLedgerIdx; i < dates.length; i++) {
+      if (date <= winEnd[i]) return i;
+    }
+    return -1;
+  };
+
+  let changed = false;
+  const setVal = (section, key, i, v) => {
+    const e = breakupSummary[section]?.[key];
+    if (!e || !e.values) return;
+    const rounded = +Number(v).toFixed(6);
+    // Tolerance swallows single-ULP (1e-6) rounding jitter: recomputing from
+    // 6-decimal stored inputs can flip the last digit vs the close-time value
+    // computed from unrounded intermediates. 2e-6 lakh = ₹0.20 — immaterial,
+    // and without it every load would "change" the data and flag a commit.
+    if (Math.abs((e.values[i] ?? 0) - rounded) > 2e-6) {
+      e.values[i] = rounded;
+      changed = true;
+    }
+  };
+
+  // Close-time snapshot of each ledger-era column's opaque values, recorded the
+  // FIRST time this rebuild sees the column (i.e. before any override). This is
+  // the no-ledger-entry fallback: without it, deleting an entry couldn't revert
+  // a column — the only "previous" value available would be the one the entry
+  // itself had written. Persisted per column DATE so it survives reloads.
+  let colSnaps = {};
+  const snapKey = _ledgerPrefix() + 'ledger_col_snapshots';
+  try { colSnaps = JSON.parse(localStorage.getItem(snapKey) || '{}'); } catch (_) { colSnaps = {}; }
+  let snapsChanged = false;
+
+  for (let i = firstLedgerIdx; i < dates.length; i++) {
+    const txnsInCol = transactions.filter(t => colFor(t.date) === i);
+    const sumNi = pred => txnsInCol.filter(pred)
+      .reduce((s, t) => s + (t.type === 'sell' ? -t.amount : t.amount), 0) / L;
+
+    // prevValue reads column i−1, which (for i > firstLedgerIdx) this loop has
+    // already recomputed — ascending order matters. For the first ledger column
+    // it's the untouched final Excel value.
+    const ctx = {
+      stock: {
+        value: nw['Stocks (Equity)']?.values[i] ?? 0,
+        prevValue: nw['Stocks (Equity)']?.values[i - 1] ?? 0,
+        newInv: sumNi(t => t.assetClass === 'stock' && !isGoldTxn(t)),
+      },
+      mf: {
+        value: nw['Mutual Funds (Equity)']?.values[i] ?? 0,
+        prevValue: nw['Mutual Funds (Equity)']?.values[i - 1] ?? 0,
+        newInv: sumNi(t => t.assetClass === 'mf'),
+      },
+      opaque: {},
+    };
+    OPAQUE_COMPONENTS.forEach(comp => {
+      const key = COMPONENT_BREAKUP[comp].key;
+      const prevValue = nw[key]?.values[i - 1] ?? 0;
+      if (comp === 'Gold') {
+        // Derived from live-priced holdings at close time, not balance entries.
+        ctx.opaque[comp] = { value: nw[key]?.values[i] ?? 0, prevValue, newInv: sumNi(isGoldTxn) };
+        return;
+      }
+      // Record the column's pre-override value once (see colSnaps above).
+      const snaps = colSnaps[dates[i]] || (colSnaps[dates[i]] = {});
+      if (snaps[key] === undefined && nw[key]?.values[i] !== undefined) {
+        snaps[key] = nw[key].values[i];
+        snapsChanged = true;
+      }
+      const latest = latestBalanceFor(comp, winEnd[i]);
+      const value = latest ? latest.value / L : (snaps[key] ?? nw[key]?.values[i] ?? prevValue);
+      const newInv = balances
+        .filter(b => b.component === comp && colFor(b.date) === i)
+        .reduce((s, b) => s + (b.contribution || 0), 0) / L;
+      ctx.opaque[comp] = { value, prevValue, newInv };
+    });
+
+    const totalValue = ctx.stock.value + ctx.mf.value +
+      OPAQUE_COMPONENTS.reduce((s, c) => s + ctx.opaque[c].value, 0);
+    const prevTotal = nw['Total']?.values[i - 1] ?? 0;
+    const totalNewInv = ctx.stock.newInv + ctx.mf.newInv +
+      OPAQUE_COMPONENTS.reduce((s, c) => s + ctx.opaque[c].newInv, 0);
+
+    const forAll = (section, valueFor) => {
+      const sec = breakupSummary[section];
+      if (!sec) return;
+      Object.entries(sec).forEach(([key, e]) => setVal(section, key, i, valueFor(key, e)));
+    };
+
+    forAll('net_worth', (key, e) => {
+      if (isTotal(e.label)) return totalValue;
+      const src = _componentSources(e.label, ctx);
+      return src ? src.value : (e.values[i] ?? 0);
+    });
+    forAll('new_investment', (key, e) => {
+      if (isTotal(e.label)) return totalNewInv;
+      const src = _componentSources(e.label, ctx);
+      return src ? src.newInv : (e.values[i] ?? 0);
+    });
+    forAll('contribution', (key, e) => {
+      if (isTotal(e.label)) return 1;
+      const src = _componentSources(e.label, ctx);
+      return src && totalValue > 0 ? src.value / totalValue : (e.values[i] ?? 0);
+    });
+    forAll('net_change', (key, e) => {
+      if (isTotal(e.label)) return totalValue - prevTotal;
+      const src = _componentSources(e.label, ctx);
+      return src ? src.value - src.prevValue : (e.values[i] ?? 0);
+    });
+    forAll('returns', (key, e) => {
+      if (isTotal(e.label)) return (totalValue - prevTotal) - totalNewInv;
+      const src = _componentSources(e.label, ctx);
+      return src ? (src.value - src.prevValue) - src.newInv : (e.values[i] ?? 0);
+    });
+    forAll('net_cashflows', (key, e) => {
+      if (isTotal(e.label)) return totalNewInv;
+      const src = _componentSources(e.label, ctx);
+      return src ? src.newInv : (e.values[i] ?? 0);
+    });
+    forAll('pct_returns', (key, e) => {
+      if (isTotal(e.label)) {
+        const ret = (totalValue - prevTotal) - totalNewInv;
+        return prevTotal > 0 ? ret / prevTotal : 0;
+      }
+      const src = _componentSources(e.label, ctx);
+      if (!src) return e.values[i] ?? 0;
+      const ret = (src.value - src.prevValue) - src.newInv;
+      return src.prevValue > 0 ? ret / src.prevValue : 0;
+    });
+  }
+
+  // XIRR last: it needs the fully-updated new_investment/net_worth series.
+  // Same seeded-opening construction closeMonth uses, evaluated at each
+  // ledger-era column.
+  if (breakupSummary.xirr) {
+    for (let i = firstLedgerIdx; i < dates.length; i++) {
+      Object.entries(breakupSummary.xirr).forEach(([key, e]) => {
+        const invSeries = isTotal(e.label)
+          ? breakupSummary.new_investment['Total Investment']?.values
+          : breakupSummary.new_investment[key]?.values;
+        const nwSeries = isTotal(e.label)
+          ? breakupSummary.net_worth['Total']?.values
+          : breakupSummary.net_worth[key]?.values;
+        if (!invSeries || !nwSeries) return;
+        const opening = nwSeries[0] || 0;
+        const flows = opening > 0 ? [{ date: dates[0], amount: -opening }] : [];
+        for (let j = 1; j <= i; j++) {
+          const inv = invSeries[j] || 0;
+          if (Math.abs(inv) > 1e-6) flows.push({ date: dates[j], amount: -inv });
+        }
+        flows.push({ date: dates[i], amount: nwSeries[i] });
+        const x = computeXirr(flows);
+        if (x != null) setVal('xirr', key, i, x);
+      });
+    }
+  }
+
+  if (snapsChanged) {
+    try { localStorage.setItem(snapKey, JSON.stringify(colSnaps)); } catch (_) {}
+  }
+  if (changed) {
+    if (typeof buildPortfolioSummary === 'function' && typeof portfolioSummary !== 'undefined') {
+      portfolioSummary = buildPortfolioSummary(breakupSummary);
+    }
+    saveBreakupOverride();
+    markLedgerDirty();
+  }
+  return changed;
 }
 
 // Self-heal: an earlier version of closeMonth() built each component's XIRR cash-flow

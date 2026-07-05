@@ -7051,6 +7051,9 @@ function autoCloseMonthIfNeeded() {
 function refreshAfterLedgerChange() {
   if (typeof applyLedgerToHoldings === 'function') applyLedgerToHoldings();
   if (typeof initializeLiveBaseline === 'function') initializeLiveBaseline();
+  // Re-derive the monthly history columns from the ledger so backdated,
+  // edited, or deleted entries retro-apply to every table/chart immediately.
+  try { if (typeof rebuildBreakupFromLedger === 'function') rebuildBreakupFromLedger(); } catch (e) { console.error(e); }
   // Recompute net worth from live holdings so buys/sells reflect immediately.
   try { recomputePortfolioFromLiveData(); } catch (e) { console.error(e); }
   try { updateKpis(); } catch (e) { console.error(e); }

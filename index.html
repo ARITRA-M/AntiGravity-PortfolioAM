@@ -926,8 +926,8 @@
 
         <!-- Close Month -->
         <div class="chart-card manage-card">
-          <div class="chart-header"><h3>📅 Close Period</h3></div>
-          <p class="manage-hint">Snapshot a new monthly data point — appends a column to every chart (net worth, returns, XIRR) using current live prices &amp; entered balances.</p>
+          <div class="chart-header"><h3>📅 Close Period <span style="font-weight:400;font-size:0.72rem;color:var(--text-muted);">automatic — manual close is a backup</span></h3></div>
+          <p class="manage-hint">Monthly snapshots close <strong>automatically</strong> when you first open the app in a new month, and every table/chart reflects ledger entries (including backdated ones) immediately — closing is <em>not</em> needed to see your data. Use this only as a backup, e.g. to snapshot tradeable prices on a specific mid-month date.</p>
           <div class="manage-row">
             <label>Close date <input type="date" id="close-date"></label>
           </div>
