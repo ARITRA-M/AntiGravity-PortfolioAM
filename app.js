@@ -3450,7 +3450,6 @@ function initFixedIncomeTab() {
   // Destroy existing charts before re-creating
   if (window.pfGrowthChart) window.pfGrowthChart.destroy();
   if (window.ppfGrowthChart) window.ppfGrowthChart.destroy();
-  if (window.bondsGrowthChart) window.bondsGrowthChart.destroy();
 
   const nw = breakupSummary.net_worth;
   const dates = breakupSummary.dates;
@@ -3610,63 +3609,6 @@ function initFixedIncomeTab() {
       scales: {
         x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
         y: {
-          grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#9ca3af', callback: (v) => '₹' + v + ' L' }
-        }
-      },
-      plugins: {
-        legend: { position: 'top', labels: { color: '#f3f4f6' } }
-      }
-    }
-  });
-
-  // 3. Bonds Growth Chart
-  const bondsVals = nw['Bonds (Debt)']?.values || [];
-  const bondsNewInvVals = breakupSummary.new_investment?.['Bonds (Debt)']?.values || [];
-  const bondsInitialVal = bondsVals.length > 0 ? bondsVals[0] : 0;
-  let bondsCumulative = bondsInitialVal;
-  const bondsCumulVals = bondsNewInvVals.map(v => { bondsCumulative += v; return bondsCumulative; });
-  const ctxBonds = document.getElementById('bonds-growth-chart').getContext('2d');
-  window.bondsGrowthChart = new Chart(ctxBonds, {
-    type: 'line',
-    data: {
-      labels: dates.map(d => formatDateString(d)),
-      datasets: [
-        {
-          label: 'Bonds Current Value (₹ L)',
-          data: bondsVals,
-          borderColor: '#8b5cf6',
-          backgroundColor: 'rgba(139, 92, 246, 0.1)',
-          fill: true,
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4
-        },
-        {
-          label: 'Bonds Cumulative Investment (₹ L)',
-          data: bondsCumulVals,
-          borderColor: '#c4b5fd',
-          borderWidth: 1.5,
-          borderDash: [5, 5],
-          fill: false,
-          pointRadius: 0,
-          pointHoverRadius: 4
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
-        y: {
-          // Bonds is a tiny (~₹0.3L), no-new-contribution holding whose small
-          // mark-to-market moves (a few hundred rupees) are real, but an
-          // auto-scaled axis zooms into that noise and draws it as a wild
-          // sawtooth — begin at zero so the chart honestly shows the position
-          // is small and essentially flat, not "erratic".
-          beginAtZero: true,
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
           ticks: { color: '#9ca3af', callback: (v) => '₹' + v + ' L' }
         }
