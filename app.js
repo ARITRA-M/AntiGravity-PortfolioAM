@@ -1848,8 +1848,9 @@ const MARKET_MOVER_POOL = [
   { symbol: '^CNXINFRA',  label: 'Nifty Infra', nse: 'NIFTY INFRASTRUCTURE', groww: 'NIFTYINFRAST' },
 ];
 const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
-const MARKET_OVERVIEW_CACHE_KEY = 'ag_market_overview_cache';
-let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m1,m3,m6,y1,y5}}>
+// v2: cached entries gained pct.y3 — a v1 cache would show "—" for 3Y until TTL expiry.
+const MARKET_OVERVIEW_CACHE_KEY = 'ag_market_overview_cache_v2';
+let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m1,m3,m6,y1,y3,y5}}>
 let marketOverviewFetchedAt = 0;
 
 // Persist the computed overview across reloads: the tab used to refetch three
@@ -1881,20 +1882,37 @@ function _restoreMarketOverviewCache() {
 let marketOverviewMode = (() => {
   try {
     const m = localStorage.getItem(LS_PREFIX + 'market_period');
-    if (['daily', 'mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(m)) return m;
+    if (['daily', 'mtd', 'm1', 'm3', 'm6', 'y1', 'y3', 'y5'].includes(m)) return m;
   } catch (_) {}
   return 'daily';
-})(); // 'daily' | 'mtd' | 'm1' | 'm3' | 'm6' | 'y1' | 'y5'
+})(); // 'daily' | 'mtd' | 'm1' | 'm3' | 'm6' | 'y1' | 'y3' | 'y5'
+
+// Slide the segmented filter's thumb under the active period button.
+function _syncMarketPeriodSeg() {
+  const seg = document.getElementById('market-period-seg');
+  if (!seg) return;
+  const thumb = seg.querySelector('.seg-thumb');
+  let active = null;
+  seg.querySelectorAll('button').forEach(b => {
+    const on = b.dataset.mode === marketOverviewMode;
+    b.classList.toggle('active', on);
+    if (on) active = b;
+  });
+  if (thumb && active) {
+    thumb.style.left = active.offsetLeft + 'px';
+    thumb.style.width = active.offsetWidth + 'px';
+  }
+}
+window.addEventListener('resize', _syncMarketPeriodSeg);
 
 function setMarketOverviewMode(mode) {
   marketOverviewMode = mode;
   try { localStorage.setItem(LS_PREFIX + 'market_period', mode); } catch (_) {}
-  const sel = document.getElementById('market-period-filter');
-  if (sel) sel.value = mode;
+  _syncMarketPeriodSeg();
   renderMarketOverviewCards();
   // mtd included: the long-range pass also repairs approximate/missing MTD
   // figures from Groww's complete daily series.
-  if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
+  if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y3', 'y5'].includes(mode)) _ensureMarketOverviewLongRange();
 }
 
 // TIMESTAMP SEMANTICS (verified against NSE's official last/previousClose and
@@ -1918,10 +1936,9 @@ function _closeBefore(series, ms) {
 let marketOverviewLongFetchedAt = 0; // separate TTL for the (larger, rarer-needed) 5y series
 
 async function initMarketOverviewTab() {
-  // Reflect the restored period filter in the dropdown; kick off the long-range
-  // fetch right away if the remembered period needs it.
-  const perSel = document.getElementById('market-period-filter');
-  if (perSel && perSel.value !== marketOverviewMode) perSel.value = marketOverviewMode;
+  // Reflect the restored period filter in the segmented control; kick off the
+  // long-range fetch right away if the remembered period needs it.
+  _syncMarketPeriodSeg();
   // No in-memory data yet (fresh page load)? Restore the last computed overview
   // from localStorage and paint it immediately — the slow part of this tab was
   // never the rendering, it's the three proxied network round-trips.
@@ -2062,6 +2079,7 @@ async function _ensureMarketOverviewLongRange() {
       entry.pct.m3 = pctFrom(_closeBefore(longSeries, daysAgo(91)));
       entry.pct.m6 = pctFrom(_closeBefore(longSeries, daysAgo(182)));
       entry.pct.y1 = pctFrom(_closeBefore(longSeries, daysAgo(365)));
+      entry.pct.y3 = pctFrom(_closeBefore(longSeries, daysAgo(365 * 3)));
       entry.pct.y5 = pctFrom(_closeBefore(longSeries, daysAgo(365 * 5)));
       if (entry.pct.mtd == null) {
         // Same 5-day guard as the short-series MTD: a weekly bar too far before
@@ -2085,7 +2103,7 @@ async function _ensureMarketOverviewLongRange() {
       if (!e) return false;
       const p = e.pct;
       return p.longUnsupported || p.mtd == null || p.m1 == null ||
-             p.m3 == null || p.m6 == null || p.y1 == null || p.y5 == null;
+             p.m3 == null || p.m6 == null || p.y1 == null || p.y3 == null || p.y5 == null;
     });
     await Promise.all(needsRepair.map(async ({ symbol, groww }) => {
       try {
@@ -2105,6 +2123,7 @@ async function _ensureMarketOverviewLongRange() {
         entry.pct.m3 = pctFrom(_closeBefore(s, daysAgo(91)))  ?? entry.pct.m3;
         entry.pct.m6 = pctFrom(_closeBefore(s, daysAgo(182))) ?? entry.pct.m6;
         entry.pct.y1 = pctFrom(_closeBefore(s, daysAgo(365))) ?? entry.pct.y1;
+        entry.pct.y3 = pctFrom(_closeBefore(s, daysAgo(365 * 3))) ?? entry.pct.y3;
         entry.pct.y5 = pctFrom(_closeBefore(s, daysAgo(365 * 5))) ?? entry.pct.y5;
         // First close in the series stands in for 5Y when the index is younger
         // (Groww's smallcap history starts Apr 2021).
@@ -2115,7 +2134,7 @@ async function _ensureMarketOverviewLongRange() {
 
     _saveMarketOverviewCache(); // long-range figures are the expensive part — keep them across reloads
     // Re-render if the user is currently looking at a period that just filled in.
-    if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
+    if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y3', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
   } catch (e) {
     console.warn('[market-overview] long-range fetch failed:', e.message);
   }
@@ -2137,7 +2156,7 @@ function renderMarketOverviewCards() {
     // anywhere on Yahoo for 3M/6M/1Y/5Y — a permanent data-source gap, not a
     // transient fetch failure. Show it distinctly ("n/a") so it doesn't look
     // like a bug that a refresh will fix.
-    const isLongUnsupported = ['m1', 'm3', 'm6', 'y1', 'y5'].includes(pctKey) && d.pct?.longUnsupported;
+    const isLongUnsupported = ['m1', 'm3', 'm6', 'y1', 'y3', 'y5'].includes(pctKey) && d.pct?.longUnsupported;
     // pct can be legitimately unavailable (e.g. daily suppressed because Yahoo's
     // series has a multi-day hole, or exact MTD not yet filled) — show the card
     // with a dash, not a wrong number.
@@ -2199,7 +2218,7 @@ function renderMarketOverviewCards() {
     losersHtml.length ? `<div class="market-section"><div class="market-section-title">Top 3 Losers</div><div class="market-index-grid">${losersHtml.join('')}</div></div>` : '',
   ].join('');
 
-  const isLongPeriod = ['m1', 'm3', 'm6', 'y1', 'y5'].includes(pctKey);
+  const isLongPeriod = ['m1', 'm3', 'm6', 'y1', 'y3', 'y5'].includes(pctKey);
   grid.innerHTML = sectionsHtml
     || (isLongPeriod
       ? '<p style="color:var(--text-muted);">Loading longer-range data…</p>'
@@ -2293,7 +2312,7 @@ async function _openMarketIndexChart(symbol, cardEl) {
     // A stale click (user closed / switched index while fetching) must not draw.
     if (_miChartSymbol !== symbol || !panel.isConnected) return;
 
-    const days = { daily: 30, mtd: 0, m1: 30, m3: 91, m6: 182, y1: 365, y5: 365 * 5 }[marketOverviewMode] ?? 365;
+    const days = { daily: 30, mtd: 0, m1: 30, m3: 91, m6: 182, y1: 365, y3: 365 * 3, y5: 365 * 5 }[marketOverviewMode] ?? 365;
     const now = new Date();
     const cutoff = marketOverviewMode === 'mtd'
       ? new Date(now.getFullYear(), now.getMonth(), 1).getTime()

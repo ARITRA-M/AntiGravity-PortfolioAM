@@ -209,16 +209,16 @@
         <div class="chart-card full-width-card">
           <div class="chart-header">
             <h3>Market Overview — National, Sectoral &amp; Global Indices</h3>
-            <div class="time-filters">
-              <select id="market-period-filter" class="select-filter" onchange="setMarketOverviewMode(this.value)">
-                <option value="daily" selected>Daily</option>
-                <option value="mtd">MTD</option>
-                <option value="m1">1 Month</option>
-                <option value="m3">3 Months</option>
-                <option value="m6">6 Months</option>
-                <option value="y1">1 Year</option>
-                <option value="y5">5 Years</option>
-              </select>
+            <div class="seg-filter" id="market-period-seg" role="tablist" aria-label="Market period">
+              <div class="seg-thumb"></div>
+              <button data-mode="daily" class="active" onclick="setMarketOverviewMode('daily')">1D</button>
+              <button data-mode="mtd" onclick="setMarketOverviewMode('mtd')">MTD</button>
+              <button data-mode="m1" onclick="setMarketOverviewMode('m1')">1M</button>
+              <button data-mode="m3" onclick="setMarketOverviewMode('m3')">3M</button>
+              <button data-mode="m6" onclick="setMarketOverviewMode('m6')">6M</button>
+              <button data-mode="y1" onclick="setMarketOverviewMode('y1')">1Y</button>
+              <button data-mode="y3" onclick="setMarketOverviewMode('y3')">3Y</button>
+              <button data-mode="y5" onclick="setMarketOverviewMode('y5')">5Y</button>
             </div>
           </div>
           <p class="manage-hint" id="market-overview-status">Loading market data…</p>
