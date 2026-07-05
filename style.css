@@ -2112,6 +2112,21 @@ tr:hover td {
 }
 .seg-filter button:hover { color: var(--text-primary); }
 .seg-filter button.active { color: #fff; }
+
+/* Buttons that keep their .subtab-btn class inside a seg wrapper: neutralise
+   the standalone subtab look (block background + underline) so the sliding
+   thumb is the only active indicator. */
+.seg-filter .subtab-btn,
+.seg-filter .subtab-btn.active {
+  background: transparent;
+  border-radius: 999px;
+}
+.seg-filter .subtab-btn.active { color: #fff; }
+.seg-filter .subtab-btn.active::after { display: none; }
+.seg-filter .subtab-btn:hover { background: transparent; }
+
+/* Larger variant for primary sub-navigation (Overview's Daily/Monthly/Market) */
+.seg-filter.seg-lg button { font-size: 0.85rem; padding: 0.45rem 1rem; }
 /* Mobile: drop to a full-width row under the heading instead of a cramped,
    silently-scrolling sliver squeezed next to the title. */
 .chart-header:has(.seg-filter) { flex-wrap: wrap; row-gap: 0.6rem; }
@@ -2771,10 +2786,14 @@ tr:hover td {
     border-radius: 10px;
     cursor: pointer;
   }
-  .bottom-nav-btn .bn-icon { font-size: 1.05rem; line-height: 1; }
-  .bottom-nav-btn.active { color: var(--text-primary); }
-  .bottom-nav-btn.active .bn-icon { transform: translateY(-1px); }
-  .bottom-nav-btn.active .bn-label { color: var(--accent-indigo); }
+  .bottom-nav-btn .bn-icon { font-size: 1.05rem; line-height: 1; transition: transform 0.2s; }
+  .bottom-nav-btn.active {
+    color: var(--text-primary);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(139, 92, 246, 0.22));
+    box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.35);
+  }
+  .bottom-nav-btn.active .bn-icon { transform: translateY(-1px) scale(1.1); }
+  .bottom-nav-btn.active .bn-label { color: #c7d2fe; }
 }
 
 /* ── Loading skeletons ────────────────────────────────────────────────── */

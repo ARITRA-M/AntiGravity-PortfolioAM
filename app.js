@@ -1887,23 +1887,35 @@ let marketOverviewMode = (() => {
   return 'daily';
 })(); // 'daily' | 'mtd' | 'm1' | 'm3' | 'm6' | 'y1' | 'y3' | 'y5'
 
-// Slide the segmented filter's thumb under the active period button.
-function _syncMarketPeriodSeg() {
-  const seg = document.getElementById('market-period-seg');
-  if (!seg) return;
+// ── Segmented pill controls (shared) ────────────────────────────────────────
+// Any .seg-filter gets its .seg-thumb slid under whichever button has .active.
+// Existing click handlers keep managing the .active class; a delegated listener
+// re-positions the thumb one frame later, after those handlers have run.
+function syncSegThumb(seg) {
   const thumb = seg.querySelector('.seg-thumb');
-  let active = null;
-  seg.querySelectorAll('button').forEach(b => {
-    const on = b.dataset.mode === marketOverviewMode;
-    b.classList.toggle('active', on);
-    if (on) active = b;
-  });
-  if (thumb && active) {
+  const active = seg.querySelector('button.active');
+  if (thumb && active && active.offsetWidth) {
     thumb.style.left = active.offsetLeft + 'px';
     thumb.style.width = active.offsetWidth + 'px';
   }
 }
-window.addEventListener('resize', _syncMarketPeriodSeg);
+function syncAllSegThumbs() {
+  document.querySelectorAll('.seg-filter').forEach(syncSegThumb);
+}
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg-filter');
+  if (seg) requestAnimationFrame(() => syncSegThumb(seg));
+});
+window.addEventListener('resize', syncAllSegThumbs);
+
+// Market period seg also derives .active from the (persisted) mode.
+function _syncMarketPeriodSeg() {
+  const seg = document.getElementById('market-period-seg');
+  if (!seg) return;
+  seg.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === marketOverviewMode));
+  syncSegThumb(seg);
+}
 
 function setMarketOverviewMode(mode) {
   marketOverviewMode = mode;
@@ -3081,9 +3093,14 @@ function initOverviewTab() {
 
 // Common Growth & Benchmark tab time filter → start index into the monthly
 // breakupSummary.dates. Drives every chart in the tab (re-rendered on change).
+function setGrowthPeriod(val, btn) {
+  document.querySelectorAll('#growth-time-seg button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyGrowthTimeFilter();
+}
+
 function growthSliceIdx() {
-  const sel = document.getElementById('growth-time-filter');
-  const filter = sel ? sel.value : 'ALL';
+  const filter = document.querySelector('#growth-time-seg button.active')?.dataset.val || 'ALL';
   const len = (breakupSummary && breakupSummary.dates) ? breakupSummary.dates.length : 0;
   switch (filter) {
     case '5Y': return Math.max(0, len - 60);
@@ -5549,6 +5566,7 @@ function renderPeriodicPerformance(gran) {
   document.querySelectorAll('.periodic-gran-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.gran === _periodicGran);
   });
+  syncAllSegThumbs();
 
   const buckets = _buildPeriodBuckets(_periodicGran);
   if (!buckets.length) return;

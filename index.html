@@ -133,9 +133,12 @@
     <div id="overview-tab" class="tab-content active">
       <!-- Overview Sub-tabs -->
       <div class="overview-subtabs">
-        <button class="subtab-btn active" onclick="switchOverviewSubtab('daily', this)">📊 Daily Overview</button>
-        <button class="subtab-btn" onclick="switchOverviewSubtab('monthly', this)">📈 Monthly Overview</button>
-        <button class="subtab-btn" onclick="switchOverviewSubtab('market', this)">🌐 Market Overview</button>
+        <div class="seg-filter seg-lg">
+          <div class="seg-thumb"></div>
+          <button class="subtab-btn active" onclick="switchOverviewSubtab('daily', this)">📊 Daily</button>
+          <button class="subtab-btn" onclick="switchOverviewSubtab('monthly', this)">📈 Monthly</button>
+          <button class="subtab-btn" onclick="switchOverviewSubtab('market', this)">🌐 Market</button>
+        </div>
       </div>
 
       <!-- Daily Overview Section -->
@@ -230,17 +233,16 @@
     <!-- ==================== GROWTH & BENCHMARK TAB ==================== -->
     <div id="growth-tab" class="tab-content">
       <!-- Common time-period filter for ALL graphs in this tab -->
-      <div class="chart-header" style="display:flex; align-items:center; justify-content:flex-end; gap:0.75rem; margin-bottom:1rem;">
-        <label for="growth-time-filter" style="font-size:0.85rem; color:var(--text-secondary);">Time period</label>
-        <div class="time-filters">
-          <select id="growth-time-filter" class="select-filter" onchange="applyGrowthTimeFilter()" title="Applies to every chart in this tab">
-            <option value="ALL">All Time</option>
-            <option value="5Y">Past 5 Years</option>
-            <option value="3Y">Past 3 Years</option>
-            <option value="1Y" selected>Past 1 Year</option>
-            <option value="6M">Past 6 Months</option>
-            <option value="3M">Past 3 Months</option>
-          </select>
+      <div class="chart-header" style="display:flex; align-items:center; justify-content:flex-end; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">
+        <span style="font-size:0.85rem; color:var(--text-secondary);">Time period</span>
+        <div class="seg-filter" id="growth-time-seg" title="Applies to every chart in this tab">
+          <div class="seg-thumb"></div>
+          <button data-val="3M" onclick="setGrowthPeriod('3M', this)">3M</button>
+          <button data-val="6M" onclick="setGrowthPeriod('6M', this)">6M</button>
+          <button data-val="1Y" class="active" onclick="setGrowthPeriod('1Y', this)">1Y</button>
+          <button data-val="3Y" onclick="setGrowthPeriod('3Y', this)">3Y</button>
+          <button data-val="5Y" onclick="setGrowthPeriod('5Y', this)">5Y</button>
+          <button data-val="ALL" onclick="setGrowthPeriod('ALL', this)">All</button>
         </div>
       </div>
       <div class="dashboard-grid">
@@ -411,8 +413,11 @@
           <div class="chart-header">
             <h3>Equity Portfolio Market Cap Distribution Over Time</h3>
             <div class="time-filters">
-              <button id="cap-mode-value" class="subtab-btn active" onclick="switchCapMode('value', this)">By Value</button>
-              <button id="cap-mode-count" class="subtab-btn" onclick="switchCapMode('count', this)">By Count</button>
+              <div class="seg-filter">
+                <div class="seg-thumb"></div>
+                <button id="cap-mode-value" class="subtab-btn active" onclick="switchCapMode('value', this)">By Value</button>
+                <button id="cap-mode-count" class="subtab-btn" onclick="switchCapMode('count', this)">By Count</button>
+              </div>
             </div>
           </div>
           <div class="chart-container" style="height: 420px;">
@@ -678,7 +683,8 @@
       <div class="chart-card full-width-card">
         <div class="chart-header">
           <h3>📊 Periodic Performance</h3>
-          <div class="time-filters">
+          <div class="seg-filter">
+            <div class="seg-thumb"></div>
             <button class="periodic-gran-btn subtab-btn" data-gran="M" onclick="renderPeriodicPerformance('M')">Monthly</button>
             <button class="periodic-gran-btn subtab-btn active" data-gran="Q" onclick="renderPeriodicPerformance('Q')">Quarterly</button>
             <button class="periodic-gran-btn subtab-btn" data-gran="H" onclick="renderPeriodicPerformance('H')">Half-Yearly</button>
@@ -730,7 +736,8 @@
         <div class="chart-card full-width-card movers-section">
           <div class="chart-header">
             <h3>Top Stock Movers <span id="movers-period-label" class="movers-mode-label"></span></h3>
-            <div class="time-filters">
+            <div class="seg-filter">
+              <div class="seg-thumb"></div>
               <button id="movers-mode-pct" class="subtab-btn active" onclick="switchMoversMode('pct', this)">By % Return</button>
               <button id="movers-mode-abs" class="subtab-btn" onclick="switchMoversMode('abs', this)">By Absolute ₹</button>
             </div>
