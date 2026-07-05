@@ -3645,7 +3645,7 @@ function initFixedIncomeTab() {
         {
           label: 'Bonds Cumulative Investment (₹ L)',
           data: bondsCumulVals,
-          borderColor: '#8b5cf6',
+          borderColor: '#c4b5fd',
           borderWidth: 1.5,
           borderDash: [5, 5],
           fill: false,
@@ -3661,6 +3661,12 @@ function initFixedIncomeTab() {
       scales: {
         x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 12 } },
         y: {
+          // Bonds is a tiny (~₹0.3L), no-new-contribution holding whose small
+          // mark-to-market moves (a few hundred rupees) are real, but an
+          // auto-scaled axis zooms into that noise and draws it as a wild
+          // sawtooth — begin at zero so the chart honestly shows the position
+          // is small and essentially flat, not "erratic".
+          beginAtZero: true,
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
           ticks: { color: '#9ca3af', callback: (v) => '₹' + v + ' L' }
         }
