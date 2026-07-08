@@ -2566,6 +2566,18 @@ tr:hover td {
   font-weight: 600;
 }
 .manage-row label.manage-full { flex-basis: 100%; }
+.manage-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin: -0.25rem 0 0.25rem;
+  cursor: pointer;
+}
+.manage-checkbox input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent-indigo); cursor: pointer; }
+.manage-computed-input { opacity: 0.7; cursor: not-allowed; }
 .manage-form input,
 .manage-form select {
   background: var(--bg-secondary, rgba(255,255,255,0.04));

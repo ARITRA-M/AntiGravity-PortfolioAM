@@ -851,6 +851,10 @@
             <p id="txn-corporate-hint" class="manage-hint" style="display:none;margin:0.25rem 0 0.5rem;">
               Enter the <strong>additional shares</strong> received (e.g. for a 1:1 bonus on 100 shares, enter 100). Price = 0, Amount = 0.
             </p>
+            <label id="txn-exit-wrap" class="manage-checkbox" style="display:none;">
+              <input type="checkbox" id="txn-exit-all" onchange="onTxnExitAllChange()">
+              Exit full position (sell entire holding — quantity is filled in automatically)
+            </label>
             <div class="manage-row">
               <label>Instrument
                 <input id="txn-instrument" list="txn-instrument-list" autocomplete="off" placeholder="e.g. SIEMENS" oninput="onTxnInstrumentChange()" required>

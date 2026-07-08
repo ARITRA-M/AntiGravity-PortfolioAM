@@ -6759,6 +6759,58 @@ function onTxnTypeChange() {
     document.getElementById('txn-price').value = '0';
     document.getElementById('txn-amount').value = '0';
   }
+  const exitWrap = document.getElementById('txn-exit-wrap');
+  if (exitWrap) {
+    exitWrap.style.display = type === 'sell' ? '' : 'none';
+    if (type !== 'sell') {
+      document.getElementById('txn-exit-all').checked = false;
+      _setTxnQtyLocked(false);
+    }
+  }
+}
+
+// Current held quantity for the instrument currently typed into the form
+// (matched against latestEquity/latestMf, the same live holdings the rest of
+// the app reads) — used to auto-fill "Exit full position".
+function _currentHeldQty() {
+  const cls = document.getElementById('txn-assetClass').value;
+  const name = (document.getElementById('txn-instrument').value || '').trim();
+  if (!name) return null;
+  if (cls === 'mf') {
+    const h = (latestMf || []).find(f => f.scheme.toLowerCase() === name.toLowerCase());
+    return h ? h.qty : null;
+  }
+  const canon = (typeof canonicalInstrument === 'function') ? canonicalInstrument(name, 'stock') : name;
+  const h = (latestEquity || []).find(s => s.instrument === canon || s.instrument.toLowerCase() === name.toLowerCase());
+  return h ? h.qty : null;
+}
+
+function _setTxnQtyLocked(locked) {
+  const qtyEl = document.getElementById('txn-qty');
+  qtyEl.readOnly = locked;
+  qtyEl.classList.toggle('manage-computed-input', locked);
+}
+
+function onTxnExitAllChange() {
+  const checked = document.getElementById('txn-exit-all').checked;
+  _setTxnQtyLocked(checked);
+  if (checked) _fillExitQty();
+}
+
+// Re-fills the locked qty field with the current holding whenever the exit
+// checkbox is on and the instrument/asset-class changes — so switching the
+// instrument while "exit full position" is checked doesn't leave a stale qty
+// from the previously-typed instrument.
+function _fillExitQty() {
+  if (!document.getElementById('txn-exit-all')?.checked) return;
+  const qty = _currentHeldQty();
+  const qtyEl = document.getElementById('txn-qty');
+  if (qty != null) {
+    qtyEl.value = qty;
+    onTxnAmountInputs();
+  } else {
+    qtyEl.value = '';
+  }
 }
 
 function onTxnAssetClassChange() {
@@ -6766,6 +6818,7 @@ function onTxnAssetClassChange() {
   document.getElementById('txn-category-wrap').style.display = cls === 'mf' ? '' : 'none';
   populateInstrumentDatalist();
   onTxnInstrumentChange();
+  _fillExitQty();
 }
 
 // Auto-derive the MF category from the matched scheme (read-only display) — the
@@ -6780,6 +6833,7 @@ function onTxnInstrumentChange() {
   const name = (document.getElementById('txn-instrument').value || '').trim().toLowerCase();
   const match = (latestMf || []).find(f => f.scheme.toLowerCase() === name);
   catEl.value = match ? (match.scheme_type || '') : '';
+  _fillExitQty();
 }
 
 function onTxnAmountInputs() {
@@ -6795,6 +6849,7 @@ function handleTxnSubmit(e) {
   e.preventDefault();
   if (typeof addTransaction !== 'function') { alert('Ledger module not loaded.'); return false; }
   const editId = document.getElementById('txn-edit-id').value;
+  const exitAll = document.getElementById('txn-exit-all')?.checked;
   const payload = {
     assetClass: document.getElementById('txn-assetClass').value,
     type: document.getElementById('txn-type').value,
@@ -6806,6 +6861,17 @@ function handleTxnSubmit(e) {
     amount: document.getElementById('txn-amount').value ? parseFloat(document.getElementById('txn-amount').value) : null,
     note: document.getElementById('txn-note').value.trim(),
   };
+  // "Exit full position" re-reads the CURRENT holding qty at submit time
+  // rather than trusting the (possibly stale, if prices refreshed since the
+  // checkbox was ticked) value already sitting in the field.
+  if (exitAll && payload.type === 'sell') {
+    const heldQty = _currentHeldQty();
+    if (heldQty == null || heldQty <= 0) {
+      alert('No current holding found for this instrument — nothing to exit.'); return false;
+    }
+    payload.qty = heldQty;
+    if (!payload.amount && isFinite(payload.price)) payload.amount = +(heldQty * payload.price).toFixed(2);
+  }
   const isCorporateAction = payload.type === 'split' || payload.type === 'bonus';
   if (!payload.instrument || !isFinite(payload.qty) || (!isCorporateAction && !isFinite(payload.price))) {
     alert('Instrument and quantity are required.'); return false;
@@ -6826,7 +6892,9 @@ function resetTxnForm() {
   document.getElementById('txn-submit-btn').textContent = 'Add Transaction';
   document.getElementById('txn-cancel-btn').style.display = 'none';
   document.getElementById('txn-date').value = localDateStr();
+  _setTxnQtyLocked(false);
   onTxnAssetClassChange();
+  onTxnTypeChange();
 }
 
 function editTxn(id) {
@@ -6846,7 +6914,14 @@ function editTxn(id) {
   document.getElementById('txn-note').value = t.note || '';
   document.getElementById('txn-submit-btn').textContent = 'Update Transaction';
   document.getElementById('txn-cancel-btn').style.display = '';
+  // Editing shows the transaction's OWN recorded qty — never re-derive it from
+  // current holdings, so "exit all" starts unchecked and unlocked.
+  const exitCb = document.getElementById('txn-exit-all');
+  if (exitCb) exitCb.checked = false;
+  _setTxnQtyLocked(false);
   onTxnAssetClassChange();
+  onTxnTypeChange();
+  document.getElementById('txn-qty').value = t.qty; // onTxnAssetClassChange may have re-triggered _fillExitQty; restore the exact stored qty
   document.getElementById('txn-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
