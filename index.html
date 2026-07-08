@@ -839,9 +839,15 @@
               <label>Quantity <input type="number" step="any" id="txn-qty" oninput="onTxnAmountInputs()" required></label>
             </div>
             <div class="manage-row">
-              <label>Price (₹) <input type="number" step="any" id="txn-price" oninput="onTxnAmountInputs()" required></label>
+              <label>Price (₹)
+                <div class="manage-input-with-btn">
+                  <input type="number" step="any" id="txn-price" oninput="onTxnAmountInputs()" required>
+                  <button type="button" class="ghost-btn fetch-price-btn" id="txn-fetch-price-btn" onclick="fetchTxnLatestPrice()" title="Fetch the most recent market price / NAV — you can still edit it before saving">⟳ Fetch</button>
+                </div>
+              </label>
               <label>Amount (₹) <input type="number" step="any" id="txn-amount" placeholder="auto = qty × price"></label>
             </div>
+            <p id="txn-price-status" class="manage-hint" style="margin:-0.25rem 0 0;"></p>
             <div class="manage-row">
               <label class="manage-full">Note <input id="txn-note" placeholder="optional"></label>
             </div>
@@ -855,7 +861,7 @@
         <!-- Update Balance (opaque components) -->
         <div class="chart-card manage-card">
           <div class="chart-header"><h3>🏦 Update Balance</h3></div>
-          <p class="manage-hint">NPS: enter the current value straight from your statement, plus what you contributed. PF/PPF/Bonds/Cash/Crypto: current value auto-calculates from previous value + contribution + interest. Gold is tracked automatically from your SGB/GOLDBEES holdings.</p>
+          <p class="manage-hint">NPS: enter the current value straight from your statement, plus what you contributed. PF/PPF/Bonds/Cash/Crypto: current value auto-calculates from previous value + contribution + interest. Gold is tracked automatically from your SGB/GOLDBEES holdings. Fully withdrawing one of these? Check "Exit full position" below instead of computing the numbers yourself.</p>
           <form id="bal-form" class="manage-form" onsubmit="return handleBalSubmit(event)">
             <input type="hidden" id="bal-edit-id" value="">
             <input type="hidden" id="bal-value" value="0">
@@ -874,6 +880,10 @@
               </label>
               <label>Date <input type="date" id="bal-date" required onchange="updateBalComputedValue()"></label>
             </div>
+            <label class="manage-checkbox">
+              <input type="checkbox" id="bal-exit-all" onchange="onBalExitAllChange()">
+              Exit full position (withdraw the entire balance — current value goes to ₹0)
+            </label>
             <div class="manage-row">
               <label>Contributed this period (₹) <input type="number" step="any" id="bal-contribution" value="0" oninput="updateBalComputedValue()"></label>
               <label id="bal-interest-wrap">Interest earned this period (₹) <input type="number" step="any" id="bal-interest" value="0" oninput="updateBalComputedValue()"></label>

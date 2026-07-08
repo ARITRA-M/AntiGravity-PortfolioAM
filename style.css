@@ -2554,6 +2554,12 @@ tr:hover td {
   margin: 0 0 0.9rem;
   line-height: 1.4;
 }
+/* .trend-up/.trend-down alone tie with .manage-hint's own color rule on
+   specificity, so the later-in-file one (.manage-hint) would silently win —
+   this combined selector outranks both to let status text actually go
+   green/red inside a .manage-hint element (e.g. the fetch-price status line). */
+p.manage-hint.trend-up { color: var(--accent-green); }
+p.manage-hint.trend-down { color: var(--accent-red); }
 .manage-form { display: flex; flex-direction: column; gap: 0.75rem; }
 .manage-row { display: flex; gap: 0.75rem; }
 .manage-row label {
@@ -2578,6 +2584,16 @@ tr:hover td {
 }
 .manage-checkbox input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent-indigo); cursor: pointer; }
 .manage-computed-input { opacity: 0.7; cursor: not-allowed; }
+
+.manage-input-with-btn { display: flex; gap: 0.4rem; }
+.manage-input-with-btn input { flex: 1; min-width: 0; }
+.fetch-price-btn {
+  padding: 0.5rem 0.7rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fetch-price-btn:disabled { opacity: 0.55; cursor: wait; }
 .manage-form input,
 .manage-form select {
   background: var(--bg-secondary, rgba(255,255,255,0.04));

@@ -6763,11 +6763,16 @@ function populateInstrumentDatalist() {
 function onTxnTypeChange() {
   const type = document.getElementById('txn-type').value;
   const hint = document.getElementById('txn-corporate-hint');
-  if (hint) hint.style.display = (type === 'split' || type === 'bonus') ? '' : 'none';
-  if (type === 'split' || type === 'bonus') {
+  const isCorporateAction = type === 'split' || type === 'bonus';
+  if (hint) hint.style.display = isCorporateAction ? '' : 'none';
+  if (isCorporateAction) {
     document.getElementById('txn-price').value = '0';
     document.getElementById('txn-amount').value = '0';
   }
+  // Corporate actions carry no price (shares granted for free) — fetching a
+  // market quote for them would be meaningless.
+  const fetchBtn = document.getElementById('txn-fetch-price-btn');
+  if (fetchBtn) fetchBtn.style.display = isCorporateAction ? 'none' : '';
   const exitWrap = document.getElementById('txn-exit-wrap');
   if (exitWrap) {
     exitWrap.style.display = type === 'sell' ? '' : 'none';
@@ -6775,6 +6780,94 @@ function onTxnTypeChange() {
       document.getElementById('txn-exit-all').checked = false;
       _setTxnQtyLocked(false);
     }
+  }
+}
+
+// Fetch the most recent market price (stock) or NAV (mutual fund) for
+// whatever instrument is currently typed into the Add Transaction form —
+// works for both an existing holding and a brand-new instrument, since it
+// looks the price up directly rather than reading a cached holding. The
+// fetched value only PRE-FILLS the price field; it stays fully editable so
+// the user can still record their actual buy/sell price if it differed.
+async function fetchTxnLatestPrice() {
+  const cls = document.getElementById('txn-assetClass').value;
+  const name = (document.getElementById('txn-instrument').value || '').trim();
+  const btn = document.getElementById('txn-fetch-price-btn');
+  const statusEl = document.getElementById('txn-price-status');
+  if (!name) {
+    if (statusEl) { statusEl.textContent = 'Enter an instrument name first.'; statusEl.className = 'manage-hint trend-down'; }
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (statusEl) { statusEl.textContent = 'Fetching latest price…'; statusEl.className = 'manage-hint'; }
+  try {
+    let price = null, asOf = '';
+    if (cls === 'mf') {
+      let schemeCode = MF_SCHEME_CODES[name];
+      if (schemeCode === null) throw new Error('Price lookups are disabled for this scheme — enter it manually.');
+      if (!schemeCode) schemeCode = dynamicMfSchemeCodes[name];
+      if (!schemeCode) {
+        const searchQuery = name
+          .replace(/Direct\s*-?\s*Growth$/i, '')
+          .replace(/Fund\s*Direct\s*-?\s*Growth$/i, '')
+          .replace(/\s*-\s*/g, ' ')
+          .trim();
+        const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(searchQuery)}`);
+        const searchData = await searchResp.json();
+        if (searchData.results?.length > 0) {
+          const directGrowth = searchData.results.find(r =>
+            r.schemeName.toLowerCase().includes('direct') && r.schemeName.toLowerCase().includes('growth'));
+          const bestMatch = directGrowth || searchData.results[0];
+          schemeCode = bestMatch.schemeCode;
+          dynamicMfSchemeCodes[name] = schemeCode;
+        }
+      }
+      if (!schemeCode) throw new Error('Could not find this scheme — check the name or enter the price manually.');
+      const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
+      if (window.__staticMode) {
+        const raw = await resp.json();
+        if (raw?.data?.length > 0) { price = parseFloat(raw.data[0].nav); asOf = raw.data[0].date || ''; }
+      } else {
+        const data = await resp.json();
+        price = data?.nav ?? null; asOf = data?.navDate || '';
+      }
+    } else {
+      const canon = (typeof canonicalInstrument === 'function') ? canonicalInstrument(name, 'stock') : name;
+      if (isStableDebt(canon)) throw new Error('No live price source for this instrument — enter it manually.');
+      if (canon.startsWith('SGB')) {
+        // SGB tranches don't trade on Yahoo — their own Groww quote first,
+        // falling back to the GOLDBEES×100 gold-per-gram proxy (same
+        // hierarchy the bulk price refresh uses).
+        try {
+          const url = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/NSE/segment/CASH/${encodeURIComponent(canon)}/latest`;
+          const resp = await fetchViaCorsProxy(url, {}, 8000);
+          if (resp.ok) {
+            const q = await resp.json();
+            if (q?.ltp > 0) price = q.ltp;
+          }
+        } catch (_) { /* fall through to the proxy below */ }
+        if (price == null) {
+          const { price: fp } = await fetchStockQuote('GOLDBEES', 'yahoo');
+          if (fp > 0) price = fp * 100;
+        }
+      } else {
+        const { price: p } = await fetchStockQuote(canon, 'yahoo');
+        price = p;
+      }
+    }
+    if (!price || price <= 0) throw new Error('Price not available right now — try again or enter it manually.');
+    document.getElementById('txn-price').value = +price.toFixed(4);
+    document.getElementById('txn-amount').dataset.touched = ''; // let it recompute from the new price
+    onTxnAmountInputs();
+    if (statusEl) {
+      statusEl.textContent = `Fetched ₹${price.toLocaleString('en-IN', { maximumFractionDigits: 4 })}` +
+        (asOf ? ` (as of ${asOf})` : '') + ' — edit if your actual price differs.';
+      statusEl.className = 'manage-hint trend-up';
+    }
+  } catch (e) {
+    if (statusEl) { statusEl.textContent = '⚠️ ' + (e.message || 'Could not fetch price.'); statusEl.className = 'manage-hint trend-down'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⟳ Fetch'; }
   }
 }
 
@@ -6835,6 +6928,10 @@ function onTxnAssetClassChange() {
 // scheme_type; for a brand-new scheme it's left blank and resolved later from
 // the MF price source.
 function onTxnInstrumentChange() {
+  // A fetched-price status message refers to whatever instrument was typed
+  // when the fetch ran — clear it as soon as the user edits the field again.
+  const statusEl = document.getElementById('txn-price-status');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'manage-hint'; }
   const cls = document.getElementById('txn-assetClass').value;
   const catEl = document.getElementById('txn-category');
   if (!catEl) return;
@@ -6902,6 +6999,8 @@ function resetTxnForm() {
   document.getElementById('txn-cancel-btn').style.display = 'none';
   document.getElementById('txn-date').value = localDateStr();
   _setTxnQtyLocked(false);
+  const statusEl = document.getElementById('txn-price-status');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'manage-hint'; }
   onTxnAssetClassChange();
   onTxnTypeChange();
 }
@@ -6970,11 +7069,39 @@ function updateBalFormMode() {
   return isNps;
 }
 
+// Lock whichever field the current mode auto-derives while "exit full position"
+// is checked: the contribution field for standard components (it's computed to
+// zero the balance out), or the current-value field for NPS (set directly to 0).
+function _applyBalExitLock(isNps, exitAll) {
+  const contribEl = document.getElementById('bal-contribution');
+  const valInputEl = document.getElementById('bal-value-input');
+  const lockContrib = exitAll && !isNps;
+  const lockValue = exitAll && isNps;
+  contribEl.readOnly = lockContrib;
+  contribEl.classList.toggle('manage-computed-input', lockContrib);
+  valInputEl.readOnly = lockValue;
+  valInputEl.classList.toggle('manage-computed-input', lockValue);
+}
+
+function onBalExitAllChange() {
+  updateBalComputedValue();
+}
+
 // Recompute the "Current value" field: auto-calculated (previous + contribution +
 // interest) for standard components, or read directly from the editable input for NPS.
+// When "exit full position" is checked, the whole balance is withdrawn instead —
+// the component's current value becomes ₹0 (accrued interest can still be logged
+// first; contribution auto-computes to exactly cancel it out).
 function updateBalComputedValue() {
   const isNps = updateBalFormMode();
+  const exitAll = !!document.getElementById('bal-exit-all')?.checked;
+  _applyBalExitLock(isNps, exitAll);
   if (isNps) {
+    if (exitAll) {
+      document.getElementById('bal-value-input').value = '0';
+      document.getElementById('bal-value').value = '0';
+      return;
+    }
     const entered = parseFloat(document.getElementById('bal-value-input').value);
     document.getElementById('bal-value').value = isFinite(entered) ? entered : '';
     return;
@@ -6982,9 +7109,16 @@ function updateBalComputedValue() {
   const component = document.getElementById('bal-component').value;
   const date = document.getElementById('bal-date').value;
   const editId = document.getElementById('bal-edit-id').value;
-  const contribution = parseFloat(document.getElementById('bal-contribution').value) || 0;
   const interest = parseFloat(document.getElementById('bal-interest').value) || 0;
   const prevValue = priorBalanceValue(component, date, editId || null);
+  const contribEl = document.getElementById('bal-contribution');
+  let contribution;
+  if (exitAll) {
+    contribution = -(prevValue + interest);
+    contribEl.value = contribution.toFixed(2);
+  } else {
+    contribution = parseFloat(contribEl.value) || 0;
+  }
   const currentValue = prevValue + contribution + interest;
   document.getElementById('bal-prev-value').textContent = formatINR(prevValue);
   document.getElementById('bal-value-display').textContent = formatINR(currentValue);
@@ -7022,6 +7156,7 @@ function resetBalForm() {
   document.getElementById('bal-contribution').value = '0';
   document.getElementById('bal-interest').value = '0';
   document.getElementById('bal-value-input').value = '';
+  document.getElementById('bal-exit-all').checked = false;
   updateBalComputedValue();
 }
 
@@ -7032,6 +7167,10 @@ function editBal(id) {
   document.getElementById('bal-edit-id').value = b.id;
   document.getElementById('bal-component').value = b.component;
   document.getElementById('bal-date').value = b.date;
+  // Editing always shows the entry's OWN recorded numbers — exit-all starts
+  // unchecked/unlocked so a past withdrawal's real contribution/value isn't
+  // silently re-derived.
+  document.getElementById('bal-exit-all').checked = false;
   document.getElementById('bal-contribution').value = b.contribution;
   document.getElementById('bal-interest').value = b.interest || 0;
   document.getElementById('bal-value-input').value = b.value;
