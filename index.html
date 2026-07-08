@@ -794,36 +794,6 @@
     <!-- Update Log Tab -->
     <!-- ════════════════════ MANAGE PORTFOLIO TAB ════════════════════ -->
     <div id="manage-tab" class="tab-content">
-      <!-- Handy calculator for working out values while filling the forms below -->
-      <button type="button" class="calc-fab" onclick="toggleCalculator()" title="Calculator">🧮</button>
-      <div id="calculator-panel" class="calculator-panel" style="display:none;">
-        <div class="calculator-header">
-          <span>Calculator</span>
-          <button type="button" class="calc-close" onclick="toggleCalculator()">✕</button>
-        </div>
-        <input id="calc-display" class="calculator-display" readonly value="0">
-        <div class="calculator-keys">
-          <button type="button" class="calc-key calc-op" onclick="calcClear()">C</button>
-          <button type="button" class="calc-key calc-op" onclick="calcBackspace()">⌫</button>
-          <button type="button" class="calc-key calc-op" onclick="calcInput('%')">%</button>
-          <button type="button" class="calc-key calc-op" onclick="calcInput('/')">÷</button>
-          <button type="button" class="calc-key" onclick="calcInput('7')">7</button>
-          <button type="button" class="calc-key" onclick="calcInput('8')">8</button>
-          <button type="button" class="calc-key" onclick="calcInput('9')">9</button>
-          <button type="button" class="calc-key calc-op" onclick="calcInput('*')">×</button>
-          <button type="button" class="calc-key" onclick="calcInput('4')">4</button>
-          <button type="button" class="calc-key" onclick="calcInput('5')">5</button>
-          <button type="button" class="calc-key" onclick="calcInput('6')">6</button>
-          <button type="button" class="calc-key calc-op" onclick="calcInput('-')">−</button>
-          <button type="button" class="calc-key" onclick="calcInput('1')">1</button>
-          <button type="button" class="calc-key" onclick="calcInput('2')">2</button>
-          <button type="button" class="calc-key" onclick="calcInput('3')">3</button>
-          <button type="button" class="calc-key calc-op" onclick="calcInput('+')">+</button>
-          <button type="button" class="calc-key calc-zero" onclick="calcInput('0')">0</button>
-          <button type="button" class="calc-key" onclick="calcInput('.')">.</button>
-          <button type="button" class="calc-key calc-equals" onclick="calcEquals()">=</button>
-        </div>
-      </div>
       <div class="manage-grid">
 
         <!-- Add Transaction (stocks / MFs) -->
@@ -962,6 +932,57 @@
           <p class="manage-hint" style="margin-top:0.5rem;">Looking for the transaction/balance list? It's now in <strong>Periodic Performance → Transaction Log</strong>, where every entry is editable with a Closed/Pending status.</p>
         </div>
 
+      </div>
+    </div>
+
+    <!-- Handy calculator for working out values while filling in the Manage tab's
+         forms. Deliberately a SIBLING of every .tab-content, not nested inside
+         one — .tab-content plays a transform-based fade-in animation on every
+         tab switch, and any active CSS transform on an ancestor becomes the
+         containing block for position:fixed descendants, which sent this FAB
+         to a wild computed position (landing on/near the bottom nav) instead
+         of its intended fixed corner. -->
+    <button type="button" class="calc-fab" id="calc-fab" onclick="toggleCalculator()" title="Calculator" style="display:none;">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+        <line x1="8" y1="6" x2="16" y2="6"></line>
+        <line x1="8" y1="11" x2="8" y2="11.01"></line>
+        <line x1="12" y1="11" x2="12" y2="11.01"></line>
+        <line x1="16" y1="11" x2="16" y2="11.01"></line>
+        <line x1="8" y1="15" x2="8" y2="15.01"></line>
+        <line x1="12" y1="15" x2="12" y2="15.01"></line>
+        <line x1="16" y1="15" x2="16" y2="15.01"></line>
+        <line x1="8" y1="19" x2="8" y2="19.01"></line>
+        <line x1="12" y1="19" x2="12" y2="19.01"></line>
+        <line x1="16" y1="19" x2="16" y2="19.01"></line>
+      </svg>
+    </button>
+    <div id="calculator-panel" class="calculator-panel" style="display:none;">
+      <div class="calculator-header">
+        <span>Calculator</span>
+        <button type="button" class="calc-close" onclick="toggleCalculator()">✕</button>
+      </div>
+      <input id="calc-display" class="calculator-display" readonly value="0">
+      <div class="calculator-keys">
+        <button type="button" class="calc-key calc-op" onclick="calcClear()">C</button>
+        <button type="button" class="calc-key calc-op" onclick="calcBackspace()">⌫</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('%')">%</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('/')">÷</button>
+        <button type="button" class="calc-key" onclick="calcInput('7')">7</button>
+        <button type="button" class="calc-key" onclick="calcInput('8')">8</button>
+        <button type="button" class="calc-key" onclick="calcInput('9')">9</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('*')">×</button>
+        <button type="button" class="calc-key" onclick="calcInput('4')">4</button>
+        <button type="button" class="calc-key" onclick="calcInput('5')">5</button>
+        <button type="button" class="calc-key" onclick="calcInput('6')">6</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('-')">−</button>
+        <button type="button" class="calc-key" onclick="calcInput('1')">1</button>
+        <button type="button" class="calc-key" onclick="calcInput('2')">2</button>
+        <button type="button" class="calc-key" onclick="calcInput('3')">3</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('+')">+</button>
+        <button type="button" class="calc-key calc-zero" onclick="calcInput('0')">0</button>
+        <button type="button" class="calc-key" onclick="calcInput('.')">.</button>
+        <button type="button" class="calc-key calc-equals" onclick="calcEquals()">=</button>
       </div>
     </div>
 

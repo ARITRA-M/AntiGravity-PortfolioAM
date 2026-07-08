@@ -2614,6 +2614,9 @@ tr:hover td {
   background: var(--accent-indigo, #6366f1);
   color: #fff;
   font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0,0,0,0.35);
   z-index: 900;
@@ -2759,6 +2762,18 @@ tr:hover td {
 @media (max-width: 768px) {
   .manage-grid { grid-template-columns: 1fr; }
   .manage-row { flex-direction: column; }
+
+  /* The fixed-position calculator FAB otherwise sits at bottom:1.75rem, well
+     inside the ~64px bottom nav bar — right under the Periodic tab button.
+     Clear the bar (+ iPhone home-indicator inset) plus its own margin. */
+  .calc-fab {
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 1rem);
+    right: 1rem;
+  }
+  .calculator-panel {
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 4.75rem);
+    right: 1rem;
+  }
 }
 
 /* ── Mobile bottom navigation ─────────────────────────────────────────── */

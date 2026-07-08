@@ -1608,6 +1608,15 @@ function switchTab(tabId) {
     b.classList.toggle('active', b.dataset.tab === tabId));
   try { localStorage.setItem(LS_PREFIX + 'last_tab', tabId); } catch (_) {}
 
+  // The calculator FAB is only useful while filling in the Manage tab's forms;
+  // hide it (and its panel) everywhere else.
+  const calcFab = document.getElementById('calc-fab');
+  if (calcFab) calcFab.style.display = tabId === 'manage' ? '' : 'none';
+  if (tabId !== 'manage') {
+    const calcPanel = document.getElementById('calculator-panel');
+    if (calcPanel) calcPanel.style.display = 'none';
+  }
+
   // Lazy-initialize charts for this tab on first visit
   if (!initializedTabs.has(tabId)) {
     initializedTabs.add(tabId);
