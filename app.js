@@ -4232,6 +4232,7 @@ function _buildExpansionHTML(canvasId, tbodyId, qtyLabel, priceLabel) {
           <th style="text-align:right;">${qtyLabel}</th>
           <th style="text-align:right;">${priceLabel} (₹)</th>
           <th style="text-align:right;">Δ Invested</th>
+          <th style="text-align:right;" title="Sale proceeds (qty sold × sale price) — hover a value for the realized P&amp;L">Realized (₹)</th>
         </tr></thead>
         <tbody id="${tbodyId}"></tbody>
       </table>
@@ -4306,13 +4307,35 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
         let dInv = h.invested - p.invested;
         // Fallback when workbook invested field didn't update: estimate from avg_cost
         if (dInv === 0 && h.avg_cost) dInv = dQty * h.avg_cost;
-        deltaRows.push({ date: h.date, dQty, qty: h.qty, price: h.ltp, dInv, action: dQty > 0 ? 'Buy' : 'Sell' });
+        // `cf` (set only on not-yet-closed ledger replay snapshots — see
+        // rebuildHoldingHistoryFromLedger) is the transaction's OWN recorded
+        // sale price × qty. Pass it through so realized value doesn't have to
+        // fall back to the snapshot's `ltp`, which for an unclosed period is
+        // just today's live price, not the historical price the sale actually
+        // happened at.
+        deltaRows.push({ date: h.date, dQty, qty: h.qty, price: h.ltp, dInv, cf: h.cf, action: dQty > 0 ? 'Buy' : 'Sell' });
       }
     }
   }
   tbody.innerHTML = deltaRows.map(r => {
     const isBuy = r.action === 'Buy';
+    const isSell = r.action === 'Sell';
     const aStyle = isBuy ? 'background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)' : 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)';
+    // Δ Invested only shows the COST BASIS removed on a sale, not what the
+    // position was actually sold for — there was previously no way to see the
+    // realized value from this panel. Realized = qty sold × sale price;
+    // hovering shows the realized P&L (proceeds vs the cost basis removed).
+    let realizedCell = '<span style="color:var(--text-muted);">—</span>';
+    if (isSell) {
+      // Prefer the exact recorded sale proceeds (`cf`); only approximate from
+      // qty × snapshot price if this row predates that tracking (pre-existing
+      // Excel-era / already-closed history).
+      const proceeds = typeof r.cf === 'number' ? r.cf : Math.abs(r.dQty) * r.price;
+      const costRemoved = Math.abs(r.dInv);
+      const realizedPnl = proceeds - costRemoved;
+      const pnlCls = realizedPnl >= 0 ? 'trend-up' : 'trend-down';
+      realizedCell = `<span class="${pnlCls}" title="Realized P&amp;L: ${realizedPnl >= 0 ? '+' : '−'}${formatINR(Math.abs(realizedPnl))}">${formatINR(proceeds)}</span>`;
+    }
     return `<tr>
       <td style="white-space:nowrap;">${formatDateString(r.date)}</td>
       <td><span class="history-action-tag" style="${aStyle}">${r.action}</span></td>
@@ -4320,6 +4343,7 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
       <td style="text-align:right;">${r.qty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;">₹${r.price.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;" class="${r.dInv >= 0 ? 'trend-up' : 'trend-down'}">${r.dInv >= 0 ? '+' : '−'}${formatINR(Math.abs(r.dInv))}</td>
+      <td style="text-align:right;">${realizedCell}</td>
     </tr>`;
   }).join('');
 }

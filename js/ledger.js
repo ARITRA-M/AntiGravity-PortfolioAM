@@ -343,7 +343,13 @@ function deriveHoldings(base, txns) {
       instrument: s.instrument, sector: s.sector, qty: s.qty,
       avg_cost: s.avg_cost, ltp: px, invested: s.invested,
       cur_val: s.qty * px, pnl: s.qty * px - s.invested,
-      gain_pct: s.invested > 0 ? (s.qty * px - s.invested) / s.invested : 0,
+      // gain_pct is a PERCENTAGE (e.g. 5.33, not 0.0533) everywhere in the app —
+      // js/api.js's live-refresh path and the Stocks/MF table both assume this.
+      // A missing ×100 here (and at every other gain_pct assignment below) used
+      // to make the table's "Gain %" column flip between the correct value and
+      // one 100× too small depending on whether the last state-changing action
+      // was a price refresh (api.js, ×100) or a ledger edit (this file, no ×100).
+      gain_pct: s.invested > 0 ? (s.qty * px - s.invested) / s.invested * 100 : 0,
       realized_pnl: 0,
     });
   });
@@ -353,7 +359,7 @@ function deriveHoldings(base, txns) {
       scheme: f.scheme, scheme_type: f.scheme_type, qty: f.qty,
       avg_nav: f.avg_nav, price: px, invested: f.invested,
       cur_val: f.qty * px, pnl: f.qty * px - f.invested,
-      gain_pct: f.invested > 0 ? (f.qty * px - f.invested) / f.invested : 0,
+      gain_pct: f.invested > 0 ? (f.qty * px - f.invested) / f.invested * 100 : 0,
       realized_pnl: 0,
     });
   });
@@ -397,7 +403,7 @@ function applyStockTxn(eq, t, qty, price, amount) {
     h.avg_cost = h.qty > 0 ? h.invested / h.qty : 0;
     h.cur_val  = h.qty * h.ltp;
     h.pnl      = h.cur_val - h.invested;
-    h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+    h.gain_pct = h.invested > 0 ? h.pnl / h.invested * 100 : 0;
     return;
   } else { // buy
     if (!h) {
@@ -415,7 +421,7 @@ function applyStockTxn(eq, t, qty, price, amount) {
   // Refresh derived fields (ltp stays last-known until a price refresh).
   h.cur_val = h.qty * h.ltp;
   h.pnl = h.cur_val - h.invested;
-  h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+  h.gain_pct = h.invested > 0 ? h.pnl / h.invested * 100 : 0;
 }
 
 function applyMfTxn(mf, t, qty, price, amount) {
@@ -441,7 +447,7 @@ function applyMfTxn(mf, t, qty, price, amount) {
   }
   h.cur_val = h.qty * h.price;
   h.pnl = h.cur_val - h.invested;
-  h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+  h.gain_pct = h.invested > 0 ? h.pnl / h.invested * 100 : 0;
 }
 
 // Rebuild the global latestEquity / latestMf from the ledger and refresh the
@@ -466,7 +472,7 @@ function applyLedgerToHoldings() {
       h.thisMonthGain = prev.thisMonthGain; h.yesterdayClose = prev.yesterdayClose;
       h.lastRefreshDate = prev.lastRefreshDate;
       h.cur_val = h.qty * h.ltp; h.pnl = h.cur_val - h.invested;
-      h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+      h.gain_pct = h.invested > 0 ? h.pnl / h.invested * 100 : 0;
     } else {
       // New holding (not in frozen base): basePrice = 0 so its full market value
       // counts as gain relative to the frozen base in net-worth math.
@@ -485,7 +491,7 @@ function applyLedgerToHoldings() {
       h.thisMonthGain = prev.thisMonthGain; h.previousNav = prev.previousNav;
       h.lastRefreshDate = prev.lastRefreshDate;
       h.cur_val = h.qty * h.price; h.pnl = h.cur_val - h.invested;
-      h.gain_pct = h.invested > 0 ? h.pnl / h.invested : 0;
+      h.gain_pct = h.invested > 0 ? h.pnl / h.invested * 100 : 0;
     } else {
       h.basePrice = 0;
     }
@@ -631,7 +637,7 @@ function rebuildHoldingHistoryFromLedger() {
       entry.history.push({
         date, qty: st.qty, avg_cost: st.avg_cost, ltp,
         invested: st.invested, cur_val: st.qty * ltp,
-        pnl: st.qty * ltp - st.invested, gain_pct: st.invested > 0 ? (st.qty * ltp - st.invested) / st.invested : 0,
+        pnl: st.qty * ltp - st.invested, gain_pct: st.invested > 0 ? (st.qty * ltp - st.invested) / st.invested * 100 : 0,
         cf: cfStock[inst] || 0,
       });
     });
@@ -643,7 +649,7 @@ function rebuildHoldingHistoryFromLedger() {
       entry.history.push({
         date, qty: st.qty, avg_cost: st.avg_nav, ltp: nav,
         invested: st.invested, cur_val: st.qty * nav,
-        pnl: st.qty * nav - st.invested, gain_pct: st.invested > 0 ? (st.qty * nav - st.invested) / st.invested : 0,
+        pnl: st.qty * nav - st.invested, gain_pct: st.invested > 0 ? (st.qty * nav - st.invested) / st.invested * 100 : 0,
         cf: cfMf[inst] || 0,
       });
     });
