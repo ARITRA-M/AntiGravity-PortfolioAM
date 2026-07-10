@@ -940,6 +940,10 @@
           </div>
           <div id="backup-status" class="manage-preview"></div>
           <p class="manage-hint" style="margin-top:0.5rem;">Looking for the transaction/balance list? It's now in <strong>Periodic Performance → Transaction Log</strong>, where every entry is editable with a Closed/Pending status.</p>
+          <div class="manage-actions" style="margin-top:0.75rem;">
+            <button type="button" class="ghost-btn" onclick="forceResyncFromCloud()" title="Discard this device's local ledger cache and reload the committed data/*.json files">🔄 Refresh from Cloud</button>
+          </div>
+          <p class="manage-hint" style="margin-top:0.4rem;">Committed a transaction elsewhere and it's not showing here? This device may have a stale local cache blocking updates — use this to force it to re-adopt the latest committed data. <strong>Only do this if you have no unsaved edits on this device</strong> — anything not yet committed here will be lost.</p>
         </div>
 
       </div>

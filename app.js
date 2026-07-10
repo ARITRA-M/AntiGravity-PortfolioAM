@@ -7308,6 +7308,32 @@ async function handleImportBackup(e) {
   }
 }
 
+// Explicit escape hatch for a device stuck on a stale local ledger — e.g. a
+// leftover "dirty" flag (from a since-fixed bug, or genuine local edits made
+// on this device that were never committed) blocking adoption of updates
+// committed from elsewhere. Wipes this device's local ledger cache and
+// derived-state overrides, then reloads so integrateLedger() rebuilds
+// everything fresh from the committed data/*.json files.
+function forceResyncFromCloud() {
+  if (!confirm('This will discard any local, uncommitted changes on THIS DEVICE and reload the latest data committed to the cloud. Continue?')) return;
+  try {
+    const P = LS_PREFIX;
+    clearLedgerDirty();
+    clearBreakupOverride();
+    localStorage.removeItem(P + 'ledger_col_snapshots');
+    localStorage.removeItem(P + LEDGER_KEYS.transactions);
+    localStorage.removeItem(P + LEDGER_KEYS.balances);
+    localStorage.removeItem(P + LEDGER_KEYS.frozenBase);
+    localStorage.removeItem(P + 'portfolio_summary');
+    localStorage.removeItem(P + 'latest_equity');
+    localStorage.removeItem(P + 'latest_mf');
+    localStorage.removeItem(P + 'historical_holdings');
+    localStorage.removeItem(P + 'version');
+  } catch (e) {
+    console.warn('forceResyncFromCloud: cleanup failed', e);
+  }
+  location.reload();
+}
 
 // ==================== PULL-TO-REFRESH (mobile) ====================
 // Native pull-to-refresh reloads the whole page; in standalone PWA mode it's

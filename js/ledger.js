@@ -92,6 +92,39 @@ function loadLedger() {
     // keeps every device consistent: a fresh device, or one whose edits are all
     // committed, computes net worth from the same base + transactions as the repo.
     const committed = (typeof window !== 'undefined') ? window._committedLedger : null;
+
+    // Self-heal a stale dirty flag left over from a since-fixed bug (a pure
+    // recompute — rebuildBreakupFromLedger — used to call markLedgerDirty()
+    // on every load, with no real edit involved). Rather than requiring the
+    // local ledger to be byte-identical to committed (which would fail to
+    // self-heal the moment ANY other device commits something new — exactly
+    // the reported symptom: "committed elsewhere, not reflecting here"),
+    // check that every LOCAL item is either absent from committed (a
+    // genuine unsynced local add — keep protecting it) or matches its
+    // committed counterpart exactly (a genuine local edit to an existing
+    // entry would fail this and also correctly keep protecting). Committed
+    // having MORE items than local is fine — that's just other devices'
+    // work, not something local is at risk of losing.
+    if (committed && isLedgerDirty()) {
+      try {
+        const localTxns = JSON.parse(localStorage.getItem(P + LEDGER_KEYS.transactions) || '[]');
+        const localBals = JSON.parse(localStorage.getItem(P + LEDGER_KEYS.balances) || '[]');
+        const localFbRaw = localStorage.getItem(P + LEDGER_KEYS.frozenBase);
+        const localFb = localFbRaw ? JSON.parse(localFbRaw) : null;
+        const noOrphans = (localArr, committedArr) => {
+          const byId = new Map((committedArr || []).map(x => [x.id, x]));
+          return (localArr || []).every(item => {
+            const match = byId.get(item.id);
+            return match !== undefined && JSON.stringify(match) === JSON.stringify(item);
+          });
+        };
+        const fbUnchanged = JSON.stringify(localFb) === JSON.stringify(committed.frozenBase || null);
+        if (noOrphans(localTxns, committed.transactions) && noOrphans(localBals, committed.balances) && fbUnchanged) {
+          clearLedgerDirty();
+        }
+      } catch (_) { /* comparison failed — leave the flag as-is, protecting whatever's local */ }
+    }
+
     if (committed && !isLedgerDirty()) {
       transactions = Array.isArray(committed.transactions) ? committed.transactions : [];
       balances = Array.isArray(committed.balances) ? committed.balances : [];
@@ -1315,7 +1348,20 @@ function rebuildBreakupFromLedger() {
       portfolioSummary = buildPortfolioSummary(breakupSummary);
     }
     saveBreakupOverride();
-    markLedgerDirty();
+    // NOT markLedgerDirty() here — this function runs on EVERY load via
+    // integrateLedger(), purely re-deriving breakup columns from the ledger
+    // (rounding drift, XIRR recompute as dates advance, live Gold value, etc.
+    // routinely make `changed` true with no user action at all). Calling
+    // markLedgerDirty() here was a real regression: once a device's
+    // ledger_dirty flag got set by an ordinary page load, loadLedger() would
+    // permanently ignore all FUTURE committed updates from other devices
+    // (dirty means "prefer my local copy"), even though nothing was actually
+    // edited locally — this is exactly what caused "transactions committed
+    // from the local/dev version don't show up on the GitHub Pages version"
+    // to persist no matter how many times the local device re-committed.
+    // Only genuine user mutations (addTransaction/updateTransaction/
+    // deleteTransaction/addBalance/updateBalance/deleteBalance/closeMonth)
+    // should ever mark the ledger dirty.
   }
   return changed;
 }
