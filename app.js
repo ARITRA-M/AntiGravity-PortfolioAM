@@ -715,9 +715,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // periods (the Excel-upload flow that used to reveal it has been removed).
   const _isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1');
   const _commitBtn = document.getElementById('commit-btn');
-  // Show on any local run (both `npm run dev` and `npm run static` now expose
-  // the /api/commit-data endpoint). Hidden only on the hosted GitHub Pages site.
-  if (_commitBtn && _isLocal) _commitBtn.style.display = 'inline-flex';
+  const _hasWorker = typeof WORKER_PROXY_URL !== 'undefined' && WORKER_PROXY_URL;
+  // Show on local runs OR on GitHub Pages if the Cloudflare Worker proxy is configured
+  // (which handles direct-to-GitHub commits).
+  if (_commitBtn && (_isLocal || _hasWorker)) _commitBtn.style.display = 'inline-flex';
   // Kick off the Nifty 50 fetch; once resolved, re-render the overview cards/tables.
   fetchNiftySeries().then(() => {
     const dailySummaryEl = document.getElementById('daily-summary-kpis');
