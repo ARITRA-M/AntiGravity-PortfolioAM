@@ -831,16 +831,18 @@ async function commitData() {
     if (status) status.textContent = '⚠️ No data to commit. Upload an Excel file first.';
     return;
   }
-  // Only works on localhost where server.js is running
-  if (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-    if (status) status.textContent = '⚠️ Commit only works on the local machine (localhost).';
+  // On non-localhost (PWA), try using the CF worker for direct GitHub commit
+  const isLocal = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1');
+  const commitUrl = isLocal ? '/api/commit-data' : (typeof WORKER_PROXY_URL !== 'undefined' && WORKER_PROXY_URL ? (WORKER_PROXY_URL.endsWith('/') ? WORKER_PROXY_URL.slice(0, -1) : WORKER_PROXY_URL) + '/api/commit-data' : null);
+  
+  if (!commitUrl) {
+    if (status) status.textContent = '⚠️ Commit requires localhost or a configured Cloudflare Worker proxy.';
     return;
   }
-  // Both `npm run dev` and `npm run static` expose /api/commit-data locally,
-  // so no static-mode gate here — the fetch below surfaces any real failure.
+  
   try {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Committing...'; }
-    if (status) status.textContent = 'Committing to GitHub...';
+    if (status) status.textContent = isLocal ? 'Committing to GitHub...' : 'Pushing to GitHub via Cloudflare...';
 
     // Encrypt every file before it touches disk / GitHub — the repo is
     // public, so plaintext must never be committed once encryption is on.
@@ -863,7 +865,7 @@ async function commitData() {
       }
     }
 
-    const res = await fetch('/api/commit-data', {
+    const res = await fetch(commitUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -4280,7 +4282,7 @@ function toggleStockRowHistory(tr, symbol) {
         ]
       }, options: _inlineChartOptions(`${symbol} — History`) }
   );
-  _renderInlineTransactions(history, document.getElementById('inline-stock-tbody'), 2);
+  _renderInlineTransactions(history, document.getElementById('inline-stock-tbody'), 2, symbol);
 }
 
 function _collapseStockHistory() {
@@ -4290,13 +4292,22 @@ function _collapseStockHistory() {
   _expandedStockSymbol = null;
 }
 
-function _renderInlineTransactions(history, tbody, pricePrecision) {
+function _renderInlineTransactions(history, tbody, pricePrecision, instrument) {
   const deltaRows = [];
+  
+  // The ledger is the source of truth for anything it covers.
+  const _ledgerDates = [
+    ...(typeof transactions !== 'undefined' ? transactions.map(t => t.date) : []),
+    ...(typeof balances !== 'undefined' ? balances.map(b => b.date) : []),
+  ];
+  const ledgerEraStart = _ledgerDates.length ? _ledgerDates.reduce((a, b) => a < b ? a : b) : null;
+  
   for (let i = 0; i < history.length; i++) {
     const h = history[i];
+    if (ledgerEraStart && h.date >= ledgerEraStart) continue; // Skip snapshot diffs from ledger era
+    
     if (i === 0) {
       if (h.qty > 0) {
-        // invested from first snapshot; fall back to qty × avg_cost if 0
         const dInv = h.invested || (h.avg_cost ? h.qty * h.avg_cost : 0);
         deltaRows.push({ date: h.date, dQty: h.qty, qty: h.qty, price: h.ltp, dInv, action: 'Buy' });
       }
@@ -4305,18 +4316,38 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
       const dQty = h.qty - p.qty;
       if (Math.abs(dQty) > 0.001) {
         let dInv = h.invested - p.invested;
-        // Fallback when workbook invested field didn't update: estimate from avg_cost
         if (dInv === 0 && h.avg_cost) dInv = dQty * h.avg_cost;
-        // `cf` (set only on not-yet-closed ledger replay snapshots — see
-        // rebuildHoldingHistoryFromLedger) is the transaction's OWN recorded
-        // sale price × qty. Pass it through so realized value doesn't have to
-        // fall back to the snapshot's `ltp`, which for an unclosed period is
-        // just today's live price, not the historical price the sale actually
-        // happened at.
         deltaRows.push({ date: h.date, dQty, qty: h.qty, price: h.ltp, dInv, cf: h.cf, action: dQty > 0 ? 'Buy' : 'Sell' });
       }
     }
   }
+
+  // Inject actual ledger transactions for this instrument
+  if (instrument && typeof transactions !== 'undefined') {
+    const instrumentTxns = transactions.filter(t => t.instrument === instrument);
+    let runningQty = deltaRows.length ? deltaRows[deltaRows.length - 1].qty : 0;
+    
+    instrumentTxns.forEach(t => {
+      // t.type is 'buy' or 'sell' (or 'split'), t.qty is the amount
+      const isBuyOrSplit = (t.type === 'buy' || t.type === 'split' || t.type === 'Buy' || t.type === 'Split');
+      const dQty = isBuyOrSplit ? t.qty : -t.qty;
+      runningQty += dQty;
+      // Convert single transaction into deltaRow format
+      // Note: action must be Title Case ('Buy' or 'Sell') for the rendering logic below
+      const actionTitle = isBuyOrSplit ? 'Buy' : 'Sell';
+      deltaRows.push({
+        date: t.date,
+        dQty: dQty,
+        qty: runningQty,
+        price: t.price,
+        dInv: isBuyOrSplit ? (t.qty * t.price) : -(t.qty * t.price),
+        action: actionTitle
+      });
+    });
+  }
+
+  // Sort by date to ensure proper ordering
+  deltaRows.sort((a, b) => new Date(a.date) - new Date(b.date));
   tbody.innerHTML = deltaRows.map(r => {
     const isBuy = r.action === 'Buy';
     const isSell = r.action === 'Sell';
@@ -4337,7 +4368,7 @@ function _renderInlineTransactions(history, tbody, pricePrecision) {
       realizedCell = `<span class="${pnlCls}" title="Realized P&amp;L: ${realizedPnl >= 0 ? '+' : '−'}${formatINR(Math.abs(realizedPnl))}">${formatINR(proceeds)}</span>`;
     }
     return `<tr>
-      <td style="white-space:nowrap;">${formatDateString(r.date)}</td>
+      <td style="white-space:nowrap;">${formatFullDate(r.date)}</td>
       <td><span class="history-action-tag" style="${aStyle}">${r.action}</span></td>
       <td style="text-align:right;" class="${r.dQty > 0 ? 'trend-up' : 'trend-down'}">${r.dQty > 0 ? '+' : ''}${r.dQty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
       <td style="text-align:right;">${r.qty.toLocaleString(undefined,{maximumFractionDigits:pricePrecision})}</td>
@@ -4665,7 +4696,7 @@ function toggleMfRowHistory(tr, scheme) {
         ]
       }, options: _inlineChartOptions(shortName) }
   );
-  _renderInlineTransactions(history, document.getElementById('inline-mf-tbody'), 4);
+  _renderInlineTransactions(history, document.getElementById('inline-mf-tbody'), 4, scheme);
 }
 
 function _collapseMfHistory() {

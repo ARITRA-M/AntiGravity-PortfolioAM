@@ -34,12 +34,100 @@ const CORS = {
 };
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS });
     }
 
     const reqUrl = new URL(request.url);
+    
+    // --- New: GitHub Commit API Endpoint ---
+    if (request.method === 'POST' && reqUrl.pathname.endsWith('/api/commit-data')) {
+      try {
+        const payload = await request.json();
+        
+        // Ensure secrets are configured
+        if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) {
+          return new Response(JSON.stringify({
+            success: false, 
+            error: 'GitHub secrets (GITHUB_TOKEN, GITHUB_REPO) not configured in Cloudflare Dashboard.'
+          }), { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } });
+        }
+        
+        const repo = env.GITHUB_REPO;
+        const branch = env.GITHUB_BRANCH || 'main';
+        const headers = {
+          'Authorization': `Bearer ${env.GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'AntiGravity-Cloudflare-Worker'
+        };
+
+        // 1. Get current branch ref
+        let res = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, { headers });
+        if (!res.ok) throw new Error('Failed to get branch ref: ' + await res.text());
+        const refData = await res.json();
+        const baseSha = refData.object.sha;
+
+        // 2. Get the commit the branch points to
+        res = await fetch(`https://api.github.com/repos/${repo}/git/commits/${baseSha}`, { headers });
+        if (!res.ok) throw new Error('Failed to get base commit: ' + await res.text());
+        const commitData = await res.json();
+        const treeSha = commitData.tree.sha;
+
+        // 3. Create a new tree with the updated files
+        const tree = [];
+        for (const [key, value] of Object.entries(payload)) {
+          tree.push({
+            path: `data/${key}.json`,
+            mode: '100644',
+            type: 'blob',
+            content: JSON.stringify(value, null, 2)
+          });
+        }
+
+        res = await fetch(`https://api.github.com/repos/${repo}/git/trees`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ base_tree: treeSha, tree })
+        });
+        if (!res.ok) throw new Error('Failed to create tree: ' + await res.text());
+        const newTreeData = await res.json();
+        const newTreeSha = newTreeData.sha;
+
+        // 4. Create a new commit
+        res = await fetch(`https://api.github.com/repos/${repo}/git/commits`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            message: `Portfolio Sync via Cloudflare Worker`,
+            tree: newTreeSha,
+            parents: [baseSha]
+          })
+        });
+        if (!res.ok) throw new Error('Failed to create commit: ' + await res.text());
+        const newCommitData = await res.json();
+        const newCommitSha = newCommitData.sha;
+
+        // 5. Update the reference
+        res = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ sha: newCommitSha })
+        });
+        if (!res.ok) throw new Error('Failed to update ref: ' + await res.text());
+
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'Synced to GitHub successfully',
+          details: [`Commit ${newCommitSha.substring(0,7)}`]
+        }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+
+      } catch (err) {
+        return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } });
+      }
+    }
+    // ---------------------------------------
+
     const target = reqUrl.searchParams.get('url');
     if (!target) {
       return new Response('Missing ?url= parameter', { status: 400, headers: CORS });
