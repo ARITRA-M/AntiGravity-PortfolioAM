@@ -923,8 +923,8 @@ async function parsePortfolioJson(resp) {
 // fixes cross-device divergence where one device showed base-only net worth (empty
 // localStorage ledger) while another showed base + transactions.
 async function fetchCommittedLedger() {
-  const _cb = APP_VERSION;
-  const out = {};
+    const _cb = Date.now();
+    const out = {};
   const files = [
     ['transactions', 'ledger_transactions'],
     ['balances', 'ledger_balances'],
@@ -959,7 +959,7 @@ async function loadData() {
 
       // Always fetch breakup_summary fresh from server — never cache it — to prevent
       // baseline drift from in-memory live-price mutations being persisted across reloads.
-      const _cb = APP_VERSION;
+      const _cb = Date.now();
       try {
         const bsResp = await fetch(`data/breakup_summary.json?${_cb}`, { credentials: 'same-origin' });
         breakupSummary = await parsePortfolioJson(bsResp);
@@ -1036,8 +1036,8 @@ async function loadData() {
       }
     }
 
-    // Cache-busting: append version query param to bypass HTTP/CDN cache on stale responses
-    const _cb = `v=${APP_VERSION}`;
+    // Cache-busting: append timestamp query param to bypass HTTP/CDN cache on stale responses
+    const _cb = `v=${Date.now()}`;
     const [resSummary, resBreakup, resEquity, resMf, resHist] = await Promise.all([
       fetchWithTimeout('data/portfolio_summary.json?' + _cb, { credentials: 'same-origin' }),
       fetchWithTimeout('data/breakup_summary.json?' + _cb, { credentials: 'same-origin' }),
@@ -3063,7 +3063,7 @@ function updateEquityXirrFromHistory() { /* dividends fold into holdingXIRR + di
 // server path, so cached loads left transactionHistory null → blank portfolio XIRR.
 function loadTransactionHistory() {
   if (transactionHistory) { try { updateEquityXirrFromHistory(); } catch (_) {} return; }
-  fetch('data/transaction_history.json?v=' + APP_VERSION, { credentials: 'same-origin' })
+  fetch('data/transaction_history.json?v=' + Date.now(), { credentials: 'same-origin' })
     .then(r => r.ok ? parsePortfolioJson(r) : null)
     .then(data => {
       if (!data) return;
@@ -7346,8 +7346,21 @@ async function handleImportBackup(e) {
 // committed from elsewhere. Wipes this device's local ledger cache and
 // derived-state overrides, then reloads so integrateLedger() rebuilds
 // everything fresh from the committed data/*.json files.
-function forceResyncFromCloud() {
+async function forceResyncFromCloud() {
   if (!confirm('This will discard any local, uncommitted changes on THIS DEVICE and reload the latest data committed to the cloud. Continue?')) return;
+  
+  const isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1');
+  if (isLocal) {
+    const status = document.getElementById('upload-status');
+    if (status) status.textContent = '📥 Pulling latest data from GitHub...';
+    try {
+      const res = await fetch('/api/git-pull', { method: 'POST' });
+      if (!res.ok) console.warn('Git pull returned non-200 status');
+    } catch (e) {
+      console.warn('Git pull failed, proceeding to clear cache anyway:', e);
+    }
+  }
+  
   try {
     const P = LS_PREFIX;
     clearLedgerDirty();
