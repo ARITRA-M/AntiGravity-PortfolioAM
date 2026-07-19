@@ -589,6 +589,24 @@ app.post('/api/commit-data', (req, res) => {
   }
 });
 
+// ── Pull latest changes from GitHub (for local syncing) ─────────────────────
+app.post('/api/git-pull', (req, res) => {
+  try {
+    const repoDir = __dirname;
+    const execOpts = { cwd: repoDir, encoding: 'utf-8', timeout: 30000 };
+    
+    // We do a git fetch and git pull to sync local files with the remote
+    const output = execSync('git pull', execOpts).trim();
+    console.log(`✅ git pull successful: ${output.split('\n').pop() || 'ok'}`);
+    
+    res.json({ success: true, message: 'Successfully pulled latest changes', details: output });
+  } catch (e) {
+    const errMsg = e.stderr || e.message || 'Unknown error';
+    console.error('Git pull failed:', errMsg);
+    res.status(500).json({ error: 'Git pull failed: ' + errMsg });
+  }
+});
+
 // Catch-all: serve index.html for any non-file route (SPA fallback)
 // Express 5 uses path-to-regexp v8+ which does not support bare '*'
 // Use a middleware that catches all unmatched GET requests
