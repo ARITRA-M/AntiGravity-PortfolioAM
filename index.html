@@ -86,6 +86,7 @@
       <button class="tab-btn" onclick="switchTab('growth')">Growth & Benchmark</button>
       <button class="tab-btn" onclick="switchTab('fixed-income')">Other Investments</button>
       <button class="tab-btn" onclick="switchTab('monthly')">Periodic Performance</button>
+      <button class="tab-btn" onclick="switchTab('xray')">Portfolio X-Ray</button>
       <button class="tab-btn" onclick="switchTab('manage')">✏️ Manage Portfolio</button>
     </div>
 
@@ -792,6 +793,273 @@
     </div>
 
     <!-- Update Log Tab -->
+    <!-- ==================== X-RAY TAB ==================== -->
+    <!-- ==================== X-RAY TAB ==================== -->
+    <div id="xray-tab" class="tab-content">
+      <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; margin-bottom:1rem;">
+        <div>
+          <h3 style="margin:0; font-size:1.3rem;">Institutional Portfolio X-Ray & Quarterly Rebalance Suite</h3>
+          <p style="color:var(--text-secondary); margin:0.3rem 0 0; font-size:0.9rem;">
+            Look-through underlying stock overlap, Morningstar 9-Box style matrix, TER cost friction, and quarterly actionable guidance.
+          </p>
+        </div>
+        <div style="display:flex; gap:0.75rem;">
+          <button class="upload-btn" onclick="runXRayAnalysis()" style="background:var(--accent-gradient); color:#fff; border:none; padding:0.6rem 1.25rem; border-radius:10px; font-weight:600; cursor:pointer; box-shadow:0 4px 14px rgba(99,102,241,0.25);">
+            🔍 Re-Run X-Ray Analytics
+          </button>
+        </div>
+      </div>
+
+      <!-- X-Ray Top KPI Strip -->
+      <section class="kpi-slim-bar" style="margin-bottom:1.5rem;">
+        <div class="kpi-slim-card" style="--card-accent: #6366f1;">
+          <div class="kpi-slim-icon">💼</div>
+          <div class="kpi-slim-body">
+            <div class="kpi-slim-label">X-Ray Total Analyzed</div>
+            <div class="kpi-slim-value" id="xray-kpi-total-val">—</div>
+            <div class="kpi-slim-sub">Equity: <span id="xray-kpi-equity-val" class="kpi-slim-pct">—</span></div>
+          </div>
+        </div>
+        <div class="kpi-slim-card" style="--card-accent: #ef4444;">
+          <div class="kpi-slim-icon">🏷️</div>
+          <div class="kpi-slim-body">
+            <div class="kpi-slim-label">Weighted TER & Friction</div>
+            <div class="kpi-slim-value" id="xray-kpi-ter">—</div>
+            <div class="kpi-slim-sub">Leakage: <span id="xray-kpi-leakage" class="kpi-slim-pct" style="color:#ef4444;">—</span> / yr</div>
+          </div>
+        </div>
+        <div class="kpi-slim-card" style="--card-accent: #10b981;">
+          <div class="kpi-slim-icon">🚀</div>
+          <div class="kpi-slim-body">
+            <div class="kpi-slim-label">XIRR Alpha Tracking</div>
+            <div class="kpi-slim-value" id="xray-kpi-stock-xirr">—</div>
+            <div class="kpi-slim-sub">vs MF XIRR: <span id="xray-kpi-mf-xirr" class="kpi-slim-pct">—</span></div>
+          </div>
+        </div>
+        <div class="kpi-slim-card" style="--card-accent: #f59e0b;">
+          <div class="kpi-slim-icon">🌐</div>
+          <div class="kpi-slim-body">
+            <div class="kpi-slim-label">Asset Class Spread</div>
+            <div class="kpi-slim-value" id="xray-kpi-asset-class-val">—</div>
+            <div class="kpi-slim-sub" id="xray-kpi-asset-class-sub">Checking multi-asset split...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Row 1: Morningstar 9-Box Style Matrix & Sector Breakdown -->
+      <div class="dashboard-grid" style="margin-bottom:1.5rem;">
+        <!-- 9-Box Matrix Card -->
+        <div class="chart-card" style="display:flex; flex-direction:column;">
+          <div class="chart-header" style="margin-bottom:0.75rem;">
+            <h3>Morningstar 9-Box Style Matrix</h3>
+            <span style="font-size:0.75rem; color:var(--text-secondary);">Market Cap x Valuation Style</span>
+          </div>
+          <div id="xray-style-box-container" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+            <!-- 9-Box Table injected by app.js -->
+          </div>
+          <div id="xray-style-box-insights" style="margin-top:1rem; padding-top:0.85rem; border-top:1px dashed var(--card-border);">
+            <!-- Style Matrix Insights & Actionable Implications injected by app.js -->
+          </div>
+        </div>
+
+        <!-- True Look-Through Sector Chart -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Look-Through Sector Exposure</h3>
+            <span style="font-size:0.75rem; color:var(--text-secondary);">Combined Direct + Mutual Fund Underlying</span>
+          </div>
+          <div class="chart-container" style="height:310px; position:relative;">
+            <canvas id="xray-sector-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2: Look-Through Stock Overlap & Multi-Asset Allocation Table -->
+      <div class="chart-card full-width-card" style="margin-bottom:1.5rem;">
+        <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <h3>Look-Through Underlying Stock Overlap & Concentration Table</h3>
+            <span style="font-size:0.8rem; color:var(--text-secondary);">Revealing true single-company exposure by combining direct stocks with mutual fund underlying holdings</span>
+          </div>
+          <span class="badge" style="background:rgba(99,102,241,0.15); color:#6366f1; padding:0.3rem 0.75rem; border-radius:20px; font-size:0.75rem; font-weight:600;">Top 10 Blended</span>
+        </div>
+        
+        <div style="overflow-x:auto; margin-top:1rem;">
+          <table class="data-table" style="width:100%; border-collapse:collapse; text-align:left;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary); font-size:0.85rem;">
+                <th style="padding:0.75rem 1rem;">Company / Underlying Stock</th>
+                <th style="padding:0.75rem 1rem; text-align:right;">Direct Holding (₹)</th>
+                <th style="padding:0.75rem 1rem; text-align:right;">MF Look-Through (₹)</th>
+                <th style="padding:0.75rem 1rem; text-align:right;">Combined Exposure (₹)</th>
+                <th style="padding:0.75rem 1rem; text-align:right;">% of Portfolio</th>
+                <th style="padding:0.75rem 1rem; text-align:center;">Concentration Status</th>
+              </tr>
+            </thead>
+            <tbody id="xray-blended-table-body">
+              <!-- Injected by app.js -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Multi-Asset Class Rebalancing Strip -->
+        <div style="margin-top:2rem; border-top:1px solid var(--card-border); padding-top:1.5rem;">
+          <div class="chart-header" style="margin-bottom:1rem;">
+            <h3>🌐 Institutional Multi-Asset Rebalancing Matrix (Equity vs Gold vs Debt vs REITs)</h3>
+            <span style="font-size:0.8rem; color:var(--text-secondary);">Holistic asset class allocation tracking against institutional target models</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+              <thead>
+                <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary);">
+                  <th style="padding:0.6rem 0.75rem;">Asset Class</th>
+                  <th style="padding:0.6rem 0.75rem; text-align:right;">Current Value (₹)</th>
+                  <th style="padding:0.6rem 0.75rem; text-align:right;">Actual %</th>
+                  <th style="padding:0.6rem 0.75rem; text-align:right;">Target %</th>
+                  <th style="padding:0.6rem 0.75rem; text-align:center;">Status</th>
+                  <th style="padding:0.6rem 0.75rem; text-align:right;">Rebalance Delta (₹)</th>
+                </tr>
+              </thead>
+              <tbody id="xray-asset-class-table-body">
+                <!-- Injected by app.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Market Cap Spread & Sector Heatmap vs Benchmarks -->
+      <div class="dashboard-grid" style="margin-bottom:1.5rem; display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 450px), 1fr)); gap:1.5rem; width:100%; max-width:100%; box-sizing:border-box;">
+        <!-- Cap Spread Chart -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>Market Cap & Geography Spread</h3>
+            <span style="font-size:0.75rem; color:var(--text-secondary);">Large Cap / Mid / Small / US & Multi</span>
+          </div>
+          <div class="chart-container" style="height:310px; position:relative;">
+            <canvas id="xray-cap-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Sector Target Benchmarking Table -->
+        <div class="chart-card" style="display:flex; flex-direction:column;">
+          <div class="chart-header">
+            <h3>Sector Target Intelligence Table</h3>
+            <span style="font-size:0.75rem; color:var(--text-secondary);">Actual % vs Institutional Benchmark %</span>
+          </div>
+          <div style="overflow-x:auto; flex:1; margin-top:0.5rem;">
+            <table class="data-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+              <thead>
+                <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary);">
+                  <th style="padding:0.6rem 0.5rem;">Sector</th>
+                  <th style="padding:0.6rem 0.5rem; text-align:right;">Actual %</th>
+                  <th style="padding:0.6rem 0.5rem; text-align:right;">Target %</th>
+                  <th style="padding:0.6rem 0.5rem; text-align:center;">Status</th>
+                  <th style="padding:0.6rem 0.5rem; text-align:right;">Rebalance Delta</th>
+                </tr>
+              </thead>
+              <tbody id="xray-sector-table-body">
+                <!-- Injected by app.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 4: Actionable Quarterly Correction Guidance & Rebalance Plan -->
+      <div class="chart-card full-width-card">
+        <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--card-border); padding-bottom:0.75rem; margin-bottom:1.25rem;">
+          <div>
+            <h3 style="display:flex; align-items:center; gap:0.5rem;">
+              <span>🎯 Quarterly Rebalance & Correction Action Plan</span>
+            </h3>
+            <span style="font-size:0.8rem; color:var(--text-secondary);">
+              Data-backed quarter-level correction scorecard • Timestamped: <strong id="xray-action-timestamp" style="color:var(--text-primary);">—</strong>
+            </span>
+          </div>
+          <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; padding:0.35rem 0.8rem; border-radius:20px; font-size:0.75rem; font-weight:700;">
+            Q3 FY27 TARGETS
+          </span>
+        </div>
+
+        <div class="action-plan-grid" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:1.25rem;">
+          <!-- 1. Trim Section -->
+          <div class="action-column" style="background:var(--card-bg-elevated, rgba(255,255,255,0.03)); border:1px solid var(--card-border); border-radius:12px; padding:1.25rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:#ef4444; font-weight:700; font-size:1rem;">
+              <span>✂️</span>
+              <span>1. Trim & De-Risk</span>
+            </div>
+            <div id="xray-trim-actions" style="display:flex; flex-direction:column; gap:0.75rem;">
+              <!-- Injected by app.js -->
+            </div>
+          </div>
+
+          <!-- 2. Multi-Asset Hedge Section -->
+          <div class="action-column" style="background:var(--card-bg-elevated, rgba(255,255,255,0.03)); border:1px solid var(--card-border); border-radius:12px; padding:1.25rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:#f59e0b; font-weight:700; font-size:1rem;">
+              <span>🛡️</span>
+              <span>2. Debt / Gold Hedge</span>
+            </div>
+            <div id="xray-multi-asset-actions" style="display:flex; flex-direction:column; gap:0.75rem;">
+              <!-- Injected by app.js -->
+            </div>
+          </div>
+
+          <!-- 3. Deploy Section -->
+          <div class="action-column" style="background:var(--card-bg-elevated, rgba(255,255,255,0.03)); border:1px solid var(--card-border); border-radius:12px; padding:1.25rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:#10b981; font-weight:700; font-size:1rem;">
+              <span>🎯</span>
+              <span>3. Deploy SIPs / Inflows</span>
+            </div>
+            <div id="xray-deploy-actions" style="display:flex; flex-direction:column; gap:0.75rem;">
+              <!-- Injected by app.js -->
+            </div>
+          </div>
+
+          <!-- 4. Stock Exits & Alpha Insights -->
+          <div class="action-column" style="background:var(--card-bg-elevated, rgba(255,255,255,0.03)); border:1px solid var(--card-border); border-radius:12px; padding:1.25rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; color:#6366f1; font-weight:700; font-size:1rem;">
+              <span>🚪</span>
+              <span>4. Exits & Alpha Tracker</span>
+            </div>
+            <div id="xray-stock-exit-actions" style="display:flex; flex-direction:column; gap:0.75rem;">
+              <!-- Injected by app.js -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 9. Tabular Actionable Recommendations & Monitoring Register -->
+        <div class="xray-card" style="margin-top:2rem;">
+          <div class="xray-card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+            <div>
+              <h3 style="margin:0; font-size:1.15rem; color:#f3f4f6;">📋 Actionable Recommendations &amp; Monitoring Register</h3>
+              <p style="margin:0.25rem 0 0; font-size:0.82rem; color:#9ca3af;">Linked tabular view of all portfolio recommendations, rebalance targets, and quarterly execution guidance</p>
+            </div>
+            <span class="xray-badge" style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:0.35rem 0.8rem; border-radius:20px; font-weight:600; font-size:0.78rem;">
+              Quarterly Monitoring Scorecard
+            </span>
+          </div>
+          <div style="overflow-x:auto; margin-top:1.25rem;">
+            <table class="modern-table" id="xray-recommendations-table" style="width:100%; border-collapse:collapse; text-align:left;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--card-border); color:#9ca3af; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">
+                  <th style="padding:0.75rem 0.5rem;">Strategic Category</th>
+                  <th style="padding:0.75rem 0.5rem;">Target Asset / Holdings</th>
+                  <th style="padding:0.75rem 0.5rem;">Current Allocation</th>
+                  <th style="padding:0.75rem 0.5rem;">Recommended Action</th>
+                  <th style="padding:0.75rem 0.5rem; text-align:right;">Rebalance Delta (₹)</th>
+                  <th style="padding:0.75rem 0.5rem;">Quarterly Monitoring Guidance</th>
+                </tr>
+              </thead>
+              <tbody id="xray-recommendations-table-body">
+                <!-- Injected dynamically by app.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ════════════════════ MANAGE PORTFOLIO TAB ════════════════════ -->
     <div id="manage-tab" class="tab-content">
       <div class="manage-grid">
@@ -1010,6 +1278,7 @@
     <button class="bottom-nav-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')"><span class="bn-icon">🏦</span><span class="bn-label">Other</span></button>
     <button class="bottom-nav-btn" data-tab="growth" onclick="switchTab('growth')"><span class="bn-icon">🚀</span><span class="bn-label">Growth</span></button>
     <button class="bottom-nav-btn" data-tab="monthly" onclick="switchTab('monthly')"><span class="bn-icon">📅</span><span class="bn-label">Periodic</span></button>
+    <button class="bottom-nav-btn" data-tab="xray" onclick="switchTab('xray')"><span class="bn-icon">🔬</span><span class="bn-label">X-Ray</span></button>
   </nav>
   </div>
 

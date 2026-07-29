@@ -1,0 +1,370 @@
+{
+  "timestamp": 1785343886473,
+  "totalValue": 34131800.4803635,
+  "totalEquity": 24517543.780363504,
+  "totalDebt": 9120334.2,
+  "totalGold": 493922.5,
+  "totalReit": 0,
+  "portfolioXirr": 0.128,
+  "stockXirr": 0.098,
+  "mfXirr": 0.175,
+  "styleBox": {
+    "largeValue": {
+      "val": 1683617.6,
+      "pct": 4.9
+    },
+    "largeBlend": {
+      "val": 5274450.4181339,
+      "pct": 15.5
+    },
+    "largeGrowth": {
+      "val": 8263182.8771978,
+      "pct": 24.2
+    },
+    "midValue": {
+      "val": 143538,
+      "pct": 0.4
+    },
+    "midBlend": {
+      "val": 1685374.0334760803,
+      "pct": 4.9
+    },
+    "midGrowth": {
+      "val": 2128384.4002141203,
+      "pct": 6.2
+    },
+    "smallValue": {
+      "val": 102873.59999999999,
+      "pct": 0.3
+    },
+    "smallBlend": {
+      "val": 2032141.4684024798,
+      "pct": 6
+    },
+    "smallGrowth": {
+      "val": 3203981.38293912,
+      "pct": 9.4
+    }
+  },
+  "topBlendedHoldings": [
+    {
+      "company": "HDFC Bank Ltd.",
+      "directVal": 69127.59999999999,
+      "mfVal": 803500.0685387115,
+      "totalVal": 872627.6685387115,
+      "pct": 2.6,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ICICI Bank Ltd.",
+      "directVal": 84417.2,
+      "mfVal": 616570.8682338877,
+      "totalVal": 700988.0682338878,
+      "pct": 2.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Reliance Industries Ltd.",
+      "directVal": 0,
+      "mfVal": 611203.1973027975,
+      "totalVal": 611203.1973027975,
+      "pct": 1.8,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Infosys Ltd.",
+      "directVal": 71870.5,
+      "mfVal": 508991.84847647144,
+      "totalVal": 580862.3484764714,
+      "pct": 1.7,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Bharti Airtel Ltd.",
+      "directVal": 342324,
+      "mfVal": 224523.62349898682,
+      "totalVal": 566847.6234989868,
+      "pct": 1.7,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ITC Ltd.",
+      "directVal": 224304.19999999998,
+      "mfVal": 296516.56941548456,
+      "totalVal": 520820.76941548457,
+      "pct": 1.5,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Larsen & Toubro Ltd.",
+      "directVal": 237584,
+      "mfVal": 280654.5293737335,
+      "totalVal": 518238.5293737335,
+      "pct": 1.5,
+      "risk": "Optimal"
+    },
+    {
+      "company": "TCS Ltd.",
+      "directVal": 79134,
+      "mfVal": 389074.41310768435,
+      "totalVal": 468208.41310768435,
+      "pct": 1.4,
+      "risk": "Optimal"
+    },
+    {
+      "company": "State Bank of India",
+      "directVal": 66871.2,
+      "mfVal": 252795.58690190528,
+      "totalVal": 319666.78690190526,
+      "pct": 0.9,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Apple Inc.",
+      "directVal": 0,
+      "mfVal": 309341.114576296,
+      "totalVal": 309341.114576296,
+      "pct": 0.9,
+      "risk": "Optimal"
+    }
+  ],
+  "assetClassAnalysis": [
+    {
+      "asset": "Equity (Stocks, MFs & REITs)",
+      "actualVal": 24517544,
+      "actualPct": 71.8,
+      "targetPct": 75,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": -1081307
+    },
+    {
+      "asset": "Debt & Bonds (PF, PPF, NPS, Bonds)",
+      "actualVal": 9120334,
+      "actualPct": 26.7,
+      "targetPct": 20,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": 2293974
+    },
+    {
+      "asset": "Gold & SGBs",
+      "actualVal": 493923,
+      "actualPct": 1.4,
+      "targetPct": 5,
+      "status": "UNDEREXPOSED",
+      "rebalanceDeltaRs": -1212668
+    }
+  ],
+  "costAnalysis": {
+    "totalTer": 0.43,
+    "annualLeakageRs": 76292,
+    "regularFundsCount": 0,
+    "savingsRs": 0,
+    "status": "Optimal (Low Cost)"
+  },
+  "sectorIntelligence": [
+    {
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "actualVal": 3899037,
+      "actualPct": 15.9,
+      "targetPct": 14,
+      "status": "OPTIMAL (USD HEDGE)",
+      "rebalanceDeltaRs": 0
+    },
+    {
+      "sector": "Indian IT & Software Services",
+      "actualVal": 3479815,
+      "actualPct": 14.2,
+      "targetPct": 14,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": 0
+    },
+    {
+      "sector": "Banking & Financials",
+      "actualVal": 5417335,
+      "actualPct": 22.1,
+      "targetPct": 23,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": -221701
+    },
+    {
+      "sector": "Energy, Metals & Chemicals",
+      "actualVal": 2679396,
+      "actualPct": 10.9,
+      "targetPct": 12,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": -262710
+    },
+    {
+      "sector": "Consumer & FMCG",
+      "actualVal": 2493350,
+      "actualPct": 10.2,
+      "targetPct": 11,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": -203579
+    },
+    {
+      "sector": "Healthcare & Pharma",
+      "actualVal": 2202859,
+      "actualPct": 9,
+      "targetPct": 9,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": -3720
+    },
+    {
+      "sector": "Automobile & Ancillaries",
+      "actualVal": 1849699,
+      "actualPct": 7.5,
+      "targetPct": 7,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": 133471
+    },
+    {
+      "sector": "Real Estate & Construction",
+      "actualVal": 618363,
+      "actualPct": 2.5,
+      "targetPct": 3,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": -117163
+    },
+    {
+      "sector": "Other Equities",
+      "actualVal": 1877689,
+      "actualPct": 7.7,
+      "targetPct": 7,
+      "status": "OPTIMAL",
+      "rebalanceDeltaRs": 161461
+    }
+  ],
+  "quarterlyActionPlan": {
+    "trimActions": [
+      {
+        "action": "No Sector Trimming Needed",
+        "amountRs": 0,
+        "pct": 0,
+        "rationale": "All equity sectors and market caps are within institutional risk boundaries. The 28.8% IT & Technology weight includes 14.3% US Tech hedge and 14.5% Indian IT (both optimal)."
+      }
+    ],
+    "multiAssetActions": [
+      {
+        "action": "Increase Gold & SGB Hedge",
+        "amountRs": 1212668,
+        "rationale": "Gold/SGB allocation is 1.4% vs 12% institutional inflation hedge target. Add ~₹12.1 L in SGBs/Gold ETFs."
+      }
+    ],
+    "deployActions": [
+      {
+        "action": "Sector Balance Optimal",
+        "amountRs": 0,
+        "targetPct": 0,
+        "rationale": "All defensive and cyclical sectors meet benchmark floor allocations."
+      }
+    ],
+    "stockExitActions": [
+      {
+        "action": "XIRR Alpha Implication (-7.7% Direct Alpha)",
+        "amountRs": 0,
+        "badgeText": "ALPHA TRACKER",
+        "rationale": "Your direct equity stock picking (9.8% XIRR) is lagging mutual funds (17.5% XIRR). Recommendation: Consider indexing more capital into mutual funds."
+      },
+      {
+        "action": "Rationalize 52 Sub-1% Tail Stocks",
+        "amountRs": 3010750,
+        "badgeText": "DECLUTTER",
+        "rationale": "You hold 52 small direct positions (e.g., AJANTPHARM, AXISBANK, BAJFINANCE) worth ~₹30.11 L. Consolidate these tail bets into your top 10 conviction stocks."
+      },
+      {
+        "action": "Review / Exit Lagging Direct Stocks",
+        "amountRs": 181691,
+        "badgeText": "TAX LOSS / EXIT",
+        "rationale": "Underperforming direct stocks: TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%). Evaluate for tax-loss harvesting or set strict turnaround stop-losses."
+      }
+    ],
+    "timestamp": "29 Jul 2026"
+  },
+  "recommendationsTable": [
+    {
+      "category": "Value / Dividend Yield Cushion (Large & Mid Value Anchor)",
+      "target": "Nifty 50 Value 20 ETF (NIFTY50VAL), COALINDIA, ONGC, ITC, SBIN, CASTROLIND, HEROMOTOCO",
+      "currentStatus": "₹19.30 L (5.6% of Eq)",
+      "action": "DEPLOY VALUE SIPs / ADD",
+      "badgeColor": "#10b981",
+      "deltaRs": 2304649,
+      "guidance": "Defensive Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%). Actionable Step: Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% defensive anchor."
+    },
+    {
+      "category": "9-Box Growth Overextension & Small-Cap Profit Booking",
+      "target": "Quant Small Cap Fund, Nippon India Small Cap, Tata Small Cap & Direct Growth Stocks (INFY, KPITTECH, SYNGENE)",
+      "currentStatus": "Growth Boxes: 39.8% (Small Growth: 9.4% / ₹32.0 L)",
+      "action": "TRIM GROWTH / TAKE PROFITS",
+      "badgeColor": "#f59e0b",
+      "deltaRs": -2304649,
+      "guidance": "Small-Cap Growth (9.4% / ₹32.0 L) and overall Growth boxes (39.8%) create high beta and valuation risk. Actionable Step: Book partial profits in Small-Cap active funds (Quant Small Cap, Nippon India Small Cap) and exit negative-alpha direct growth stocks; redirect proceeds into the Value & Dividend cushion."
+    },
+    {
+      "category": "International Exposure Quality Audit: US Tech Concentration & Product Overlap",
+      "target": "Navi NASDAQ 100 FOF (₹19.70 L / 0.13% TER) • Motilal Oswal NASDAQ 100 (₹8.83 L / 0.24% TER) • Edelweiss US Tech (₹6.63 L / 1.41% TER)",
+      "currentStatus": "14.3% Offshore Allocation (₹35.15 L) • 100% US Tech Concentrated • 2x NASDAQ-100 FOF Overlap",
+      "action": "QUALITY OPTIMIZATION & CONSOLIDATION",
+      "badgeColor": "#0ea5e9",
+      "deltaRs": 0,
+      "guidance": "1. Eliminate Product Overlap: You hold two identical index FOFs (Navi NASDAQ 100 and Motilal Oswal NASDAQ 100). Consolidate the ₹8.83 L Motilal Oswal tranche into Navi NASDAQ 100 to lower tracking TER from 0.24% to 0.13%. 2. Active Expense Drag: Monitor Edelweiss US Tech (1.41% TER) for net-of-fee alpha over NASDAQ 100; consolidate into index if lagging. 3. Diversification & Taxation: Offshore exposure is 100% US Growth/AI. Use equity-taxed Flexi-Cap schemes (Parag Parikh Flexi Cap) for future overseas allocations to avoid marginal slab-rate LRS FOF taxation."
+    },
+    {
+      "category": "Low-Alpha Laggards & Tail Stock Rationalization",
+      "target": "TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%), KPITTECH (-26.1%), BALKRISIND (-17.1%), HDFCBANK (-10.9%), 716GS2050 (-9.8%)",
+      "currentStatus": "7 Direct Holdings in Persistent Negative Alpha",
+      "action": "EXIT / REDEPLOY CAPITAL",
+      "badgeColor": "#ef4444",
+      "deltaRs": -406000,
+      "guidance": "7 direct stock holdings display persistent negative alpha (< -10% return). Actionable Step: Exit or trim these 7 underperforming positions (totaling ₹4.06 L) and redeploy proceeds into outperforming Direct Plan mutual funds or high-dividend bluechip stocks."
+    },
+    {
+      "category": "Sector Target Analysis: Domestic IT vs US Tech Separation",
+      "target": "Indian IT (14.5% / ₹35.41 L) • US Tech Offshore (14.3% / ₹35.15 L)",
+      "currentStatus": "Both Segregated Allocations Within Institutional 14%–15% Targets",
+      "action": "OPTIMAL GEOGRAPHIC SPLIT",
+      "badgeColor": "#0ea5e9",
+      "deltaRs": 0,
+      "guidance": "Segregating US Tech (14.3% USD hedge) from domestic Indian IT (14.5%) validates that no sector trimming is needed. Both technology levers act independently within institutional risk boundaries."
+    }
+  ],
+  "sectorExposure": {
+    "Banking & Financials": 5417334.535272668,
+    "Indian IT & Software Services": 3479815.4334184956,
+    "Consumer & FMCG": 2493350.3626363347,
+    "Healthcare & Pharma": 2202859.3161688102,
+    "Energy, Metals & Chemicals": 2679395.505870096,
+    "Automobile & Ancillaries": 1849699.252935048,
+    "Other Equities": 1877689.432935048,
+    "US Tech & Global Innovation (Offshore)": 3899036.941127,
+    "Real Estate & Construction": 618363
+  },
+  "capExposure": {
+    "Large Cap": 8465934.0590639,
+    "Mid Cap": 3957296.4336902,
+    "Small Cap": 5338996.4513416,
+    "International / Multi Cap": 6755316.836267799
+  },
+  "recommendations": [
+    {
+      "type": "Info",
+      "title": "Increase Gold & SGB Hedge",
+      "desc": "Gold/SGB allocation is 1.4% vs 12% institutional inflation hedge target. Add ~₹12.1 L in SGBs/Gold ETFs."
+    },
+    {
+      "type": "Info",
+      "title": "XIRR Alpha Implication (-7.7% Direct Alpha)",
+      "desc": "Your direct equity stock picking (9.8% XIRR) is lagging mutual funds (17.5% XIRR). Recommendation: Consider indexing more capital into mutual funds."
+    },
+    {
+      "type": "Info",
+      "title": "Rationalize 52 Sub-1% Tail Stocks",
+      "desc": "You hold 52 small direct positions (e.g., AJANTPHARM, AXISBANK, BAJFINANCE) worth ~₹30.11 L. Consolidate these tail bets into your top 10 conviction stocks."
+    },
+    {
+      "type": "Info",
+      "title": "Review / Exit Lagging Direct Stocks",
+      "desc": "Underperforming direct stocks: TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%). Evaluate for tax-loss harvesting or set strict turnaround stop-losses."
+    }
+  ]
+}

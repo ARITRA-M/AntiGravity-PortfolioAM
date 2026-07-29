@@ -548,21 +548,37 @@ tr.row-loss:hover td { background: rgba(239, 68, 68, 0.10); }
 /* Visualization Layout */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 450px), 1fr));
   gap: 1.5rem;
-  margin-bottom: 2.5rem;
+  margin-bottom: 2rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
+.dashboard-grid > *,
 .chart-card {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
   background: var(--card-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--card-border);
   border-radius: 20px;
-  padding: 1.75rem;
+  padding: 1.5rem;
   box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chart-header {
@@ -2815,6 +2831,7 @@ p.manage-hint.trend-down { color: var(--accent-red); }
   }
   .bottom-nav-btn {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -2823,10 +2840,10 @@ p.manage-hint.trend-down { color: var(--accent-red); }
     border: none;
     color: var(--text-muted);
     font-family: var(--font-sans);
-    font-size: 0.62rem;
+    font-size: 0.58rem;
     font-weight: 600;
-    padding: 0.3rem 0;
-    border-radius: 10px;
+    padding: 0.25rem 0;
+    border-radius: 8px;
     cursor: pointer;
   }
   .bottom-nav-btn .bn-icon { font-size: 1.05rem; line-height: 1; transition: transform 0.2s; }
@@ -2977,3 +2994,46 @@ table tbody:empty::after {
   .monthly-kpi-card { flex-direction: column; align-items: flex-start; gap: 0.35rem; }
   .monthly-kpi-icon { width: 26px; height: 26px; font-size: 1rem; }
 }
+
+/* ── Mobile-Friendly Institutional X-Ray & Monitoring Register ──────── */
+@media (max-width: 768px) {
+  #xray-tab .xray-card {
+    padding: 1rem !important;
+  }
+  #xray-tab .xray-card-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.5rem !important;
+  }
+  #xray-tab table th,
+  #xray-tab table td {
+    padding: 0.5rem 0.4rem !important;
+    font-size: 0.78rem !important;
+  }
+  #xray-tab .xray-badge {
+    font-size: 0.7rem !important;
+    padding: 0.25rem 0.6rem !important;
+  }
+  #xray-recommendations-table th,
+  #xray-recommendations-table td {
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+  #xray-recommendations-table td:nth-child(6) {
+    min-width: 160px;
+    font-size: 0.75rem !important;
+    line-height: 1.35;
+  }
+}
+
+@media (max-width: 480px) {
+  #xray-tab .xray-grid {
+    grid-template-columns: 1fr !important;
+  }
+  #xray-tab table th,
+  #xray-tab table td {
+    padding: 0.45rem 0.35rem !important;
+    font-size: 0.74rem !important;
+  }
+}
+

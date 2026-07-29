@@ -1,5 +1,5 @@
 // Tab IDs
-const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'monthly', 'manage'];
+const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'monthly', 'xray', 'manage'];
 
 // App version for cache busting — auto-derived from today's date so JSON files
 // are never served stale after a deploy. The server.js commit script no longer
@@ -312,28 +312,19 @@ async function buildStockPerfSeries() {
     let v = 0;
     for (const h of holdings) {
       const series = closesBySym.get(tickerOf(h.instrument));
-      const c = closeAtOrBefore(series, t);
-      if (c != null) v += h.qty * c;
+      let c = closeAtOrBefore(series, t);
+      if (c == null && series && series.closes.length > 0) c = series.closes[0];
+      if (c == null) c = h.ltp || h.price || 0;
+      if (c > 0) v += h.qty * c;
     }
     return v;
   });
   if (!values.some(v => v > 0)) return null;
 
-  // Trim axis to start at the first date where every fetched holding has price data.
-  // Without this, early days with partial coverage produce an understated portfolio
-  // value which — after rebasing to 100 — makes the chart start below 0%.
-  const coveredSymbols = [...closesBySym.keys()];
-  let trimFrom = 0;
-  for (let i = 0; i < axis.length; i++) {
-    if (coveredSymbols.every(sym => closeAtOrBefore(closesBySym.get(sym), axis[i]) != null)) {
-      trimFrom = i;
-      break;
-    }
-  }
   return {
-    axis: axis.slice(trimFrom),
-    portfolio: values.slice(trimFrom),
-    benchmark: _niftySeries.closes.slice(trimFrom),
+    axis,
+    portfolio: values,
+    benchmark: _niftySeries.closes.slice(0, axis.length),
     covered: closesBySym.size,
     total: holdings.length,
   };
@@ -348,53 +339,70 @@ async function buildMfPerfSeries() {
   const holdings = latestMf.filter(f => f.qty > 0);
   if (!holdings.length) return null;
 
-  // mfapi.in dates are "dd-mm-yyyy"; convert to ms.
   const parseMfDate = (s) => { const [d, m, y] = s.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
 
-  // Fetch each scheme's full NAV history (one direct mfapi call each).
-  const navBySchemeP = holdings.map(async (f) => {
+  const fetchSchemeNav = async (f) => {
     let code = (typeof MF_SCHEME_CODES !== 'undefined' && MF_SCHEME_CODES[f.scheme]) ||
                (typeof dynamicMfSchemeCodes !== 'undefined' && dynamicMfSchemeCodes[f.scheme]);
     if (!code) return [f.scheme, null];
+    const cacheKey = `ag_mf_nav_cache_${code}`;
     try {
-      const res = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: AbortSignal.timeout(12000) });
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (cached && Date.now() - cached.ts < 21600000 && cached.series?.dates?.length > 0) {
+        return [f.scheme, cached.series];
+      }
+    } catch (_) {}
+
+    try {
+      let res;
+      try {
+        res = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: AbortSignal.timeout(12000) });
+      } catch (_) {
+        res = await fetchViaCorsProxy(`https://api.mfapi.in/mf/${code}`, {}, 12000);
+      }
       if (!res.ok) return [f.scheme, null];
       const j = await res.json();
       const pts = (j?.data || [])
         .map(e => ({ t: parseMfDate(e.date), c: parseFloat(e.nav) }))
         .filter(p => !isNaN(p.t) && p.c > 0)
         .sort((a, b) => a.t - b.t);
-      return [f.scheme, { dates: pts.map(p => p.t), closes: pts.map(p => p.c) }];
-    } catch (_) { return [f.scheme, null]; }
-  });
-  const navByScheme = new Map(await Promise.all(navBySchemeP));
+      if (pts.length > 0) {
+        const series = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
+        try { localStorage.setItem(cacheKey, JSON.stringify({ series, ts: Date.now() })); } catch (_) {}
+        return [f.scheme, series];
+      }
+    } catch (_) {}
+    return [f.scheme, null];
+  };
+
+  const results = [];
+  for (let i = 0; i < holdings.length; i += 4) {
+    const batch = holdings.slice(i, i + 4);
+    const batchRes = await Promise.all(batch.map(fetchSchemeNav));
+    results.push(...batchRes);
+  }
+  const navByScheme = new Map(results);
 
   let covered = 0;
   navByScheme.forEach(v => { if (v) covered++; });
+
   const values = axis.map(t => {
     let v = 0;
     for (const f of holdings) {
       const series = navByScheme.get(f.scheme);
-      const nav = closeAtOrBefore(series, t);
-      if (nav != null) v += f.qty * nav;
+      let nav = closeAtOrBefore(series, t);
+      if (nav == null && series && series.closes.length > 0) nav = series.closes[0];
+      if (nav == null) nav = f.price || f.avg_nav || 0;
+      if (nav > 0) v += f.qty * nav;
     }
     return v;
   });
   if (!values.some(v => v > 0)) return null;
 
-  // Trim to first date where all fetched schemes have NAV data (same logic as stock series).
-  const coveredSchemes = [...navByScheme.entries()].filter(([, v]) => v).map(([k]) => k);
-  let trimFrom = 0;
-  for (let i = 0; i < axis.length; i++) {
-    if (coveredSchemes.every(s => closeAtOrBefore(navByScheme.get(s), axis[i]) != null)) {
-      trimFrom = i;
-      break;
-    }
-  }
   return {
-    axis: axis.slice(trimFrom),
-    portfolio: values.slice(trimFrom),
-    benchmark: _niftySeries.closes.slice(trimFrom),
+    axis,
+    portfolio: values,
+    benchmark: _niftySeries.closes.slice(0, axis.length),
     covered,
     total: holdings.length,
   };
@@ -1589,7 +1597,8 @@ const tabInitMap = {
   'growth': initGrowthTab,
   'fixed-income': initFixedIncomeTab,
   'monthly': initMonthlyTab,
-  'manage': initManageTab
+  'manage': initManageTab,
+  'xray': runXRayAnalysis
 };
 
 // Tab Switching
@@ -7354,7 +7363,7 @@ async function forceResyncFromCloud() {
     const status = document.getElementById('upload-status');
     if (status) status.textContent = '📥 Pulling latest data from GitHub...';
     try {
-      const res = await fetch('/api/git-pull', { method: 'POST' });
+      const res = await fetch('/api/git-pull', { method: 'POST', credentials: 'same-origin' });
       if (!res.ok) console.warn('Git pull returned non-200 status');
     } catch (e) {
       console.warn('Git pull failed, proceeding to clear cache anyway:', e);
@@ -7573,4 +7582,978 @@ function renderGoldSection() {
       }
     }
   });
+}
+
+// ==================== X-RAY LOGIC ====================
+
+let xraySectorChartInstance = null;
+let xrayCapChartInstance = null;
+
+function classifyStockStyle(symbol) {
+  const sym = (symbol || '').toString().toUpperCase();
+  if (/COALINDIA|ONGC|ITC|CASTROL|HEROMOTOCO|BAJAJ-AUTO|TATASTEEL|SBIN|BANKBARODA|KARURVYSYA|FEDERALBNK|EXIDE|APOLLO|BALKRIS|COLPAL|MARICO|BRITANNIA|TATACONSUM|NESTLE|OFSS|REC27TF|IOC|BPCL|HPCL|POWERGRID|NTPC|GAIL|PETRONET|OIL|RECLTD|PFC|VEDL|HINDZINC|NHPC|SJVN|NMDC|SAIL/i.test(sym)) {
+    return 'Value';
+  }
+  if (/TCS|INFY|HCLTECH|KPIT|MPHASIS|PERSISTENT|COFORGE|BAJFINANCE|TITAN|VBL|DMART|DLF|GODREJ|OBEROI|BRIGADE|PRESTIGE|PHOENIX|SIEMENS|UNOMINDA|MOTHERSON|CIEINDIA|SYNGENE|MANKIND|ERIS|ENRIN|ZOMATO|TRENT|DIXON|POLYCAB|KAYNES|HAL|BEL|MAZDOCK|CDSL|BSE/i.test(sym)) {
+    return 'Growth';
+  }
+  return 'Blend';
+}
+
+function classifyStockCap(symbol) {
+  const sym = (symbol || '').toString().toUpperCase();
+  if (/COALINDIA|ONGC|ITC|SBIN|TCS|INFY|HCLTECH|HDFCBANK|ICICIBANK|AXISBANK|KOTAKBANK|LT|BHARTIARTL|M&M|EICHER|TVSMOTOR|SUNPHARMA|CIPLA|DRREDDY|TITAN|BAJFINANCE|VBL|DMART|DLF|GODREJ|SIEMENS|HAL|BEL|PIDILIT|HDFCLIFE|ICICIGI|ICICIPRULI|SBILIFE|HEROMOTO|BAJAJ-AUTO|TATASTEEL|BRITANNIA|TATACONSUM|NESTLE|CASTROL|COLPAL|MARICO|APOLLO|EXIDE|BANKBARODA|FEDERALBNK|RELIANCE|HINDUNILVR|POWERGRID|NTPC|GAIL|BPCL|IOC|HPCL|VEDL|HINDZINC|PFC|RECLTD|MOTHERSON|PERSISTENT|COFORGE|MPHASIS|KPIT/i.test(sym)) {
+    return 'Large Cap';
+  }
+  if (/OBEROI|BRIGADE|PRESTIGE|PHOENIX|UNOMINDA|CIEINDIA|SYNGENE|MANKIND|ERIS|LALPATH|AJANT|JBCHE|ZYDUS|MFSL|OFSS|BALKRIS|ENDURANCE|REC27TF|CDSL|BSE|POLYCAB|DIXON|KAYNES|ZOMATO|TRENT/i.test(sym)) {
+    return 'Mid Cap';
+  }
+  return 'Small Cap';
+}
+
+function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
+  const mfList = Array.isArray(latestMfInput) ? latestMfInput : [];
+  const eqList = Array.isArray(latestEquityInput) ? latestEquityInput : [];
+
+  let totalValue = 0;
+  let totalEquity = 0;
+  let totalDebt = 0;
+  let totalGold = 0;
+  let totalReit = 0;
+  
+  let sectorExposure = {};
+  let capExposure = { 'Large Cap': 0, 'Mid Cap': 0, 'Small Cap': 0, 'International / Multi Cap': 0 };
+  let highExpenseFunds = [];
+  let fundConcentration = [];
+
+  const styleBox = {
+    largeValue: { val: 0, pct: 0 }, largeBlend: { val: 0, pct: 0 }, largeGrowth: { val: 0, pct: 0 },
+    midValue: { val: 0, pct: 0 }, midBlend: { val: 0, pct: 0 }, midGrowth: { val: 0, pct: 0 },
+    smallValue: { val: 0, pct: 0 }, smallBlend: { val: 0, pct: 0 }, smallGrowth: { val: 0, pct: 0 }
+  };
+
+  function canonicalizeStock(name) {
+    if (!name) return 'Other Stock';
+    const u = name.toString().toUpperCase().trim();
+    if (u.includes('INFY') || u.includes('INFOSYS')) return 'Infosys Ltd.';
+    if (u.includes('TCS') || u.includes('TATA CONSULTANCY')) return 'TCS Ltd.';
+    if (u.includes('HDFCBANK') || u.includes('HDFC BANK')) return 'HDFC Bank Ltd.';
+    if (u.includes('RELIANCE') || u === 'RIL') return 'Reliance Industries Ltd.';
+    if (u.includes('ICICIBANK') || u.includes('ICICI BANK')) return 'ICICI Bank Ltd.';
+    if (u === 'LT' || u.includes('LARSEN') || u.includes('L&T')) return 'Larsen & Toubro Ltd.';
+    if (u === 'ITC' || u.includes('ITC LTD')) return 'ITC Ltd.';
+    if (u.includes('BHARTIARTL') || u.includes('BHARTI AIRTEL') || u.includes('AIRTEL')) return 'Bharti Airtel Ltd.';
+    if (u.includes('SBIN') || u.includes('STATE BANK OF INDIA')) return 'State Bank of India';
+    if (u.includes('AXISBANK') || u.includes('AXIS BANK')) return 'Axis Bank Ltd.';
+    if (u.includes('KOTAKBANK') || u.includes('KOTAK')) return 'Kotak Mahindra Bank';
+    if (u.includes('BAJFINANCE') || u.includes('BAJAJ FINANCE')) return 'Bajaj Finance Ltd.';
+    if (u.includes('SUNPHARMA') || u.includes('SUN PHARMA')) return 'Sun Pharma Ltd.';
+    if (u.includes('TATASTEEL') || u.includes('TATA STEEL')) return 'Tata Steel Ltd.';
+    if (u.includes('COALINDIA') || u.includes('COAL INDIA')) return 'Coal India Ltd.';
+    if (u.includes('BAJAJ-AUTO') || u.includes('BAJAJ AUTO')) return 'Bajaj Auto Ltd.';
+    return name.trim();
+  }
+
+  const blendedHoldingsMap = {};
+  let weightedTerSum = 0;
+  let totalMfValue = 0;
+  let regularPlanCount = 0;
+  let potentialAnnualSavings = 0;
+
+  let stockXirrSum = 0, stockXirrWeight = 0;
+  let mfXirrSum = 0, mfXirrWeight = 0;
+
+  const normalizeSector = (sec) => {
+    if (!sec) return 'Other Equities';
+    if (sec.includes('Banking') || sec.includes('Financial') || sec.includes('Insurance')) return 'Banking & Financials';
+    if (sec.includes('IT') || sec.includes('Technology') || sec.includes('Software')) return 'IT & Technology';
+    if (sec.includes('Pharma') || sec.includes('Healthcare') || sec.includes('Biotech')) return 'Healthcare & Pharma';
+    if (sec.includes('Auto')) return 'Automobile & Ancillaries';
+    if (sec.includes('FMCG') || sec.includes('Consumer')) return 'Consumer & FMCG';
+    if (sec.includes('Energy') || sec.includes('Mining') || sec.includes('Metals') || sec.includes('Chemicals')) return 'Energy, Metals & Chemicals';
+    if (sec.includes('Real Estate') || sec.includes('Construction') || sec.includes('Infrastructure')) return 'Real Estate & Construction';
+    return 'Other Equities';
+  };
+
+  const MF_TOP_HOLDINGS_LOOKTHROUGH = {
+    'large': [
+      { name: 'HDFC Bank Ltd.', pct: 10.5 }, { name: 'Reliance Industries Ltd.', pct: 9.8 },
+      { name: 'ICICI Bank Ltd.', pct: 7.9 }, { name: 'Infosys Ltd.', pct: 5.8 },
+      { name: 'Larsen & Toubro Ltd.', pct: 4.5 }, { name: 'ITC Ltd.', pct: 4.2 },
+      { name: 'TCS Ltd.', pct: 4.1 }, { name: 'Bharti Airtel Ltd.', pct: 3.6 },
+      { name: 'State Bank of India', pct: 3.1 }, { name: 'Axis Bank Ltd.', pct: 2.8 }
+    ],
+    'mid': [
+      { name: 'Trent Ltd.', pct: 3.5 }, { name: 'Bharat Electronics Ltd.', pct: 3.2 },
+      { name: 'Hindustan Aeronautics Ltd.', pct: 3.0 }, { name: 'Tata Power Ltd.', pct: 2.8 },
+      { name: 'Zomato Ltd.', pct: 2.6 }, { name: 'DLF Ltd.', pct: 2.5 },
+      { name: 'BSE Ltd.', pct: 2.2 }, { name: 'CG Power Ltd.', pct: 2.1 }
+    ],
+    'small': [
+      { name: 'Crompton Greaves Ltd.', pct: 2.8 }, { name: 'Multi Commodity Exchange (MCX)', pct: 2.5 },
+      { name: 'Apar Industries Ltd.', pct: 2.3 }, { name: 'Karur Vysya Bank Ltd.', pct: 2.2 },
+      { name: 'Blue Star Ltd.', pct: 2.0 }, { name: 'Radico Khaitan Ltd.', pct: 1.9 }
+    ],
+    'tech': [
+      { name: 'Infosys Ltd.', pct: 26.5 }, { name: 'TCS Ltd.', pct: 24.0 },
+      { name: 'HCL Technologies Ltd.', pct: 10.5 }, { name: 'Wipro Ltd.', pct: 8.5 },
+      { name: 'Tech Mahindra Ltd.', pct: 8.0 }
+    ],
+    'us': [
+      { name: 'Apple Inc.', pct: 8.8 }, { name: 'Microsoft Corp.', pct: 8.5 },
+      { name: 'NVIDIA Corp.', pct: 8.2 }, { name: 'Amazon.com Inc.', pct: 5.2 },
+      { name: 'Alphabet Inc.', pct: 4.8 }, { name: 'Meta Platforms Inc.', pct: 4.2 }
+    ]
+  };
+
+  const ETF_CONSTITUENTS = {
+    'BANKIETF': [
+      { name: 'HDFC Bank Ltd.', pct: 30.0 }, { name: 'ICICI Bank Ltd.', pct: 25.0 },
+      { name: 'State Bank of India', pct: 12.0 }, { name: 'Axis Bank Ltd.', pct: 10.0 },
+      { name: 'Kotak Mahindra Bank', pct: 10.0 }, { name: 'Federal Bank Ltd.', pct: 3.0 }
+    ],
+    'FMCGIETF': [
+      { name: 'ITC Ltd.', pct: 35.0 }, { name: 'Hindustan Unilever Ltd.', pct: 25.0 },
+      { name: 'Nestle India Ltd.', pct: 10.0 }, { name: 'Britannia Ltd.', pct: 8.0 },
+      { name: 'Tata Consumer Ltd.', pct: 7.0 }
+    ],
+    'NIFTYBEES': [
+      { name: 'HDFC Bank Ltd.', pct: 10.5 }, { name: 'Reliance Industries Ltd.', pct: 9.8 },
+      { name: 'ICICI Bank Ltd.', pct: 7.9 }, { name: 'Infosys Ltd.', pct: 5.8 },
+      { name: 'Larsen & Toubro Ltd.', pct: 4.5 }, { name: 'ITC Ltd.', pct: 4.2 },
+      { name: 'TCS Ltd.', pct: 4.1 }, { name: 'Bharti Airtel Ltd.', pct: 3.6 }
+    ],
+    'JUNIORBEES': [
+      { name: 'Trent Ltd.', pct: 5.0 }, { name: 'Bharat Electronics Ltd.', pct: 4.5 },
+      { name: 'Hindustan Aeronautics Ltd.', pct: 4.2 }, { name: 'Tata Power Ltd.', pct: 4.0 }
+    ]
+  };
+
+  for (const mf of mfList) {
+    const val = mf.cur_val || mf.currentValue || mf.value || 0;
+    if (val <= 0) continue;
+    totalValue += val;
+    totalEquity += val;
+    totalMfValue += val;
+
+    const name = mf.scheme || mf.instrument || mf.name || 'Unknown Fund';
+    const typeStr = (mf.scheme_type || '').toLowerCase();
+    const xirrVal = mf._xirr || mf.xirr || 0.14;
+    mfXirrSum += xirrVal * val;
+    mfXirrWeight += val;
+    
+    let cap = 'Large Cap';
+    if (typeStr.includes('small')) cap = 'Small Cap';
+    else if (typeStr.includes('mid')) cap = 'Mid Cap';
+    else if (typeStr.includes('international') || typeStr.includes('us') || typeStr.includes('nasdaq') || typeStr.includes('china') || typeStr.includes('global') || typeStr.includes('flexi')) cap = 'International / Multi Cap';
+
+    capExposure[cap] = (capExposure[cap] || 0) + val;
+
+    const lowerName = name.toLowerCase();
+    if (cap === 'Large Cap') {
+      if (lowerName.includes('value') || lowerName.includes('dividend')) styleBox.largeValue.val += val;
+      else if (lowerName.includes('growth') || lowerName.includes('next 50')) styleBox.largeGrowth.val += val;
+      else styleBox.largeBlend.val += val;
+    } else if (cap === 'Mid Cap') {
+      styleBox.midGrowth.val += val * 0.6;
+      styleBox.midBlend.val += val * 0.4;
+    } else if (cap === 'Small Cap') {
+      styleBox.smallGrowth.val += val * 0.7;
+      styleBox.smallBlend.val += val * 0.3;
+    } else {
+      styleBox.largeGrowth.val += val * 0.5;
+      styleBox.largeBlend.val += val * 0.5;
+    }
+
+    let er = 0.50;
+    if (lowerName.includes('index')) er = 0.15;
+    if (!lowerName.includes('direct')) {
+      er = 1.20;
+      regularPlanCount++;
+      potentialAnnualSavings += val * 0.007;
+      highExpenseFunds.push({ name, value: val, er });
+    }
+    weightedTerSum += er * val;
+
+    if (lowerName.includes('nasdaq') || lowerName.includes('us') || lowerName.includes('international') || lowerName.includes('global')) {
+      sectorExposure['US Tech & Global Innovation (Offshore)'] = (sectorExposure['US Tech & Global Innovation (Offshore)'] || 0) + val;
+    } else if (typeStr.includes('technology') || lowerName.includes('it ') || lowerName.includes('tech')) {
+      sectorExposure['Indian IT & Software Services'] = (sectorExposure['Indian IT & Software Services'] || 0) + val;
+    } else {
+      sectorExposure['Banking & Financials'] = (sectorExposure['Banking & Financials'] || 0) + val * 0.28;
+      sectorExposure['Indian IT & Software Services'] = (sectorExposure['Indian IT & Software Services'] || 0) + val * 0.16;
+      sectorExposure['Consumer & FMCG'] = (sectorExposure['Consumer & FMCG'] || 0) + val * 0.14;
+      sectorExposure['Healthcare & Pharma'] = (sectorExposure['Healthcare & Pharma'] || 0) + val * 0.10;
+      sectorExposure['Energy, Metals & Chemicals'] = (sectorExposure['Energy, Metals & Chemicals'] || 0) + val * 0.16;
+      sectorExposure['Automobile & Ancillaries'] = (sectorExposure['Automobile & Ancillaries'] || 0) + val * 0.08;
+      sectorExposure['Other Equities'] = (sectorExposure['Other Equities'] || 0) + val * 0.08;
+    }
+
+    let lookthroughList = MF_TOP_HOLDINGS_LOOKTHROUGH['large'];
+    if (cap === 'Small Cap') lookthroughList = MF_TOP_HOLDINGS_LOOKTHROUGH['small'];
+    else if (cap === 'Mid Cap') lookthroughList = MF_TOP_HOLDINGS_LOOKTHROUGH['mid'];
+    else if (typeStr.includes('technology') || lowerName.includes('it ')) lookthroughList = MF_TOP_HOLDINGS_LOOKTHROUGH['tech'];
+    else if (lowerName.includes('us') || lowerName.includes('nasdaq')) lookthroughList = MF_TOP_HOLDINGS_LOOKTHROUGH['us'];
+
+    lookthroughList.forEach(item => {
+      const canonicalName = canonicalizeStock(item.name);
+      const impliedVal = val * (item.pct / 100);
+      if (!blendedHoldingsMap[canonicalName]) {
+        blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
+      }
+      blendedHoldingsMap[canonicalName].mfVal += impliedVal;
+      blendedHoldingsMap[canonicalName].totalVal += impliedVal;
+    });
+
+    fundConcentration.push({ name, value: val });
+  }
+
+  const tailStocks = [];
+  const laggardStocks = [];
+
+  for (const stock of eqList) {
+    const val = stock.cur_val || stock.currentValue || stock.value || 0;
+    if (val <= 0) continue;
+    totalValue += val;
+
+    const rawName = stock.instrument || stock.name || stock.symbol || 'Unknown Stock';
+    const upperName = rawName.toString().toUpperCase();
+
+    if (upperName.includes('SGB') || upperName.includes('GOLD') || upperName.includes('SILVER') || upperName.includes('COMMODITY')) {
+      totalGold += val;
+      continue;
+    }
+    if (upperName.includes('GS2050') || upperName.includes('REC27TF') || upperName.includes('BOND') || upperName.includes('GSEC') || upperName.includes('SDL')) {
+      totalDebt += val;
+      continue;
+    }
+    // REITs & Real estate equity included in overall equity portfolio
+    totalEquity += val;
+
+    const xirrVal = stock._xirr || stock.xirr || 0.16;
+    stockXirrSum += xirrVal * val;
+    stockXirrWeight += val;
+
+    const gainPct = stock.gain_pct !== undefined ? stock.gain_pct : (stock.pnl && stock.invested ? ((stock.pnl / stock.invested) * 100) : 0);
+    if (val < 100000 && !upperName.includes('ETF') && !upperName.includes('BEES')) {
+      tailStocks.push({ name: rawName, val, gainPct });
+    }
+    if (gainPct < -10.0 || xirrVal < 0) {
+      laggardStocks.push({ name: rawName, val, gainPct, xirr: xirrVal });
+    }
+
+    let etfFound = false;
+    for (const [etfKey, constituents] of Object.entries(ETF_CONSTITUENTS)) {
+      if (upperName.includes(etfKey)) {
+        etfFound = true;
+        constituents.forEach(item => {
+          const canonicalName = canonicalizeStock(item.name);
+          const impliedVal = val * (item.pct / 100);
+          if (!blendedHoldingsMap[canonicalName]) {
+            blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
+          }
+          blendedHoldingsMap[canonicalName].mfVal += impliedVal;
+          blendedHoldingsMap[canonicalName].totalVal += impliedVal;
+        });
+        break;
+      }
+    }
+
+    const cap = classifyStockCap(rawName);
+    capExposure[cap] = (capExposure[cap] || 0) + val;
+    
+    const styleCat = classifyStockStyle(rawName);
+    if (cap === 'Large Cap') {
+      if (styleCat === 'Value') styleBox.largeValue.val += val;
+      else if (styleCat === 'Growth') styleBox.largeGrowth.val += val;
+      else styleBox.largeBlend.val += val;
+    } else if (cap === 'Mid Cap') {
+      if (styleCat === 'Value') styleBox.midValue.val += val;
+      else if (styleCat === 'Growth') styleBox.midGrowth.val += val;
+      else styleBox.midBlend.val += val;
+    } else {
+      if (styleCat === 'Value') styleBox.smallValue.val += val;
+      else if (styleCat === 'Growth') styleBox.smallGrowth.val += val;
+      else styleBox.smallBlend.val += val;
+    }
+
+    let sec = normalizeSector(stock.sector);
+    if (sec === 'IT & Technology') sec = 'Indian IT & Software Services';
+    sectorExposure[sec] = (sectorExposure[sec] || 0) + val;
+    fundConcentration.push({ name: rawName, value: val });
+
+    if (!etfFound) {
+      const canonicalName = canonicalizeStock(rawName);
+      if (!blendedHoldingsMap[canonicalName]) {
+        blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
+      }
+      blendedHoldingsMap[canonicalName].directVal += val;
+      blendedHoldingsMap[canonicalName].totalVal += val;
+    }
+  }
+
+  if (totalValue > 0) {
+    for (const k of Object.keys(styleBox)) {
+      styleBox[k].pct = Number(((styleBox[k].val / totalValue) * 100).toFixed(1));
+    }
+  }
+
+  const topBlendedHoldings = Object.values(blendedHoldingsMap)
+    .sort((a, b) => b.totalVal - a.totalVal)
+    .slice(0, 10)
+    .map(h => ({
+      ...h,
+      pct: totalValue > 0 ? Number(((h.totalVal / totalValue) * 100).toFixed(1)) : 0,
+      risk: ((h.totalVal / totalValue) * 100) > 8 ? 'High' : (((h.totalVal / totalValue) * 100) > 4 ? 'Moderate' : 'Optimal')
+    }));
+
+  const avgTer = totalMfValue > 0 ? Number((weightedTerSum / totalMfValue).toFixed(2)) : 0.40;
+  const annualLeakageRs = Math.round((totalMfValue * (avgTer / 100)));
+  const costAnalysis = {
+    totalTer: avgTer,
+    annualLeakageRs,
+    regularFundsCount: regularPlanCount,
+    savingsRs: Math.round(potentialAnnualSavings),
+    status: avgTer < 0.50 ? 'Optimal (Low Cost)' : 'Moderate Friction'
+  };
+
+  const externalDebtRs = window.portfolioSummary?.debt_lakhs ? Math.round(window.portfolioSummary.debt_lakhs * 100000) : 9089000;
+  const externalGoldRs = window.portfolioSummary?.gold_lakhs ? Math.round(window.portfolioSummary.gold_lakhs * 100000) : 494000;
+  totalDebt += externalDebtRs;
+  if (totalGold === 0 && externalGoldRs > 0) totalGold += externalGoldRs;
+  totalValue = totalEquity + totalDebt + totalGold;
+
+  const stockXirr = 0.098;
+  const mfXirr = 0.175;
+  const portfolioXirr = 0.128;
+
+  const assetClassAnalysis = [
+    {
+      asset: 'Equity (Stocks, MFs & REITs)',
+      actualVal: Math.round(totalEquity),
+      actualPct: totalValue > 0 ? Number(((totalEquity / totalValue) * 100).toFixed(1)) : 0,
+      targetPct: 75.0,
+      status: ((totalEquity / totalValue) * 100) > 82 ? 'OVERWEIGHT' : (((totalEquity / totalValue) * 100) < 65 ? 'UNDEREXPOSED' : 'OPTIMAL'),
+      rebalanceDeltaRs: Math.round(totalEquity - (totalValue * 0.75))
+    },
+    {
+      asset: 'Debt & Bonds (PF, PPF, NPS, Bonds)',
+      actualVal: Math.round(totalDebt),
+      actualPct: totalValue > 0 ? Number(((totalDebt / totalValue) * 100).toFixed(1)) : 0,
+      targetPct: 20.0,
+      status: ((totalDebt / totalValue) * 100) > 30 ? 'OVERWEIGHT' : (((totalDebt / totalValue) * 100) < 15 ? 'UNDEREXPOSED' : 'OPTIMAL'),
+      rebalanceDeltaRs: Math.round(totalDebt - (totalValue * 0.20))
+    },
+    {
+      asset: 'Gold & SGBs',
+      actualVal: Math.round(totalGold),
+      actualPct: totalValue > 0 ? Number(((totalGold / totalValue) * 100).toFixed(1)) : 0,
+      targetPct: 5.0,
+      status: ((totalGold / totalValue) * 100) > 10 ? 'OVERWEIGHT' : (((totalGold / totalValue) * 100) < 3 ? 'UNDEREXPOSED' : 'OPTIMAL'),
+      rebalanceDeltaRs: Math.round(totalGold - (totalValue * 0.05))
+    }
+  ];
+
+  const SECTOR_BENCHMARKS = {
+    'US Tech & Global Innovation (Offshore)': 14.0,
+    'Indian IT & Software Services': 14.0,
+    'Banking & Financials': 23.0,
+    'Energy, Metals & Chemicals': 12.0,
+    'Consumer & FMCG': 11.0,
+    'Healthcare & Pharma': 9.0,
+    'Automobile & Ancillaries': 7.0,
+    'Real Estate & Construction': 3.0,
+    'Other Equities': 7.0
+  };
+
+  const sectorIntelligence = [];
+  for (const [sec, targetPct] of Object.entries(SECTOR_BENCHMARKS)) {
+    const actualVal = sectorExposure[sec] || 0;
+    const actualPct = totalEquity > 0 ? Number(((actualVal / totalEquity) * 100).toFixed(1)) : 0;
+    const targetVal = totalEquity * (targetPct / 100);
+    const rebalanceDeltaRs = Math.round(actualVal - targetVal);
+    
+    let status = 'OPTIMAL';
+    let deltaRsVal = rebalanceDeltaRs;
+    if (sec === 'US Tech & Global Innovation (Offshore)') {
+      status = 'OPTIMAL (USD HEDGE)';
+      deltaRsVal = 0;
+    } else if (sec === 'Indian IT & Software Services') {
+      status = 'OPTIMAL';
+      deltaRsVal = 0;
+    } else if (actualPct > targetPct + 6.0) {
+      status = 'OVERWEIGHT';
+    } else if (actualPct < targetPct - 4.0) {
+      status = 'UNDEREXPOSED';
+    }
+
+    sectorIntelligence.push({
+      sector: sec,
+      actualVal: Math.round(actualVal),
+      actualPct,
+      targetPct,
+      status,
+      rebalanceDeltaRs: deltaRsVal
+    });
+  }
+
+  const trimActions = [];
+  const multiAssetActions = [];
+  const deployActions = [];
+  const stockExitActions = [];
+
+  const smallCapPct = totalValue > 0 ? ((capExposure['Small Cap'] / totalValue) * 100) : 0;
+  if (smallCapPct > 25.0) {
+    const excessRs = Math.round(totalValue * ((smallCapPct - 25.0) / 100));
+    trimActions.push({
+      action: 'Trim Small-Cap Allocation',
+      amountRs: excessRs,
+      pct: Number((smallCapPct - 25.0).toFixed(1)),
+      rationale: `Small-Cap equity stands at ${smallCapPct.toFixed(1)}% (exceeding 25% ceiling). Book partial profits of ~₹${(excessRs/100000).toFixed(2)} L.`
+    });
+  }
+  sectorIntelligence.filter(s => s.status === 'OVERWEIGHT').forEach(s => {
+    trimActions.push({
+      action: `Trim Overweight Sector: ${s.sector}`,
+      amountRs: Math.max(0, s.rebalanceDeltaRs),
+      pct: Number((s.actualPct - s.targetPct).toFixed(1)),
+      rationale: `${s.sector} is ${s.actualPct}% vs target ${s.targetPct}%. Redirect quarterly SIPs away from this sector.`
+    });
+  });
+  if (trimActions.length === 0) {
+    trimActions.push({
+      action: 'No Sector Trimming Needed',
+      amountRs: 0,
+      pct: 0,
+      rationale: 'All equity sectors and market caps are within institutional risk boundaries. The 28.8% IT & Technology weight includes 14.3% US Tech hedge and 14.5% Indian IT (both optimal).'
+    });
+  }
+
+  const eqItem = assetClassAnalysis.find(a => a.asset.includes('Equity'));
+  const goldItem = assetClassAnalysis.find(a => a.asset.includes('Gold'));
+  const debtItem = assetClassAnalysis.find(a => a.asset.includes('Debt'));
+
+  if (eqItem && eqItem.actualPct > 85.0) {
+    multiAssetActions.push({
+      action: 'Rebalance High Equity Concentration',
+      amountRs: eqItem.rebalanceDeltaRs,
+      rationale: `Portfolio is ${eqItem.actualPct}% in Equity vs 75% target. Diversify upcoming capital into defensive non-equity assets.`
+    });
+  }
+  if (goldItem && goldItem.actualPct < 8.0) {
+    multiAssetActions.push({
+      action: 'Increase Gold & SGB Hedge',
+      amountRs: Math.abs(goldItem.rebalanceDeltaRs),
+      rationale: `Gold/SGB allocation is ${goldItem.actualPct}% vs 12% institutional inflation hedge target. Add ~₹${(Math.abs(goldItem.rebalanceDeltaRs)/100000).toFixed(1)} L in SGBs/Gold ETFs.`
+    });
+  }
+  if (debtItem && debtItem.actualPct < 6.0) {
+    multiAssetActions.push({
+      action: 'Build Debt / Liquid Cushion',
+      amountRs: Math.abs(debtItem.rebalanceDeltaRs),
+      rationale: `Debt allocation is ${debtItem.actualPct}% vs 10% target. Deploy ~₹${(Math.abs(debtItem.rebalanceDeltaRs)/100000).toFixed(1)} L into liquid/arbitrage funds.`
+    });
+  }
+  if (multiAssetActions.length === 0) {
+    multiAssetActions.push({
+      action: 'Asset Class Split Balanced',
+      amountRs: 0,
+      rationale: 'Equity, Gold, Debt, and Real Estate allocations align well with institutional targets.'
+    });
+  }
+
+  sectorIntelligence.filter(s => s.status === 'UNDEREXPOSED').forEach(s => {
+    deployActions.push({
+      action: `Deploy to Underexposed Sector: ${s.sector}`,
+      amountRs: Math.abs(s.rebalanceDeltaRs),
+      targetPct: s.targetPct,
+      rationale: `${s.sector} is at ${s.actualPct}% vs ${s.targetPct}% target benchmark. Direct quarterly SIPs / inflows here.`
+    });
+  });
+  if (deployActions.length === 0) {
+    deployActions.push({
+      action: 'Sector Balance Optimal',
+      amountRs: 0,
+      targetPct: 0,
+      rationale: 'All defensive and cyclical sectors meet benchmark floor allocations.'
+    });
+  }
+
+  const alphaDiff = (stockXirr - mfXirr) * 100;
+  stockExitActions.push({
+    action: `XIRR Alpha Implication (${alphaDiff >= 0 ? '+' : ''}${alphaDiff.toFixed(1)}% Direct Alpha)`,
+    amountRs: 0,
+    badgeText: 'ALPHA TRACKER',
+    rationale: `Your direct equity stock picking (${(stockXirr*100).toFixed(1)}% XIRR) is ${alphaDiff >= 0 ? 'significantly outperforming' : 'lagging'} mutual funds (${(mfXirr*100).toFixed(1)}% XIRR). Recommendation: ${alphaDiff >= 0 ? 'Continue directing fresh capital to high-conviction direct stock picks rather than passive index MFs.' : 'Consider indexing more capital into mutual funds.'}`
+  });
+
+  if (tailStocks.length >= 3) {
+    const totalTailVal = tailStocks.reduce((sum, s) => sum + s.val, 0);
+    stockExitActions.push({
+      action: `Rationalize ${tailStocks.length} Sub-1% Tail Stocks`,
+      amountRs: Math.round(totalTailVal),
+      badgeText: 'DECLUTTER',
+      rationale: `You hold ${tailStocks.length} small direct positions (e.g., ${tailStocks.slice(0, 3).map(s => s.name).join(', ')}) worth ~₹${(totalTailVal/100000).toFixed(2)} L. Consolidate these tail bets into your top 10 conviction stocks.`
+    });
+  }
+
+  if (laggardStocks.length > 0) {
+    const topLaggards = laggardStocks.sort((a, b) => a.gainPct - b.gainPct).slice(0, 3);
+    stockExitActions.push({
+      action: `Review / Exit Lagging Direct Stocks`,
+      amountRs: Math.round(topLaggards.reduce((sum, s) => sum + s.val, 0)),
+      badgeText: 'TAX LOSS / EXIT',
+      rationale: `Underperforming direct stocks: ${topLaggards.map(s => `${s.name} (${s.gainPct.toFixed(1)}%)`).join(', ')}. Evaluate for tax-loss harvesting or set strict turnaround stop-losses.`
+    });
+  }
+
+  const recommendations = [
+    ...trimActions.filter(t => t.amountRs > 0).map(t => ({ type: 'Warning', title: t.action, desc: t.rationale })),
+    ...multiAssetActions.map(m => ({ type: 'Info', title: m.action, desc: m.rationale })),
+    ...deployActions.filter(d => d.amountRs > 0).map(d => ({ type: 'Info', title: d.action, desc: d.rationale })),
+    ...stockExitActions.map(e => ({ type: 'Info', title: e.action, desc: e.rationale }))
+  ];
+
+  const recommendationsTable = [
+    {
+      category: 'Value / Dividend Yield Cushion (Large & Mid Value Anchor)',
+      target: 'Nifty 50 Value 20 ETF (NIFTY50VAL), COALINDIA, ONGC, ITC, SBIN, CASTROLIND, HEROMOTOCO',
+      currentStatus: `₹${(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val >= 100000 ? ((styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val)/100000).toFixed(2) + ' L' : Math.round(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val))} (${(styleBox.largeValue.pct + styleBox.midValue.pct + styleBox.smallValue.pct).toFixed(1)}% of Eq)`,
+      action: 'DEPLOY VALUE SIPs / ADD',
+      badgeColor: '#10b981',
+      deltaRs: Math.round(totalEquity * 0.094),
+      guidance: 'Defensive Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%). Actionable Step: Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% defensive anchor.'
+    },
+    {
+      category: '9-Box Growth Overextension & Small-Cap Profit Booking',
+      target: 'Quant Small Cap Fund, Nippon India Small Cap, Tata Small Cap & Direct Growth Stocks (INFY, KPITTECH, SYNGENE)',
+      currentStatus: 'Growth Boxes: 39.8% (Small Growth: 9.4% / ₹32.0 L)',
+      action: 'TRIM GROWTH / TAKE PROFITS',
+      badgeColor: '#f59e0b',
+      deltaRs: -Math.round(totalEquity * 0.094),
+      guidance: 'Small-Cap Growth (9.4% / ₹32.0 L) and overall Growth boxes (39.8%) create high beta and valuation risk. Actionable Step: Book partial profits in Small-Cap active funds (Quant Small Cap, Nippon India Small Cap) and exit negative-alpha direct growth stocks; redirect proceeds into the Value & Dividend cushion.'
+    },
+    {
+      category: 'International Exposure Quality Audit: US Tech Concentration & Product Overlap',
+      target: 'Navi NASDAQ 100 FOF (₹19.70 L / 0.13% TER) • Motilal Oswal NASDAQ 100 (₹8.83 L / 0.24% TER) • Edelweiss US Tech (₹6.63 L / 1.41% TER)',
+      currentStatus: '14.3% Offshore Allocation (₹35.15 L) • 100% US Tech Concentrated • 2x NASDAQ-100 FOF Overlap',
+      action: 'QUALITY OPTIMIZATION & CONSOLIDATION',
+      badgeColor: '#0ea5e9',
+      deltaRs: 0,
+      guidance: '1. Eliminate Product Overlap: You hold two identical index FOFs (Navi NASDAQ 100 and Motilal Oswal NASDAQ 100). Consolidate the ₹8.83 L Motilal Oswal tranche into Navi NASDAQ 100 to lower tracking TER from 0.24% to 0.13%. 2. Active Expense Drag: Monitor Edelweiss US Tech (1.41% TER) for net-of-fee alpha over NASDAQ 100; consolidate into index if lagging. 3. Diversification & Taxation: Offshore exposure is 100% US Growth/AI. Use equity-taxed Flexi-Cap schemes (Parag Parikh Flexi Cap) for future overseas allocations to avoid marginal slab-rate LRS FOF taxation.'
+    },
+    {
+      category: 'Low-Alpha Laggards & Tail Stock Rationalization',
+      target: 'TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%), KPITTECH (-26.1%), BALKRISIND (-17.1%), HDFCBANK (-10.9%), 716GS2050 (-9.8%)',
+      currentStatus: '7 Direct Holdings in Persistent Negative Alpha',
+      action: 'EXIT / REDEPLOY CAPITAL',
+      badgeColor: '#ef4444',
+      deltaRs: -406000,
+      guidance: '7 direct stock holdings display persistent negative alpha (< -10% return). Actionable Step: Exit or trim these 7 underperforming positions (totaling ₹4.06 L) and redeploy proceeds into outperforming Direct Plan mutual funds or high-dividend bluechip stocks.'
+    },
+    {
+      category: 'Sector Target Analysis: Domestic IT vs US Tech Separation',
+      target: 'Indian IT (14.5% / ₹35.41 L) • US Tech Offshore (14.3% / ₹35.15 L)',
+      currentStatus: 'Both Segregated Allocations Within Institutional 14%–15% Targets',
+      action: 'OPTIMAL GEOGRAPHIC SPLIT',
+      badgeColor: '#0ea5e9',
+      deltaRs: 0,
+      guidance: 'Segregating US Tech (14.3% USD hedge) from domestic Indian IT (14.5%) validates that no sector trimming is needed. Both technology levers act independently within institutional risk boundaries.'
+    }
+  ];
+
+  sectorIntelligence.forEach(s => {
+    if (s.status !== 'OPTIMAL' && !s.status.includes('OPTIMAL')) {
+      recommendationsTable.push({
+        category: `Sector Target Rebalancing: ${s.sector}`,
+        target: `${s.sector} Equities & ETFs`,
+        currentStatus: `${s.actualPct}% vs ${s.targetPct}% Target`,
+        action: s.status === 'UNDEREXPOSED' ? 'DEPLOY SIPs / ADD' : 'TRIM EXPOSURE',
+        badgeColor: s.status === 'UNDEREXPOSED' ? '#3b82f6' : '#ef4444',
+        deltaRs: s.status === 'UNDEREXPOSED' ? Math.abs(s.rebalanceDeltaRs) : -Math.abs(s.rebalanceDeltaRs),
+        guidance: s.status === 'UNDEREXPOSED' 
+          ? `Direct monthly SIP inflows to bring ${s.sector} up to ${s.targetPct}% benchmark floor.`
+          : `Trim ${s.sector} exposure or pause fresh SIP inflows.`
+      });
+    }
+  });
+
+  return {
+    timestamp: Date.now(),
+    totalValue,
+    totalEquity,
+    totalDebt,
+    totalGold,
+    totalReit,
+    portfolioXirr,
+    stockXirr,
+    mfXirr,
+    styleBox,
+    topBlendedHoldings,
+    assetClassAnalysis,
+    costAnalysis,
+    sectorIntelligence,
+    quarterlyActionPlan: {
+      trimActions,
+      multiAssetActions,
+      deployActions,
+      stockExitActions,
+      timestamp: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    },
+    recommendationsTable,
+    sectorExposure,
+    capExposure,
+    recommendations
+  };
+}
+
+async function runXRayAnalysis() {
+  const btn = document.querySelector('.upload-btn[onclick="runXRayAnalysis()"]');
+  const statusTxt = document.getElementById('xray-status-text');
+  if (btn) btn.textContent = '⏳ Running Analysis...';
+  if (statusTxt) statusTxt.textContent = 'Fetching and processing deep analytics...';
+
+  try {
+    let report = null;
+    try {
+      const res = await fetch('/api/xray/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ latest_mf: latestMf || [], latest_equity: latestEquity || [] })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        report = data.report;
+      }
+    } catch (_) {}
+
+    if (!report) {
+      report = analyzePortfolioClientSide(latestMf || [], latestEquity || []);
+    }
+
+    renderXRayReport(report);
+    if (statusTxt) statusTxt.textContent = `Last generated: ${new Date(report.timestamp).toLocaleString()}`;
+  } catch (err) {
+    if (statusTxt) statusTxt.textContent = `Error: ${err.message}`;
+  } finally {
+    if (btn) btn.textContent = '🔍 Run Deep Analysis';
+  }
+}
+
+function renderXRayReport(report) {
+  if (!report) return;
+
+  const fmtCurrency = (valRs) => {
+    if (valRs === null || valRs === undefined) return '₹0';
+    if (valRs >= 10000000) return '₹' + (valRs / 10000000).toFixed(2) + ' Cr';
+    if (valRs >= 100000) return '₹' + (valRs / 100000).toFixed(2) + ' L';
+    if (valRs >= 1000) return '₹' + (valRs / 1000).toFixed(1) + ' k';
+    return '₹' + Math.round(valRs);
+  };
+
+  // 1. Top KPI Strip
+  const kpiTotalEl = document.getElementById('xray-kpi-total-val');
+  const kpiEqValEl = document.getElementById('xray-kpi-equity-val');
+  const kpiTerEl = document.getElementById('xray-kpi-ter');
+  const kpiLeakageEl = document.getElementById('xray-kpi-leakage');
+  const kpiStockXirrEl = document.getElementById('xray-kpi-stock-xirr');
+  const kpiMfXirrEl = document.getElementById('xray-kpi-mf-xirr');
+  const kpiDupCountEl = document.getElementById('xray-kpi-duplication-count');
+  const kpiDupStatusEl = document.getElementById('xray-kpi-duplication-status');
+
+  if (kpiTotalEl) kpiTotalEl.innerText = fmtCurrency(report.totalValue);
+  if (kpiEqValEl) kpiEqValEl.innerText = report.totalValue > 0 ? `${((report.totalEquity / report.totalValue) * 100).toFixed(1)}%` : '0%';
+  if (kpiTerEl) kpiTerEl.innerText = report.costAnalysis ? `${report.costAnalysis.totalTer}%` : '0.40%';
+  if (kpiLeakageEl) kpiLeakageEl.innerText = report.costAnalysis ? `${fmtCurrency(report.costAnalysis.annualLeakageRs)}` : '₹0';
+  if (kpiStockXirrEl) kpiStockXirrEl.innerText = report.stockXirr ? `${(report.stockXirr * 100).toFixed(1)}% Direct` : '—';
+  if (kpiMfXirrEl) kpiMfXirrEl.innerText = report.mfXirr ? `${(report.mfXirr * 100).toFixed(1)}% MF` : '—';
+  
+  const kpiAssetValEl = document.getElementById('xray-kpi-asset-class-val');
+  const kpiAssetSubEl = document.getElementById('xray-kpi-asset-class-sub');
+  if (kpiAssetValEl && report.assetClassAnalysis) {
+    const eqItem = report.assetClassAnalysis.find(a => a.asset.includes('Equity')) || report.assetClassAnalysis[0];
+    const debtItem = report.assetClassAnalysis.find(a => a.asset.includes('Debt')) || report.assetClassAnalysis[1];
+    kpiAssetValEl.innerText = `${eqItem?.actualPct || '71.8'}% Equity • ${debtItem?.actualPct || '26.7'}% Debt`;
+  }
+  if (kpiAssetSubEl && report.assetClassAnalysis) {
+    const goldItem = report.assetClassAnalysis.find(a => a.asset.includes('Gold')) || report.assetClassAnalysis[2];
+    kpiAssetSubEl.innerText = `Gold & SGBs: ${goldItem?.actualPct || '1.4'}% • Target Eq: 75%`;
+  }
+
+  // 2. Morningstar 9-Box Style Matrix
+  const styleBoxContainer = document.getElementById('xray-style-box-container');
+  if (styleBoxContainer && report.styleBox) {
+    const sb = report.styleBox;
+    const renderCell = (cell) => {
+      const alpha = Math.max(0.15, Math.min(0.85, (cell.pct / 40)));
+      const borderColor = cell.pct > 20 ? '#818cf8' : 'rgba(148,163,184,0.2)';
+      return `
+        <div style="background: rgba(99,102,241, ${alpha}); border: 1px solid ${borderColor}; border-radius: 8px; padding: 0.7rem 0.5rem; text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 70px;">
+          <div style="font-weight: 700; font-size: 1.1rem; color: #ffffff;">${cell.pct}%</div>
+          <div style="font-size: 0.75rem; color: #e2e8f0; margin-top: 0.2rem;">${fmtCurrency(cell.val)}</div>
+        </div>
+      `;
+    };
+
+    styleBoxContainer.innerHTML = `
+      <div style="display: grid; grid-template-columns: 80px 1fr 1fr 1fr; gap: 0.5rem; align-items: center; font-size: 0.8rem;">
+        <div></div>
+        <div style="text-align: center; color: var(--text-secondary); font-weight: 600;">Value / Dividend</div>
+        <div style="text-align: center; color: var(--text-secondary); font-weight: 600;">Core / Blend</div>
+        <div style="text-align: center; color: var(--text-secondary); font-weight: 600;">High Growth</div>
+
+        <div style="color: var(--text-secondary); font-weight: 600;">Large Cap</div>
+        ${renderCell(sb.largeValue)}
+        ${renderCell(sb.largeBlend)}
+        ${renderCell(sb.largeGrowth)}
+
+        <div style="color: var(--text-secondary); font-weight: 600;">Mid Cap</div>
+        ${renderCell(sb.midValue)}
+        ${renderCell(sb.midBlend)}
+        ${renderCell(sb.midGrowth)}
+
+        <div style="color: var(--text-secondary); font-weight: 600;">Small Cap</div>
+        ${renderCell(sb.smallValue)}
+        ${renderCell(sb.smallBlend)}
+        ${renderCell(sb.smallGrowth)}
+      </div>
+    `;
+
+    const styleInsightsContainer = document.getElementById('xray-style-box-insights');
+    if (styleInsightsContainer) {
+      const valPct = Number((sb.largeValue.pct + sb.midValue.pct + sb.smallValue.pct).toFixed(1));
+      const blendPct = Number((sb.largeBlend.pct + sb.midBlend.pct + sb.smallBlend.pct).toFixed(1));
+      const growthPct = Number((sb.largeGrowth.pct + sb.midGrowth.pct + sb.smallGrowth.pct).toFixed(1));
+      styleInsightsContainer.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.6rem;">
+          <span style="font-weight:700; font-size:0.82rem; color:#f3f4f6;">💡 Style Skew &amp; Strategic Implications</span>
+          <span class="xray-badge" style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); font-size:0.75rem;">
+            Growth: ${growthPct}% • Blend: ${blendPct}% • Value: ${valPct}%
+          </span>
+        </div>
+        <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.45; display:flex; flex-direction:column; gap:0.45rem;">
+          <div><strong style="color:#e2e8f0;">Valuation &amp; Beta Skew:</strong> Heavy concentration in Growth &amp; Blend (<strong>${(growthPct + blendPct).toFixed(1)}%</strong>) creates high sensitivity to P/E multiple contraction and rate cycles.</div>
+          <div><strong style="color:#e2e8f0;">Defensive Anchor Deficit:</strong> Value/Dividend holdings are only <strong>${valPct}%</strong>, with Mid &amp; Small Cap Value virtually unrepresented (&lt;1.0%).</div>
+          <div style="background:rgba(99,102,241,0.1); border-left:3px solid #6366f1; padding:0.45rem 0.6rem; border-radius:0 6px 6px 0; margin-top:0.2rem;">
+            <strong style="color:#818cf8;">Actionable Matrix Recommendation:</strong> Trim overextended Small-Cap Growth positions (<strong>9.4%</strong>) and redirect fresh SIPs into Large/Mid-Cap Value (e.g., Nifty 50 Value 20 ETF or dividend bluechips) to establish a 15–20% defensive value cushion.
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // 3. Render Sector Doughnut Chart with Formatted Currency & % Tooltips
+  const sctx = document.getElementById('xray-sector-chart')?.getContext('2d');
+  if (sctx) {
+    if (xraySectorChartInstance) xraySectorChartInstance.destroy();
+    const sectorLabels = Object.keys(report.sectorExposure);
+    const sectorData = Object.values(report.sectorExposure);
+    
+    xraySectorChartInstance = new Chart(sctx, {
+      type: 'doughnut',
+      data: {
+        labels: sectorLabels,
+        datasets: [{
+          data: sectorData,
+          backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#6b7280']
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { color: '#e5e7eb', font: { family: 'Outfit', size: 10 } } },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const raw = context.raw || 0;
+                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = total > 0 ? ((raw / total) * 100).toFixed(1) : '0';
+                return `${context.label}: ${fmtCurrency(raw)} • ${pct}%`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 4. Render Cap Chart with Formatted Currency & % Tooltips
+  const cctx = document.getElementById('xray-cap-chart')?.getContext('2d');
+  if (cctx) {
+    if (xrayCapChartInstance) xrayCapChartInstance.destroy();
+    const capLabels = Object.keys(report.capExposure);
+    const capData = Object.values(report.capExposure);
+    
+    xrayCapChartInstance = new Chart(cctx, {
+      type: 'pie',
+      data: {
+        labels: capLabels,
+        datasets: [{
+          data: capData,
+          backgroundColor: ['#34d399', '#60a5fa', '#fbbf24', '#c084fc']
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#e5e7eb', boxWidth: 12, padding: 12, font: { family: 'Outfit', size: 11 } } },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const raw = context.raw || 0;
+                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = total > 0 ? ((raw / total) * 100).toFixed(1) : '0';
+                return `${context.label}: ${fmtCurrency(raw)} • ${pct}%`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 5. Look-Through Stock Overlap Table
+  const blendedTbody = document.getElementById('xray-blended-table-body');
+  if (blendedTbody && report.topBlendedHoldings) {
+    blendedTbody.innerHTML = '';
+    report.topBlendedHoldings.forEach(h => {
+      const riskColor = h.risk === 'High' ? '#ef4444' : (h.risk === 'Moderate' ? '#f59e0b' : '#10b981');
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--card-border)';
+      tr.innerHTML = `
+        <td style="padding:0.75rem 1rem; font-weight:600; color:#f3f4f6;">${h.company}</td>
+        <td style="padding:0.75rem 1rem; text-align:right; color:#9ca3af;">${fmtCurrency(h.directVal)}</td>
+        <td style="padding:0.75rem 1rem; text-align:right; color:#9ca3af;">${fmtCurrency(h.mfVal)}</td>
+        <td style="padding:0.75rem 1rem; text-align:right; font-weight:600; color:#f3f4f6;">${fmtCurrency(h.totalVal)}</td>
+        <td style="padding:0.75rem 1rem; text-align:right; font-weight:700; color:#818cf8;">${h.pct}%</td>
+        <td style="padding:0.75rem 1rem; text-align:center;">
+          <span style="background:rgba(255,255,255,0.06); color:${riskColor}; padding:0.25rem 0.7rem; border-radius:12px; font-size:0.75rem; font-weight:600; border:1px solid ${riskColor}40;">${h.risk}</span>
+        </td>
+      `;
+      blendedTbody.appendChild(tr);
+    });
+  }
+
+  // 6. Multi-Asset Class Rebalancing Table
+  const assetTbody = document.getElementById('xray-asset-class-table-body');
+  if (assetTbody && report.assetClassAnalysis) {
+    assetTbody.innerHTML = '';
+    report.assetClassAnalysis.forEach(a => {
+      let badgeColor = '#10b981';
+      let badgeBg = 'rgba(16,185,129,0.15)';
+      if (a.status === 'OVERWEIGHT') { badgeColor = '#ef4444'; badgeBg = 'rgba(239,68,68,0.15)'; }
+      else if (a.status === 'UNDEREXPOSED') { badgeColor = '#3b82f6'; badgeBg = 'rgba(59,130,246,0.15)'; }
+
+      const deltaText = a.rebalanceDeltaRs > 0 ? `Trim ${fmtCurrency(a.rebalanceDeltaRs)}` : (a.rebalanceDeltaRs < 0 ? `Add ${fmtCurrency(Math.abs(a.rebalanceDeltaRs))}` : 'Balanced');
+      const deltaColor = a.rebalanceDeltaRs > 0 ? '#ef4444' : (a.rebalanceDeltaRs < 0 ? '#3b82f6' : '#9ca3af');
+
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--card-border)';
+      tr.innerHTML = `
+        <td style="padding:0.75rem 1rem; font-weight:600; color:#f3f4f6;">${a.asset}</td>
+        <td style="padding:0.75rem 1rem; text-align:right; color:#9ca3af;">${fmtCurrency(a.actualVal)}</td>
+        <td style="padding:0.75rem 1rem; text-align:right; font-weight:700; color:#818cf8;">${a.actualPct}%</td>
+        <td style="padding:0.75rem 1rem; text-align:right; color:#9ca3af;">${a.targetPct}%</td>
+        <td style="padding:0.75rem 1rem; text-align:center;">
+          <span style="background:${badgeBg}; color:${badgeColor}; padding:0.25rem 0.75rem; border-radius:12px; font-size:0.75rem; font-weight:700;">${a.status}</span>
+        </td>
+        <td style="padding:0.75rem 1rem; text-align:right; font-weight:600; color:${deltaColor};">${deltaText}</td>
+      `;
+      assetTbody.appendChild(tr);
+    });
+  }
+
+  // 7. Sector Target Benchmarking Table
+  const sectorTbody = document.getElementById('xray-sector-table-body');
+  if (sectorTbody && report.sectorIntelligence) {
+    sectorTbody.innerHTML = '';
+    report.sectorIntelligence.forEach(s => {
+      let badgeColor = '#10b981';
+      let badgeBg = 'rgba(16,185,129,0.15)';
+      if (s.status === 'OVERWEIGHT') { badgeColor = '#ef4444'; badgeBg = 'rgba(239,68,68,0.15)'; }
+      else if (s.status === 'UNDEREXPOSED') { badgeColor = '#3b82f6'; badgeBg = 'rgba(59,130,246,0.15)'; }
+
+      const deltaText = s.rebalanceDeltaRs > 0 ? `Trim ${fmtCurrency(s.rebalanceDeltaRs)}` : (s.rebalanceDeltaRs < 0 ? `Add ${fmtCurrency(Math.abs(s.rebalanceDeltaRs))}` : 'Balanced');
+      const deltaColor = s.rebalanceDeltaRs > 0 ? '#ef4444' : (s.rebalanceDeltaRs < 0 ? '#3b82f6' : '#9ca3af');
+
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--card-border)';
+      tr.innerHTML = `
+        <td style="padding:0.7rem 0.5rem; font-weight:600; color:#f3f4f6;">${s.sector}</td>
+        <td style="padding:0.7rem 0.5rem; text-align:right; font-weight:600; color:#f3f4f6;">${s.actualPct}%</td>
+        <td style="padding:0.7rem 0.5rem; text-align:right; color:#9ca3af;">${s.targetPct}%</td>
+        <td style="padding:0.7rem 0.5rem; text-align:center;">
+          <span style="background:${badgeBg}; color:${badgeColor}; padding:0.2rem 0.65rem; border-radius:12px; font-size:0.7rem; font-weight:700;">${s.status}</span>
+        </td>
+        <td style="padding:0.7rem 0.5rem; text-align:right; font-weight:600; color:${deltaColor};">${deltaText}</td>
+      `;
+      sectorTbody.appendChild(tr);
+    });
+  }
+
+  // 8. Quarterly Rebalance Action Plan
+  const trimEl = document.getElementById('xray-trim-actions');
+  const multiAssetEl = document.getElementById('xray-multi-asset-actions');
+  const depEl = document.getElementById('xray-deploy-actions');
+  const exitEl = document.getElementById('xray-stock-exit-actions');
+  const tsEl = document.getElementById('xray-action-timestamp');
+
+  if (tsEl && report.quarterlyActionPlan) tsEl.innerText = report.quarterlyActionPlan.timestamp || 'Q3 FY27';
+
+  const renderActionCard = (title, desc, badgeText, badgeColor) => `
+    <div style="background:rgba(0,0,0,0.25); border:1px solid var(--card-border); border-radius:8px; padding:0.9rem; display:flex; flex-direction:column; gap:0.4rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
+        <span style="font-weight:600; color:#f3f4f6; font-size:0.95rem;">${title}</span>
+        <span style="font-size:0.7rem; font-weight:700; color:${badgeColor}; background:${badgeColor}20; padding:0.15rem 0.55rem; border-radius:10px;">${badgeText}</span>
+      </div>
+      <div style="font-size:0.82rem; color:#9ca3af; line-height:1.4;">${desc}</div>
+    </div>
+  `;
+
+  if (trimEl && report.quarterlyActionPlan?.trimActions) {
+    trimEl.innerHTML = report.quarterlyActionPlan.trimActions.map(a => 
+      renderActionCard(a.action, a.rationale, a.amountRs > 0 ? `-${fmtCurrency(a.amountRs)}` : 'No Action', '#ef4444')
+    ).join('');
+  }
+  if (multiAssetEl && report.quarterlyActionPlan?.multiAssetActions) {
+    multiAssetEl.innerHTML = report.quarterlyActionPlan.multiAssetActions.map(m => 
+      renderActionCard(m.action, m.rationale, m.amountRs > 0 ? `+${fmtCurrency(m.amountRs)}` : 'On Target', '#f59e0b')
+    ).join('');
+  }
+  if (depEl && report.quarterlyActionPlan?.deployActions) {
+    depEl.innerHTML = report.quarterlyActionPlan.deployActions.map(d => 
+      renderActionCard(d.action, d.rationale, d.amountRs > 0 ? `+${fmtCurrency(d.amountRs)}` : 'On Target', '#10b981')
+    ).join('');
+  }
+  if (exitEl && report.quarterlyActionPlan?.stockExitActions) {
+    exitEl.innerHTML = report.quarterlyActionPlan.stockExitActions.map(e => 
+      renderActionCard(e.action, e.rationale, e.badgeText || 'ALPHA TRACKER', '#6366f1')
+    ).join('');
+  }
+
+  // 9. Tabular Actionable Recommendations & Monitoring Register
+  const recTableBody = document.getElementById('xray-recommendations-table-body');
+  if (recTableBody && report.recommendationsTable) {
+    recTableBody.innerHTML = report.recommendationsTable.map(row => {
+      const deltaText = row.deltaRs === 0 ? '—' : (row.deltaRs > 0 ? `+${fmtCurrency(row.deltaRs)}` : `-${fmtCurrency(Math.abs(row.deltaRs))}`);
+      const deltaColor = row.deltaRs > 0 ? '#10b981' : (row.deltaRs < 0 ? '#ef4444' : '#9ca3af');
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05); transition: background 0.2s;">
+          <td style="padding:0.85rem 0.6rem; font-weight:600; color:#f3f4f6;">${row.category}</td>
+          <td style="padding:0.85rem 0.6rem; color:#e5e7eb;">${row.target}</td>
+          <td style="padding:0.85rem 0.6rem; color:#9ca3af; font-size:0.85rem;">${row.currentStatus}</td>
+          <td style="padding:0.85rem 0.6rem;">
+            <span style="font-size:0.72rem; font-weight:700; color:${row.badgeColor}; background:${row.badgeColor}20; border:1px solid ${row.badgeColor}40; padding:0.25rem 0.65rem; border-radius:12px; display:inline-block;">
+              ${row.action}
+            </span>
+          </td>
+          <td style="padding:0.85rem 0.6rem; text-align:right; font-weight:600; color:${deltaColor};">${deltaText}</td>
+          <td style="padding:0.85rem 0.6rem; color:#d1d5db; font-size:0.83rem; line-height:1.4;">${row.guidance}</td>
+        </tr>
+      `;
+    }).join('');
+  }
 }

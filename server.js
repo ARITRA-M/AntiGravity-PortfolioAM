@@ -607,6 +607,18 @@ app.post('/api/git-pull', (req, res) => {
   }
 });
 
+const { analyzePortfolio } = require('./xray_engine');
+
+// ── Portfolio X-Ray Engine ────────────────────────────────────────────────
+app.post('/api/xray/run', (req, res) => {
+  try {
+    const report = analyzePortfolio(req.body?.latest_mf, req.body?.latest_equity);
+    res.json({ success: true, report });
+  } catch (e) {
+    res.status(500).json({ error: 'X-Ray analysis failed: ' + e.message });
+  }
+});
+
 // Catch-all: serve index.html for any non-file route (SPA fallback)
 // Express 5 uses path-to-regexp v8+ which does not support bare '*'
 // Use a middleware that catches all unmatched GET requests
