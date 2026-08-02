@@ -4257,98 +4257,298 @@ function initStocksTab() {
   renderStocksTable(sortedStocks);
 }
 
-// ── Inline row history expansion (Stocks) ────────────────────────────────────
-let _inlineStockChart = null;
-let _expandedStockSymbol = null;
+// ── Zerodha Coin-Inspired Instrument 360° Drawer / Modal ─────────────────────
+let _instrumentDetailChart = null;
+let _activeInstrumentModalSymbol = null;
 
-function _inlineChartOptions(title) {
+function _instrumentModalChartOptions(title) {
   return {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
-      title: { display: true, text: title, color: '#f3f4f6', font: { family: 'Outfit', size: 13 } },
-      legend: { position: 'top', labels: { color: '#9ca3af', boxWidth: 10, font: { size: 10 }, padding: 10 } }
+      title: { display: false },
+      legend: { position: 'top', labels: { color: '#e5e7eb', boxWidth: 12, font: { family: 'Outfit', size: 11 }, padding: 14 } },
+      tooltip: {
+        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        titleColor: '#f8fafc',
+        bodyColor: '#e2e8f0',
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        padding: 10,
+        boxPadding: 4,
+        usePointStyle: true,
+        callbacks: {
+          label: function(ctx) {
+            let label = ctx.dataset.label || '';
+            if (label) label += ': ';
+            if (ctx.dataset.yAxisID === 'yPrice') {
+              label += '₹' + ctx.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 2 });
+            } else {
+              label += '₹' + ctx.parsed.y.toFixed(2) + 'L';
+            }
+            return label;
+          }
+        }
+      }
     },
     scales: {
-      x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 10, font: { size: 10 } } },
-      y: { position: 'left', grid: { color: 'rgba(255,255,255,0.04)' },
-           ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
+      x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 11 } } },
+      y: { position: 'left', grid: { color: 'rgba(255,255,255,0.06)' },
+           ticks: { color: '#9ca3af', font: { size: 11 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
       yPrice: { position: 'right', grid: { drawOnChartArea: false },
-                ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => '₹' + v.toLocaleString(undefined, {maximumFractionDigits: 0}) } }
+                ticks: { color: '#9ca3af', font: { size: 11 }, callback: v => '₹' + v.toLocaleString(undefined, {maximumFractionDigits: 0}) } }
     }
   };
 }
 
-function _buildExpansionHTML(canvasId, tbodyId, qtyLabel, priceLabel) {
-  return `
-    <div class="history-chart-side">
-      <canvas id="${canvasId}"></canvas>
-    </div>
-    <div class="history-table-side">
-      <table class="history-inline-table">
-        <thead><tr>
-          <th>Date</th>
-          <th>Action</th>
-          <th style="text-align:right;">Δ ${qtyLabel}</th>
-          <th style="text-align:right;">${qtyLabel}</th>
-          <th style="text-align:right;">${priceLabel} (₹)</th>
-          <th style="text-align:right;">Δ Invested</th>
-          <th style="text-align:right;" title="Sale proceeds (qty sold × sale price) — hover a value for the realized P&amp;L">Realized (₹)</th>
-        </tr></thead>
-        <tbody id="${tbodyId}"></tbody>
-      </table>
-    </div>`;
+function openInstrumentDetailModal(instrument, type) {
+  const modal = document.getElementById('instrument-detail-modal');
+  if (!modal) return;
+
+  _activeInstrumentModalSymbol = instrument;
+
+  // 1. Lookup holding and historical tracking data
+  let holding = null;
+  let history = null;
+  let assetClassBadge = 'STOCK';
+  let sectorName = 'General';
+  let qtyLabel = 'Qty';
+  let priceLabel = 'Price';
+
+  if (type === 'stock') {
+    holding = (typeof latestEquity !== 'undefined' ? latestEquity : []).find(e => e.instrument === instrument);
+    const stockObj = (typeof getStockHistoryKey === 'function' && getStockHistoryKey(instrument)) || historicalHoldings.stocks?.[instrument];
+    history = stockObj?.history || null;
+    assetClassBadge = holding?.instrument?.endsWith('ETF') ? 'ETF' : 'STOCK';
+    sectorName = holding?.sector || 'Stock';
+    qtyLabel = 'Qty';
+    priceLabel = 'Price';
+  } else {
+    holding = (typeof latestMf !== 'undefined' ? latestMf : []).find(m => m.scheme === instrument);
+    const mfObj = (typeof getMfHistoryKey === 'function' && getMfHistoryKey(instrument)) || historicalHoldings.mfs?.[instrument];
+    history = mfObj?.history || null;
+    assetClassBadge = 'MUTUAL FUND';
+    sectorName = holding?.category || 'Mutual Fund';
+    qtyLabel = 'Units';
+    priceLabel = 'NAV';
+  }
+
+  // 2. Populate Header
+  const titleEl = document.getElementById('instrument-modal-title');
+  const badgeEl = document.getElementById('instrument-modal-badge');
+  const sectorEl = document.getElementById('instrument-modal-sector');
+  if (titleEl) titleEl.textContent = instrument;
+  if (badgeEl) badgeEl.textContent = assetClassBadge;
+  if (sectorEl) sectorEl.textContent = sectorName;
+
+  // 3. Populate Hero Pricing Strip
+  const priceEl = document.getElementById('instrument-modal-price');
+  const changeEl = document.getElementById('instrument-modal-change');
+  const dateEl = document.getElementById('instrument-modal-date');
+  const heroLabelEl = document.getElementById('instrument-hero-label');
+  if (heroLabelEl) heroLabelEl.textContent = `Current ${priceLabel}`;
+
+  let ltp = 0;
+  let changePct = 0;
+  let changeAmt = 0;
+  let dateStr = 'Latest';
+
+  if (holding) {
+    if (type === 'stock') {
+      ltp = holding.ltp || holding.price || 0;
+      changePct = holding.pChg || holding.change_pct || 0;
+      changeAmt = holding.change || 0;
+      dateStr = holding.date || 'Latest';
+    } else {
+      ltp = holding.nav || holding.price || 0;
+      changePct = holding.dayChangePct || 0;
+      changeAmt = holding.dayChange || 0;
+      dateStr = holding.date || 'Latest';
+    }
+  } else if (history && history.length > 0) {
+    const last = history[history.length - 1];
+    ltp = last.ltp || 0;
+    dateStr = last.date || 'Latest';
+  }
+
+  if (priceEl) priceEl.textContent = `₹${ltp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+  if (changeEl) {
+    const isPos = changePct >= 0;
+    const sign = isPos ? '+' : '';
+    const amtSign = changeAmt >= 0 ? '+' : '−';
+    const absAmt = Math.abs(changeAmt);
+    changeEl.textContent = `${sign}${changePct.toFixed(2)}%${absAmt > 0 ? ` (${amtSign}₹${absAmt.toFixed(2)})` : ''}`;
+    changeEl.className = 'instrument-hero-change ' + (isPos ? 'trend-up' : 'trend-down');
+    changeEl.style.background = isPos ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+    changeEl.style.color = isPos ? '#34d399' : '#f87171';
+    changeEl.style.border = isPos ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(239, 68, 68, 0.35)';
+  }
+  if (dateEl) dateEl.textContent = `As of ${formatDateString(dateStr)}`;
+
+  // 4. Populate 6 KPI Summary Cards
+  const kpisEl = document.getElementById('instrument-modal-kpis');
+  if (kpisEl) {
+    const curVal = holding ? holding.cur_val : (history?.length ? history[history.length - 1].cur_val : 0);
+    const invested = holding ? holding.invested : (history?.length ? history[history.length - 1].invested : 0);
+    const totalPnl = curVal - invested;
+    const totalPnlPct = invested > 0 ? (totalPnl / invested) * 100 : 0;
+    const qty = holding ? (holding.qty || holding.units || 0) : (history?.length ? history[history.length - 1].qty : 0);
+    const avgCost = qty > 0 ? invested / qty : 0;
+
+    // Calculate cumulative realized P&L from historical sales
+    let realizedPnlSum = 0;
+    if (history) {
+      for (let i = 1; i < history.length; i++) {
+        const h = history[i];
+        const p = history[i - 1];
+        const dQty = h.qty - p.qty;
+        if (dQty < -0.001) {
+          const dInv = h.invested - p.invested;
+          const proceeds = typeof h.cf === 'number' ? h.cf : Math.abs(dQty) * h.ltp;
+          const costRemoved = Math.abs(dInv);
+          realizedPnlSum += (proceeds - costRemoved);
+        }
+      }
+    }
+
+    const pnlSign = totalPnl >= 0 ? '+' : '−';
+    const pnlCls = totalPnl >= 0 ? 'trend-up' : 'trend-down';
+    const realSign = realizedPnlSum >= 0 ? '+' : '−';
+    const realCls = realizedPnlSum >= 0 ? 'trend-up' : 'trend-down';
+
+    kpisEl.innerHTML = `
+      <div class="instrument-kpi-card">
+        <span class="instrument-kpi-label">Current Valuation</span>
+        <span class="instrument-kpi-value">₹${formatINR(curVal)}</span>
+      </div>
+      <div class="instrument-kpi-card">
+        <span class="instrument-kpi-label">Total Invested</span>
+        <span class="instrument-kpi-value">₹${formatINR(invested)}</span>
+      </div>
+      <div class="instrument-kpi-card">
+        <span class="instrument-kpi-label">Total P&amp;L</span>
+        <span class="instrument-kpi-value ${pnlCls}">${pnlSign}₹${formatINR(Math.abs(totalPnl))} (${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(1)}%)</span>
+      </div>
+      <div class="instrument-kpi-card">
+        <span class="instrument-kpi-label">Current ${qtyLabel}</span>
+        <span class="instrument-kpi-value">${qty.toLocaleString(undefined, { maximumFractionDigits: type === 'mf' ? 3 : 0 })}</span>
+      </div>
+      <div class="instrument-kpi-card">
+        <span class="instrument-kpi-label">Avg. Buy ${priceLabel}</span>
+        <span class="instrument-kpi-value">₹${avgCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+      <div class="instrument-kpi-card" title="Cumulative realized gain/loss from recorded sales — hover table cells for transaction-level breakdown">
+        <span class="instrument-kpi-label">Realized P&amp;L</span>
+        <span class="instrument-kpi-value ${realCls}">${realizedPnlSum !== 0 ? `${realSign}₹${formatINR(Math.abs(realizedPnlSum))}` : '—'}</span>
+      </div>
+    `;
+  }
+
+  // 5. Update Table Headers
+  const thDqty = document.getElementById('instrument-th-dqty');
+  const thQty = document.getElementById('instrument-th-qty');
+  const thPrice = document.getElementById('instrument-th-price');
+  const chartPriceLabel = document.getElementById('instrument-chart-price-label');
+  if (thDqty) thDqty.textContent = `Δ ${qtyLabel}`;
+  if (thQty) thQty.textContent = `Total ${qtyLabel}`;
+  if (thPrice) thPrice.textContent = `${priceLabel} (₹)`;
+  if (chartPriceLabel) chartPriceLabel.textContent = priceLabel;
+
+  // 6. Render Chart & Ledger Table
+  if (_instrumentDetailChart) {
+    _instrumentDetailChart.destroy();
+    _instrumentDetailChart = null;
+  }
+
+  const tbody = document.getElementById('instrument-modal-tbody');
+  const chartCanvas = document.getElementById('instrument-detail-canvas');
+
+  if (history && history.length > 0) {
+    if (chartCanvas) {
+      _instrumentDetailChart = new Chart(
+        chartCanvas.getContext('2d'),
+        {
+          type: 'line',
+          data: {
+            labels: history.map(h => formatDateString(h.date)),
+            datasets: [
+              {
+                label: 'Valuation (₹ L)',
+                data: history.map(h => h.cur_val / 100000),
+                borderColor: '#6366f1',
+                backgroundColor: 'rgba(99, 102, 241, 0.12)',
+                fill: true,
+                borderWidth: 2.5,
+                tension: 0.25,
+                yAxisID: 'y'
+              },
+              {
+                label: 'Invested (₹ L)',
+                data: history.map(h => h.invested / 100000),
+                borderColor: '#10b981',
+                borderWidth: 2,
+                borderDash: [5, 5],
+                fill: false,
+                tension: 0.15,
+                yAxisID: 'y'
+              },
+              {
+                label: `${priceLabel} (₹)`,
+                data: history.map(h => h.ltp || h.nav),
+                borderColor: '#f59e0b',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.2,
+                yAxisID: 'yPrice'
+              }
+            ]
+          },
+          options: _instrumentModalChartOptions(`${instrument} — History`)
+        }
+      );
+    }
+
+    if (tbody) {
+      _renderInlineTransactions(history, tbody, type === 'mf' ? 4 : 2, instrument);
+    }
+  } else {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2.5rem; color: var(--text-muted);">No historical tracking records available for this instrument yet.</td></tr>`;
+    }
+  }
+
+  modal.style.display = 'flex';
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.style.overflow = 'hidden';
+  }
 }
 
-function _pinExpansionWidth(expRow, tr) {
-  const wrapper = tr.closest('.table-wrapper');
-  if (wrapper) {
-    const panel = expRow.querySelector('.history-panel');
-    if (panel) panel.style.width = wrapper.clientWidth + 'px';
+function closeInstrumentDetailModal(silent) {
+  const modal = document.getElementById('instrument-detail-modal');
+  if (!modal || modal.style.display === 'none') return;
+  modal.style.display = 'none';
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.style.overflow = '';
+  }
+  if (_instrumentDetailChart) {
+    _instrumentDetailChart.destroy();
+    _instrumentDetailChart = null;
+  }
+  _activeInstrumentModalSymbol = null;
+}
+
+function handleInstrumentModalBackdropClick(event) {
+  if (event.target && event.target.id === 'instrument-detail-modal') {
+    closeInstrumentDetailModal();
   }
 }
 
 function toggleStockRowHistory(tr, symbol) {
-  if (_expandedStockSymbol === symbol) { _collapseStockHistory(); return; }
-  _collapseStockHistory();
-
-  const stock = getStockHistoryKey(symbol) || historicalHoldings.stocks[symbol];
-  if (!stock?.history?.length) return;
-
-  _expandedStockSymbol = symbol;
-  tr.classList.add('history-row-active');
-
-  const expRow = document.createElement('tr');
-  expRow.className = 'history-expansion-row';
-  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
-    ${_buildExpansionHTML('inline-stock-canvas', 'inline-stock-tbody', 'Qty', 'Price')}
-  </div></td>`;
-  tr.after(expRow);
-  _pinExpansionWidth(expRow, tr);
-
-  const history = stock.history;
-  _inlineStockChart = new Chart(
-    document.getElementById('inline-stock-canvas').getContext('2d'),
-    { type: 'line', data: {
-        labels: history.map(h => formatDateString(h.date)),
-        datasets: [
-          { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
-            borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)', fill: true, borderWidth: 2, yAxisID: 'y' },
-          { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
-            borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
-          { label: 'LTP (₹)', data: history.map(h => h.ltp),
-            borderColor: '#f59e0b', borderWidth: 1.5, fill: false, yAxisID: 'yPrice' }
-        ]
-      }, options: _inlineChartOptions(`${symbol} — History`) }
-  );
-  _renderInlineTransactions(history, document.getElementById('inline-stock-tbody'), 2, symbol);
+  openInstrumentDetailModal(symbol, 'stock');
 }
 
 function _collapseStockHistory() {
-  if (_inlineStockChart) { _inlineStockChart.destroy(); _inlineStockChart = null; }
-  document.querySelectorAll('#stocks-table-body .history-expansion-row').forEach(r => r.remove());
-  document.querySelectorAll('#stocks-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
-  _expandedStockSymbol = null;
+  closeInstrumentDetailModal(true);
 }
 
 function _renderInlineTransactions(history, tbody, pricePrecision, instrument) {
@@ -4717,52 +4917,13 @@ function initMfsTab() {
   renderMfsTable(sortedMfs);
 }
 
-// ── Inline row history expansion (MFs) ───────────────────────────────────────
-let _inlineMfChart = null;
-let _expandedMfScheme = null;
-
+// ── Zerodha Coin-Inspired Instrument 360° Drawer / Modal (MFs) ───────────────
 function toggleMfRowHistory(tr, scheme) {
-  if (_expandedMfScheme === scheme) { _collapseMfHistory(); return; }
-  _collapseMfHistory();
-
-  const mf = historicalHoldings.mfs[scheme];
-  if (!mf?.history?.length) return;
-
-  _expandedMfScheme = scheme;
-  tr.classList.add('history-row-active');
-
-  const expRow = document.createElement('tr');
-  expRow.className = 'history-expansion-row';
-  expRow.innerHTML = `<td colspan="${tr.cells.length}"><div class="history-panel">
-    ${_buildExpansionHTML('inline-mf-canvas', 'inline-mf-tbody', 'Units', 'NAV')}
-  </div></td>`;
-  tr.after(expRow);
-  _pinExpansionWidth(expRow, tr);
-
-  const history = mf.history;
-  const shortName = scheme.length > 42 ? scheme.substring(0, 40) + '…' : scheme;
-  _inlineMfChart = new Chart(
-    document.getElementById('inline-mf-canvas').getContext('2d'),
-    { type: 'line', data: {
-        labels: history.map(h => formatDateString(h.date)),
-        datasets: [
-          { label: 'Valuation (₹ L)', data: history.map(h => h.cur_val / 100000),
-            borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)', fill: true, borderWidth: 2, yAxisID: 'y' },
-          { label: 'Invested (₹ L)', data: history.map(h => h.invested / 100000),
-            borderColor: '#10b981', borderWidth: 1.5, borderDash: [5,5], fill: false, yAxisID: 'y' },
-          { label: 'NAV (₹)', data: history.map(h => h.ltp),
-            borderColor: '#ec4899', borderWidth: 1.5, fill: false, yAxisID: 'yPrice' }
-        ]
-      }, options: _inlineChartOptions(shortName) }
-  );
-  _renderInlineTransactions(history, document.getElementById('inline-mf-tbody'), 4, scheme);
+  openInstrumentDetailModal(scheme, 'mf');
 }
 
 function _collapseMfHistory() {
-  if (_inlineMfChart) { _inlineMfChart.destroy(); _inlineMfChart = null; }
-  document.querySelectorAll('#mfs-table-body .history-expansion-row').forEach(r => r.remove());
-  document.querySelectorAll('#mfs-table-body .history-row-active').forEach(r => r.classList.remove('history-row-active'));
-  _expandedMfScheme = null;
+  closeInstrumentDetailModal(true);
 }
 
 function renderMfsTable(data) {
@@ -6975,6 +7136,16 @@ if (typeof document !== 'undefined') {
     }
   });
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('instrument-detail-modal');
+      if (modal && modal.style.display !== 'none') {
+        e.preventDefault();
+        closeInstrumentDetailModal();
+      }
+    }
+  });
+
   document.addEventListener('click', (e) => {
     const panel = document.getElementById('calculator-panel');
     if (panel && panel.style.display !== 'none' && panel.contains(e.target)) {
@@ -6992,6 +7163,11 @@ if (typeof window !== 'undefined') {
   window.calcClear = calcClear;
   window.calcEquals = calcEquals;
   window.calcCopyResult = calcCopyResult;
+  window.openInstrumentDetailModal = openInstrumentDetailModal;
+  window.closeInstrumentDetailModal = closeInstrumentDetailModal;
+  window.handleInstrumentModalBackdropClick = handleInstrumentModalBackdropClick;
+  window.toggleStockRowHistory = toggleStockRowHistory;
+  window.toggleMfRowHistory = toggleMfRowHistory;
 }
 
 // Populate the instrument autocomplete from current holdings for the chosen class.

@@ -1316,6 +1316,73 @@
       </div>
     </div>
 
+    <!-- Zerodha Coin-Inspired Instrument 360° View Modal / Bottom Sheet -->
+    <div id="instrument-detail-modal" class="instrument-modal-overlay" style="display:none;" onclick="handleInstrumentModalBackdropClick(event)">
+      <div class="instrument-modal-drawer">
+        <div class="instrument-modal-drag-handle"></div>
+        <div class="instrument-modal-header">
+          <button type="button" class="instrument-modal-close" onclick="closeInstrumentDetailModal()" title="Close (Escape)">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+          <div class="instrument-modal-title-group">
+            <h2 id="instrument-modal-title">Instrument</h2>
+            <span id="instrument-modal-badge" class="instrument-badge">STOCK</span>
+          </div>
+          <span id="instrument-modal-sector" class="instrument-sector-pill">Sector</span>
+        </div>
+        
+        <div class="instrument-modal-body">
+          <!-- Top Hero Pricing Strip -->
+          <div class="instrument-hero-strip">
+            <div class="instrument-hero-price-col">
+              <span class="instrument-hero-label" id="instrument-hero-label">Current LTP</span>
+              <div class="instrument-hero-price-row">
+                <span id="instrument-modal-price" class="instrument-hero-price">₹0.00</span>
+                <span id="instrument-modal-change" class="instrument-hero-change">+0.00%</span>
+              </div>
+            </div>
+            <div id="instrument-modal-date" class="instrument-hero-date">As of Today</div>
+          </div>
+
+          <!-- KPI Summary Grid (3x2 on desktop, 2x3 on mobile) -->
+          <div class="instrument-kpi-grid" id="instrument-modal-kpis"></div>
+
+          <!-- Interactive Chart -->
+          <div class="instrument-chart-section">
+            <div class="instrument-section-header">
+              <span>Valuation vs Invested vs <span id="instrument-chart-price-label">LTP</span></span>
+            </div>
+            <div class="instrument-chart-container">
+              <canvas id="instrument-detail-canvas"></canvas>
+            </div>
+          </div>
+
+          <!-- Transaction Ledger & History Table -->
+          <div class="instrument-ledger-section">
+            <div class="instrument-section-header">
+              <span>Transaction Ledger &amp; History</span>
+            </div>
+            <div class="instrument-table-wrapper">
+              <table class="instrument-ledger-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Action</th>
+                    <th style="text-align:right;" id="instrument-th-dqty">Δ Qty</th>
+                    <th style="text-align:right;" id="instrument-th-qty">Total Qty</th>
+                    <th style="text-align:right;" id="instrument-th-price">Price (₹)</th>
+                    <th style="text-align:right;">Δ Invested</th>
+                    <th style="text-align:right;" title="Sale proceeds (qty sold × sale price) — hover a value for the realized P&amp;L">Realized (₹)</th>
+                  </tr>
+                </thead>
+                <tbody id="instrument-modal-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   <div class="ptr-indicator" id="ptr-indicator"></div>
 
   <!-- Mobile bottom navigation (hidden on desktop; top tab bar hidden on mobile) -->

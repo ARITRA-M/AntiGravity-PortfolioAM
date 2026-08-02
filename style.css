@@ -3194,3 +3194,327 @@ table tbody:empty::after {
     transform: translateY(0);
   }
 }
+
+/* ── Zerodha Coin-Inspired Instrument 360° Modal / Bottom Sheet Drawer ── */
+.instrument-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 15, 29, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  animation: fadeInModal 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUpDrawer {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes scaleUpModal {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.instrument-modal-drawer {
+  background: var(--bg-card, #111827);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 840px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.75);
+  animation: scaleUpModal 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  overflow: hidden;
+}
+
+.instrument-modal-drag-handle {
+  display: none;
+}
+
+.instrument-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  gap: 1rem;
+}
+.instrument-modal-close {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary, #e5e7eb);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.instrument-modal-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  transform: rotate(90deg);
+}
+.instrument-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 0;
+}
+.instrument-modal-title-group h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #f9fafb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.instrument-badge {
+  background: rgba(99, 102, 241, 0.18);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  padding: 0.18rem 0.55rem;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.instrument-sector-pill {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.25rem 0.75rem;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.instrument-modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Hero Pricing Strip */
+.instrument-hero-strip {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+}
+.instrument-hero-price-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.instrument-hero-label {
+  font-size: 0.78rem;
+  color: var(--text-muted, #9ca3af);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.instrument-hero-price-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.instrument-hero-price {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text-primary, #f9fafb);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.instrument-hero-change {
+  font-size: 0.92rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+}
+.instrument-hero-date {
+  font-size: 0.8rem;
+  color: var(--text-muted, #9ca3af);
+  font-weight: 500;
+}
+
+/* KPI Grid */
+.instrument-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.85rem;
+}
+.instrument-kpi-card {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.instrument-kpi-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+}
+.instrument-kpi-label {
+  font-size: 0.74rem;
+  color: var(--text-muted, #9ca3af);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.instrument-kpi-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary, #f9fafb);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chart Section */
+.instrument-chart-section, .instrument-ledger-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.instrument-section-header {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary, #e5e7eb);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.instrument-chart-container {
+  height: 330px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  padding: 1rem;
+  position: relative;
+}
+.instrument-chart-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Ledger Table */
+.instrument-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  max-height: 360px;
+  overflow-y: auto;
+}
+.instrument-ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+  text-align: left;
+}
+.instrument-ledger-table th {
+  position: sticky;
+  top: 0;
+  background: #1e293b;
+  color: var(--text-secondary, #e5e7eb);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 2;
+}
+.instrument-ledger-table td {
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.instrument-ledger-table tr:hover td {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Mobile Bottom Sheet Layout (< 768px) */
+@media (max-width: 768px) {
+  .instrument-modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .instrument-modal-drawer {
+    max-width: 100%;
+    max-height: 93vh;
+    border-radius: 24px 24px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    animation: slideUpDrawer 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .instrument-modal-drag-handle {
+    display: block;
+    width: 42px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 99px;
+    margin: 10px auto 2px;
+    flex-shrink: 0;
+  }
+  .instrument-modal-header {
+    padding: 0.75rem 1.25rem 1rem;
+  }
+  .instrument-modal-body {
+    padding: 1.25rem;
+    gap: 1.25rem;
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom, 20px));
+  }
+  .instrument-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.65rem;
+  }
+  .instrument-hero-price {
+    font-size: 1.75rem;
+  }
+  .instrument-chart-container {
+    height: 270px;
+    padding: 0.75rem;
+  }
+  .instrument-ledger-table th, .instrument-ledger-table td {
+    padding: 0.6rem 0.65rem;
+  }
+}
+
