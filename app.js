@@ -1305,7 +1305,9 @@ function initializeLiveBaseline() {
     }
     f.lastRefreshedPrice = f.price;
     if (f.thisMonthGain === undefined) f.thisMonthGain = 0;
-    if (f.previousNav === undefined) f.previousNav = null;
+    if (f.previousNav === undefined || f.previousNav === null) {
+      f.previousNav = typeof resolveMfPreviousNav === 'function' ? resolveMfPreviousNav(f) : null;
+    }
   });
 
   // uploadedSnapshot anchors the net-worth computation to the frozen-base values.
@@ -2491,6 +2493,52 @@ function _prevTradingDay(date) {
   return x;
 }
 
+// Resolve previous NAV for a mutual fund holding across multiple daily sources
+function resolveMfPreviousNav(f) {
+  if (!f) return null;
+  if (f.previousNav && !isNaN(f.previousNav) && f.previousNav > 0) {
+    return parseFloat(f.previousNav);
+  }
+  try {
+    const snap = JSON.parse(localStorage.getItem('ag_price_snap_' + f.scheme) || 'null');
+    if (snap) {
+      if (snap.prevNav && !isNaN(snap.prevNav) && snap.prevNav > 0) {
+        return parseFloat(snap.prevNav);
+      }
+      if (snap.nav && snap.navDate && f.navDate && snap.navDate !== f.navDate) {
+        return parseFloat(snap.nav);
+      }
+    }
+  } catch (_) {}
+  try {
+    const code = (typeof MF_SCHEME_CODES !== 'undefined' && MF_SCHEME_CODES[f.scheme]) ||
+                 (typeof dynamicMfSchemeCodes !== 'undefined' && dynamicMfSchemeCodes[f.scheme]);
+    if (code) {
+      const cached = JSON.parse(localStorage.getItem(`ag_mf_nav_cache_${code}`) || 'null');
+      if (cached && cached.series && Array.isArray(cached.series.closes)) {
+        const closes = cached.series.closes;
+        if (closes.length >= 2) {
+          const lastClose = closes[closes.length - 1];
+          if (lastClose === f.price) {
+            const prev = closes[closes.length - 2];
+            if (prev && !isNaN(prev) && prev > 0) return parseFloat(prev);
+          } else {
+            if (lastClose && !isNaN(lastClose) && lastClose > 0) return parseFloat(lastClose);
+          }
+        }
+      }
+    }
+  } catch (_) {}
+  if (f.basePrice && !isNaN(f.basePrice) && f.basePrice > 0 && f.basePrice !== f.price) {
+    return parseFloat(f.basePrice);
+  }
+  if (f.avg_nav && !isNaN(f.avg_nav) && f.avg_nav > 0 && f.avg_nav !== f.price) {
+    return parseFloat(f.avg_nav);
+  }
+  return null;
+}
+if (typeof window !== 'undefined') window.resolveMfPreviousNav = resolveMfPreviousNav;
+
 // ── Daily Overview Table (top gainers across stocks & MFs by daily value) ──
 function renderDailyOverviewTable() {
   const combined = [];
@@ -2530,9 +2578,10 @@ function renderDailyOverviewTable() {
     if (dailyGain !== null) totalStockGain += dailyGain;
   });
 
-  // MFs: daily change uses previous NAV when the NAV provider returns it.
+  // MFs: daily change uses previous NAV when the NAV provider returns it, with historical/snapshot fallback.
   latestMf.forEach(f => {
-    let previousNav = f.previousNav || null;
+    let previousNav = typeof resolveMfPreviousNav === 'function' ? resolveMfPreviousNav(f) : (f.previousNav || null);
+    f.previousNav = previousNav;
     // On weekends: price = Friday's NAV, previousNav = Thursday's NAV → shows Friday's change.
 
     const gain = previousNav ? (f.price - previousNav) * f.qty : null;
@@ -7666,13 +7715,68 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
   const normalizeSector = (sec) => {
     if (!sec) return 'Other Equities';
     if (sec.includes('Banking') || sec.includes('Financial') || sec.includes('Insurance')) return 'Banking & Financials';
-    if (sec.includes('IT') || sec.includes('Technology') || sec.includes('Software')) return 'IT & Technology';
+    if (sec.includes('IT') || sec.includes('Technology') || sec.includes('Software')) return 'Indian IT & Software Services';
     if (sec.includes('Pharma') || sec.includes('Healthcare') || sec.includes('Biotech')) return 'Healthcare & Pharma';
     if (sec.includes('Auto')) return 'Automobile & Ancillaries';
-    if (sec.includes('FMCG') || sec.includes('Consumer')) return 'Consumer & FMCG';
+    if (sec.includes('FMCG') || sec.includes('Consumer')) return 'Consumer & Retail';
     if (sec.includes('Energy') || sec.includes('Mining') || sec.includes('Metals') || sec.includes('Chemicals')) return 'Energy, Metals & Chemicals';
-    if (sec.includes('Real Estate') || sec.includes('Construction') || sec.includes('Infrastructure')) return 'Real Estate & Construction';
+    if (sec.includes('Real Estate') || sec.includes('Construction') || sec.includes('Infrastructure')) return 'Infrastructure & Construction';
     return 'Other Equities';
+  };
+
+  const inferStockSector = (canonicalName, fallbackSector) => {
+    if (fallbackSector && fallbackSector !== 'Diversified / Blend' && fallbackSector !== 'Other Equities') {
+      return normalizeSector(fallbackSector);
+    }
+    const lName = canonicalName.toLowerCase();
+    if (lName.includes('hdfc bank') || lName.includes('icici bank') || lName.includes('state bank') || lName.includes('axis bank') || lName.includes('kotak') || lName.includes('vysya') || lName.includes('bse')) {
+      return 'Banking & Financials';
+    }
+    if (lName.includes('infosys') || lName.includes('tcs') || lName.includes('hcl') || lName.includes('wipro') || lName.includes('tech mahindra')) {
+      return 'Indian IT & Software Services';
+    }
+    if (lName.includes('apple') || lName.includes('microsoft') || lName.includes('nvidia') || lName.includes('amazon') || lName.includes('alphabet') || lName.includes('meta')) {
+      return 'US Tech & Global Innovation (Offshore)';
+    }
+    if (lName.includes('reliance') || lName.includes('larsen') || lName.includes('power') || lName.includes('energy') || lName.includes('apar') || lName.includes('crompton')) {
+      return 'Energy, Metals & Chemicals';
+    }
+    if (lName.includes('itc') || lName.includes('hindustan unilever') || lName.includes('nestle') || lName.includes('britannia') || lName.includes('tata consumer') || lName.includes('zomato') || lName.includes('radico') || lName.includes('trent')) {
+      return 'Consumer & Retail';
+    }
+    if (lName.includes('dlf') || lName.includes('reit')) {
+      return 'Infrastructure & Construction';
+    }
+    return normalizeSector(fallbackSector || 'Diversified / Blend');
+  };
+
+  const getOrCreateBlendedHolding = (canonicalName, secHint) => {
+    if (!blendedHoldingsMap[canonicalName]) {
+      const cap = classifyStockCap(canonicalName);
+      const style = classifyStockStyle(canonicalName);
+      let styleBoxKey = 'largeBlend';
+      if (cap === 'Large Cap') {
+        styleBoxKey = style === 'Value' ? 'largeValue' : (style === 'Growth' ? 'largeGrowth' : 'largeBlend');
+      } else if (cap === 'Mid Cap') {
+        styleBoxKey = style === 'Value' ? 'midValue' : (style === 'Growth' ? 'midGrowth' : 'midBlend');
+      } else {
+        styleBoxKey = style === 'Value' ? 'smallValue' : (style === 'Growth' ? 'smallGrowth' : 'smallBlend');
+      }
+      blendedHoldingsMap[canonicalName] = {
+        company: canonicalName,
+        directVal: 0,
+        mfVal: 0,
+        totalVal: 0,
+        cap: cap,
+        style: style,
+        styleBoxKey: styleBoxKey,
+        sector: inferStockSector(canonicalName, secHint),
+        sources: []
+      };
+    } else if (secHint && secHint !== 'Diversified / Blend' && (blendedHoldingsMap[canonicalName].sector === 'Diversified / Blend' || blendedHoldingsMap[canonicalName].sector === 'Other Equities')) {
+      blendedHoldingsMap[canonicalName].sector = inferStockSector(canonicalName, secHint);
+    }
+    return blendedHoldingsMap[canonicalName];
   };
 
   const MF_TOP_HOLDINGS_LOOKTHROUGH = {
@@ -7798,11 +7902,10 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
     lookthroughList.forEach(item => {
       const canonicalName = canonicalizeStock(item.name);
       const impliedVal = val * (item.pct / 100);
-      if (!blendedHoldingsMap[canonicalName]) {
-        blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
-      }
-      blendedHoldingsMap[canonicalName].mfVal += impliedVal;
-      blendedHoldingsMap[canonicalName].totalVal += impliedVal;
+      const h = getOrCreateBlendedHolding(canonicalName, null);
+      h.mfVal += impliedVal;
+      h.totalVal += impliedVal;
+      h.sources.push(`${name} (${item.pct}% look-through: ₹${Math.round(impliedVal).toLocaleString('en-IN')})`);
     });
 
     fundConcentration.push({ name, value: val });
@@ -7849,11 +7952,10 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
         constituents.forEach(item => {
           const canonicalName = canonicalizeStock(item.name);
           const impliedVal = val * (item.pct / 100);
-          if (!blendedHoldingsMap[canonicalName]) {
-            blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
-          }
-          blendedHoldingsMap[canonicalName].mfVal += impliedVal;
-          blendedHoldingsMap[canonicalName].totalVal += impliedVal;
+          const h = getOrCreateBlendedHolding(canonicalName, stock.sector);
+          h.mfVal += impliedVal;
+          h.totalVal += impliedVal;
+          h.sources.push(`${stock.instrument || rawName} (${item.pct}% ETF constituent: ₹${Math.round(impliedVal).toLocaleString('en-IN')})`);
         });
         break;
       }
@@ -7884,11 +7986,10 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
 
     if (!etfFound) {
       const canonicalName = canonicalizeStock(rawName);
-      if (!blendedHoldingsMap[canonicalName]) {
-        blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
-      }
-      blendedHoldingsMap[canonicalName].directVal += val;
-      blendedHoldingsMap[canonicalName].totalVal += val;
+      const h = getOrCreateBlendedHolding(canonicalName, stock.sector);
+      h.directVal += val;
+      h.totalVal += val;
+      h.sources.push(`Direct Stock (₹${Math.round(val).toLocaleString('en-IN')})`);
     }
   }
 
@@ -7898,14 +7999,15 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
     }
   }
 
-  const topBlendedHoldings = Object.values(blendedHoldingsMap)
+  const allBlendedHoldings = Object.values(blendedHoldingsMap)
     .sort((a, b) => b.totalVal - a.totalVal)
-    .slice(0, 10)
     .map(h => ({
       ...h,
       pct: totalValue > 0 ? Number(((h.totalVal / totalValue) * 100).toFixed(1)) : 0,
       risk: ((h.totalVal / totalValue) * 100) > 8 ? 'High' : (((h.totalVal / totalValue) * 100) > 4 ? 'Moderate' : 'Optimal')
     }));
+
+  const topBlendedHoldings = allBlendedHoldings.slice(0, 10);
 
   const avgTer = totalMfValue > 0 ? Number((weightedTerSum / totalMfValue).toFixed(2)) : 0.40;
   const annualLeakageRs = Math.round((totalMfValue * (avgTer / 100)));
@@ -8117,48 +8219,48 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
   const recommendationsTable = [
     {
       category: 'Value / Dividend Yield Cushion (Large & Mid Value Anchor)',
-      target: 'Nifty 50 Value 20 ETF (NIFTY50VAL), COALINDIA, ONGC, ITC, SBIN, CASTROLIND, HEROMOTOCO',
-      currentStatus: `₹${(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val >= 100000 ? ((styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val)/100000).toFixed(2) + ' L' : Math.round(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val))} (${(styleBox.largeValue.pct + styleBox.midValue.pct + styleBox.smallValue.pct).toFixed(1)}% of Eq)`,
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>ETF Anchor:</strong> Nifty 50 Value 20 ETF (NIFTY50VAL)</div><div>• <strong>Direct Stocks:</strong> COALINDIA, ONGC, ITC, SBIN, CASTROLIND, HEROMOTOCO</div></div>',
+      currentStatus: `<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Current Value:</strong> ₹${(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val >= 100000 ? ((styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val)/100000).toFixed(2) + ' L' : Math.round(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val))}</div><div>• <strong>Equity Share:</strong> ${(styleBox.largeValue.pct + styleBox.midValue.pct + styleBox.smallValue.pct).toFixed(1)}% of Eq</div></div>`,
       action: 'DEPLOY VALUE SIPs / ADD',
       badgeColor: '#10b981',
       deltaRs: Math.round(totalEquity * 0.094),
-      guidance: 'Defensive Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%). Actionable Step: Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% defensive anchor.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Defensive Deficit:</strong> Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%).</div><div>• <strong>Actionable Step:</strong> Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% anchor.</div></div>'
     },
     {
       category: '9-Box Growth Overextension & Small-Cap Profit Booking',
-      target: 'Quant Small Cap Fund, Nippon India Small Cap, Tata Small Cap & Direct Growth Stocks (INFY, KPITTECH, SYNGENE)',
-      currentStatus: 'Growth Boxes: 39.8% (Small Growth: 9.4% / ₹32.0 L)',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Small Cap Funds:</strong> Quant Small Cap, Nippon India Small Cap, Tata Small Cap</div><div>• <strong>Growth Stocks:</strong> INFY, KPITTECH, SYNGENE</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Total Growth:</strong> 39.8% of Eq</div><div>• <strong>Small Growth:</strong> 9.4% (₹32.0 L)</div></div>',
       action: 'TRIM GROWTH / TAKE PROFITS',
       badgeColor: '#f59e0b',
       deltaRs: -Math.round(totalEquity * 0.094),
-      guidance: 'Small-Cap Growth (9.4% / ₹32.0 L) and overall Growth boxes (39.8%) create high beta and valuation risk. Actionable Step: Book partial profits in Small-Cap active funds (Quant Small Cap, Nippon India Small Cap) and exit negative-alpha direct growth stocks; redirect proceeds into the Value & Dividend cushion.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Valuation Risk:</strong> Small-Cap Growth (9.4% / ₹32.0 L) & total Growth (39.8%) create high portfolio beta.</div><div>• <strong>Actionable Step:</strong> Book partial profits in Small-Cap active funds (Quant, Nippon) & exit negative-alpha growth stocks into Value cushion.</div></div>'
     },
     {
       category: 'International Exposure Quality Audit: US Tech Concentration & Product Overlap',
-      target: 'Navi NASDAQ 100 FOF (₹19.70 L / 0.13% TER) • Motilal Oswal NASDAQ 100 (₹8.83 L / 0.24% TER) • Edelweiss US Tech (₹6.63 L / 1.41% TER)',
-      currentStatus: '14.3% Offshore Allocation (₹35.15 L) • 100% US Tech Concentrated • 2x NASDAQ-100 FOF Overlap',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Navi NASDAQ 100 FOF:</strong> ₹19.70 L (0.13% TER)</div><div>• <strong>Motilal Oswal NASDAQ 100:</strong> ₹8.83 L (0.24% TER)</div><div>• <strong>Edelweiss US Tech:</strong> ₹6.63 L (1.41% TER)</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Offshore Share:</strong> 14.3% (₹35.15 L)</div><div>• <strong>Concentration:</strong> 100% US Tech</div><div>• <strong>Overlap:</strong> 2x NASDAQ-100 FOFs</div></div>',
       action: 'QUALITY OPTIMIZATION & CONSOLIDATION',
       badgeColor: '#0ea5e9',
       deltaRs: 0,
-      guidance: '1. Eliminate Product Overlap: You hold two identical index FOFs (Navi NASDAQ 100 and Motilal Oswal NASDAQ 100). Consolidate the ₹8.83 L Motilal Oswal tranche into Navi NASDAQ 100 to lower tracking TER from 0.24% to 0.13%. 2. Active Expense Drag: Monitor Edelweiss US Tech (1.41% TER) for net-of-fee alpha over NASDAQ 100; consolidate into index if lagging. 3. Diversification & Taxation: Offshore exposure is 100% US Growth/AI. Use equity-taxed Flexi-Cap schemes (Parag Parikh Flexi Cap) for future overseas allocations to avoid marginal slab-rate LRS FOF taxation.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>1. Product Overlap:</strong> Consolidate Motilal Oswal NASDAQ 100 into Navi NASDAQ 100 to cut TER from 0.24% to 0.13%.</div><div>• <strong>2. Expense Drag:</strong> Monitor Edelweiss US Tech (1.41% TER) net alpha; consolidate into index if lagging.</div><div>• <strong>3. LRS Tax Efficiency:</strong> Use equity-taxed Flexi-Cap schemes (Parag Parikh) for future overseas SIPs to avoid slab-rate FOF taxation.</div></div>'
     },
     {
       category: 'Low-Alpha Laggards & Tail Stock Rationalization',
-      target: 'TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%), KPITTECH (-26.1%), BALKRISIND (-17.1%), HDFCBANK (-10.9%), 716GS2050 (-9.8%)',
-      currentStatus: '7 Direct Holdings in Persistent Negative Alpha',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>IT Laggards:</strong> TCS (-32.9%), INFY (-29.9%), KPITTECH (-26.1%)</div><div>• <strong>Other Exits:</strong> SYNGENE (-29.7%), BALKRISIND (-17.1%), HDFCBANK (-10.9%), 716GS2050 (-9.8%)</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Count:</strong> 7 Direct Holdings</div><div>• <strong>Status:</strong> Persistent Negative Alpha</div></div>',
       action: 'EXIT / REDEPLOY CAPITAL',
       badgeColor: '#ef4444',
       deltaRs: -406000,
-      guidance: '7 direct stock holdings display persistent negative alpha (< -10% return). Actionable Step: Exit or trim these 7 underperforming positions (totaling ₹4.06 L) and redeploy proceeds into outperforming Direct Plan mutual funds or high-dividend bluechip stocks.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Persistent Laggards:</strong> 7 direct stock holdings display persistent negative alpha (< -10% return).</div><div>• <strong>Actionable Step:</strong> Exit or trim these 7 positions (₹4.06 L total) & redeploy proceeds into Direct Plan MFs or high-dividend bluechips.</div></div>'
     },
     {
       category: 'Sector Target Analysis: Domestic IT vs US Tech Separation',
-      target: 'Indian IT (14.5% / ₹35.41 L) • US Tech Offshore (14.3% / ₹35.15 L)',
-      currentStatus: 'Both Segregated Allocations Within Institutional 14%–15% Targets',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Indian IT:</strong> 14.5% (₹35.41 L)</div><div>• <strong>US Tech Offshore:</strong> 14.3% (₹35.15 L)</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Status:</strong> Segregated Allocations</div><div>• <strong>Target Fit:</strong> Within 14%–15% Targets</div></div>',
       action: 'OPTIMAL GEOGRAPHIC SPLIT',
       badgeColor: '#0ea5e9',
       deltaRs: 0,
-      guidance: 'Segregating US Tech (14.3% USD hedge) from domestic Indian IT (14.5%) validates that no sector trimming is needed. Both technology levers act independently within institutional risk boundaries.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Segregated Attribution:</strong> US Tech (14.3% USD hedge) and domestic Indian IT (14.5%) act independently.</div><div>• <strong>Institutional Validation:</strong> Both are well within institutional 14%–15% risk boundaries; no sector trimming is required.</div></div>'
     }
   ];
 
@@ -8172,8 +8274,8 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
         badgeColor: s.status === 'UNDEREXPOSED' ? '#3b82f6' : '#ef4444',
         deltaRs: s.status === 'UNDEREXPOSED' ? Math.abs(s.rebalanceDeltaRs) : -Math.abs(s.rebalanceDeltaRs),
         guidance: s.status === 'UNDEREXPOSED' 
-          ? `Direct monthly SIP inflows to bring ${s.sector} up to ${s.targetPct}% benchmark floor.`
-          : `Trim ${s.sector} exposure or pause fresh SIP inflows.`
+          ? `<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Allocation Gap:</strong> Currently below target benchmark floor.</div><div>• <strong>Actionable Step:</strong> Direct monthly SIP inflows to bring ${s.sector} up to ${s.targetPct}% benchmark floor.</div></div>`
+          : `<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Allocation Excess:</strong> Exceeds target benchmark ceiling.</div><div>• <strong>Actionable Step:</strong> Trim ${s.sector} exposure or pause fresh SIP inflows.</div></div>`
       });
     }
   });
@@ -8190,6 +8292,7 @@ function analyzePortfolioClientSide(latestMfInput, latestEquityInput) {
     mfXirr,
     styleBox,
     topBlendedHoldings,
+    allBlendedHoldings,
     assetClassAnalysis,
     costAnalysis,
     sectorIntelligence,
@@ -8241,8 +8344,156 @@ async function runXRayAnalysis() {
   }
 }
 
+let _latestXRayReport = null;
+
+function _closeXRayDrilldown(containerId) {
+  const c = document.getElementById(containerId);
+  if (c) {
+    c.innerHTML = '';
+    c.style.display = 'none';
+  }
+  document.querySelectorAll('.xray-drilldown-active').forEach(el => {
+    if (el.getAttribute('data-drilldown-target') === containerId) {
+      el.classList.remove('xray-drilldown-active');
+    }
+  });
+}
+
+function toggleXRayDrilldown(type, key, label, clickedEl, containerId) {
+  if (!clickedEl || !containerId || !_latestXRayReport) return;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const wasActive = clickedEl.classList.contains('xray-drilldown-active') && clickedEl.getAttribute('data-drilldown-target') === containerId;
+
+  document.querySelectorAll('.xray-drilldown-active').forEach(el => {
+    if (el.getAttribute('data-drilldown-target') === containerId) {
+      el.classList.remove('xray-drilldown-active');
+    }
+  });
+
+  if (wasActive) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+
+  clickedEl.classList.add('xray-drilldown-active');
+  clickedEl.setAttribute('data-drilldown-target', containerId);
+
+  const allHoldings = _latestXRayReport.allBlendedHoldings || _latestXRayReport.topBlendedHoldings || [];
+  let filtered = [];
+
+  if (type === 'style') {
+    filtered = allHoldings.filter(h => h.styleBoxKey === key);
+  } else if (type === 'sector') {
+    filtered = allHoldings.filter(h => {
+      const s = h.sector || '';
+      if (s === key) return true;
+      if (key.includes('IT') && (s.includes('IT') || s.includes('Tech'))) return true;
+      if (key.includes('Banking') && (s.includes('Banking') || s.includes('Financial'))) return true;
+      if (key.includes('Consumer') && (s.includes('Consumer') || s.includes('FMCG') || s.includes('Retail'))) return true;
+      if (key.includes('Energy') && (s.includes('Energy') || s.includes('Mining') || s.includes('Metals') || s.includes('Chemicals'))) return true;
+      if (key.includes('Healthcare') && (s.includes('Healthcare') || s.includes('Pharma'))) return true;
+      if (key.includes('Infrastructure') && (s.includes('Infrastructure') || s.includes('Construction') || s.includes('Real Estate'))) return true;
+      if (key.includes('Auto') && s.includes('Auto')) return true;
+      return false;
+    });
+  } else if (type === 'recommendation') {
+    const lKey = key.toLowerCase();
+    if (lKey.includes('value') || lKey.includes('dividend')) {
+      filtered = allHoldings.filter(h => h.style === 'Value' || (h.company && (h.company.toLowerCase().includes('nifty') || h.company.toLowerCase().includes('value') || h.company.toLowerCase().includes('coal') || h.company.toLowerCase().includes('ongc') || h.company.toLowerCase().includes('itc') || h.company.toLowerCase().includes('sbin') || h.company.toLowerCase().includes('castrol') || h.company.toLowerCase().includes('hero'))));
+    } else if (lKey.includes('growth') || lKey.includes('9-box') || lKey.includes('profit booking')) {
+      filtered = allHoldings.filter(h => h.style === 'Growth' || h.cap === 'Small Cap');
+    } else if (lKey.includes('international') || lKey.includes('us tech') || lKey.includes('offshore')) {
+      filtered = allHoldings.filter(h => h.cap === 'International / Multi Cap' || (h.sector && h.sector.includes('Offshore')) || (h.company && (h.company.toLowerCase().includes('nasdaq') || h.company.toLowerCase().includes('us tech') || h.company.toLowerCase().includes('apple') || h.company.toLowerCase().includes('microsoft') || h.company.toLowerCase().includes('nvidia') || h.company.toLowerCase().includes('amazon') || h.company.toLowerCase().includes('alphabet') || h.company.toLowerCase().includes('meta'))));
+    } else if (lKey.includes('laggard') || lKey.includes('tail stock')) {
+      filtered = allHoldings.filter(h => h.directVal > 0 && (h.company && (h.company.toLowerCase().includes('tcs') || h.company.toLowerCase().includes('infy') || h.company.toLowerCase().includes('syngene') || h.company.toLowerCase().includes('kpittech') || h.company.toLowerCase().includes('balkrisind') || h.company.toLowerCase().includes('hdfc bank') || h.company.toLowerCase().includes('gs2050'))));
+    } else {
+      filtered = allHoldings;
+    }
+  }
+
+  filtered.sort((a, b) => b.totalVal - a.totalVal);
+
+  const totalVal = filtered.reduce((acc, h) => acc + (h.totalVal || 0), 0);
+  const totalEq = _latestXRayReport.totalEquity || _latestXRayReport.totalValue || 1;
+  const totalPct = totalEq > 0 ? ((totalVal / totalEq) * 100).toFixed(1) : '0.0';
+
+  const fmtCurrency = (valRs) => {
+    if (valRs === null || valRs === undefined) return '₹0';
+    if (valRs >= 10000000) return '₹' + (valRs / 10000000).toFixed(2) + ' Cr';
+    if (valRs >= 100000) return '₹' + (valRs / 100000).toFixed(2) + ' L';
+    if (valRs >= 1000) return '₹' + (valRs / 1000).toFixed(1) + ' k';
+    return '₹' + Math.round(valRs);
+  };
+
+  const rowsHtml = filtered.length === 0 ? `
+    <tr>
+      <td colspan="7" style="padding:1.5rem; text-align:center; color:#9ca3af; font-style:italic;">No direct or Mutual Fund look-through holdings found in this category.</td>
+    </tr>
+  ` : filtered.map(h => {
+    const directStr = h.directVal > 0 ? fmtCurrency(h.directVal) : '—';
+    const mfStr = h.mfVal > 0 ? fmtCurrency(h.mfVal) : '—';
+    const totStr = fmtCurrency(h.totalVal);
+    const capBadge = h.cap ? `<span style="background:rgba(99,102,241,0.15); color:#a5b4fc; padding:0.15rem 0.45rem; border-radius:8px; font-size:0.65rem; margin-left:0.4rem;">${h.cap}</span>` : '';
+    const styleBadge = h.style ? `<span style="background:rgba(16,185,129,0.15); color:#34d399; padding:0.15rem 0.45rem; border-radius:8px; font-size:0.65rem; margin-left:0.3rem;">${h.style}</span>` : '';
+    const sourcesStr = (h.sources && h.sources.length > 0) ? h.sources.join(' • ') : 'Direct Stock';
+    return `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); transition:background 0.15s;">
+        <td style="padding:0.75rem 0.8rem; font-weight:600; color:#f3f4f6; position:sticky; left:0; z-index:5; background:var(--card-bg); white-space:nowrap;">
+          ${h.company} ${capBadge} ${styleBadge}
+        </td>
+        <td style="padding:0.75rem 0.8rem; color:#9ca3af; white-space:nowrap;">${h.sector || 'Other Equities'}</td>
+        <td style="padding:0.75rem 0.8rem; text-align:right; color:#d1d5db; white-space:nowrap;">${directStr}</td>
+        <td style="padding:0.75rem 0.8rem; text-align:right; color:#d1d5db; white-space:nowrap;">${mfStr}</td>
+        <td style="padding:0.75rem 0.8rem; text-align:right; font-weight:700; color:#818cf8; white-space:nowrap;">${totStr}</td>
+        <td style="padding:0.75rem 0.8rem; text-align:right; font-weight:600; color:#34d399; white-space:nowrap;">${h.pct || 0}%</td>
+        <td style="padding:0.75rem 0.8rem; color:#9ca3af; font-size:0.75rem; line-height:1.3; min-width:240px;">${sourcesStr}</td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow:hidden; animation: fadeInSlideDown 0.25s ease-out; margin-top:0.85rem; margin-bottom:0.5rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.85rem 1rem; background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(30,27,75,0.4)); border-bottom:1px solid rgba(99,102,241,0.2);">
+        <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+          <span style="font-weight:700; color:#ffffff; font-size:0.95rem;">🔍 Underlying Look-Through Holdings: <span style="color:#818cf8;">${label}</span></span>
+          <span style="background:rgba(99,102,241,0.25); color:#e0e7ff; padding:0.2rem 0.65rem; border-radius:20px; font-size:0.75rem; font-weight:600;">
+            ${filtered.length} Holdings • Total: ${fmtCurrency(totalVal)} (${totalPct}%)
+          </span>
+        </div>
+        <button onclick="_closeXRayDrilldown('${containerId}')" style="background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid rgba(239,68,68,0.3); padding:0.35rem 0.75rem; border-radius:6px; font-size:0.75rem; font-weight:600; cursor:pointer; transition:all 0.15s;">
+          ✕ Close Grid
+        </button>
+      </div>
+      <div class="table-wrapper" style="overflow-x:auto; max-height:420px;">
+        <table class="data-table" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.82rem; text-align:left;">
+          <thead>
+            <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary); background:rgba(30,41,59,0.85); position:sticky; top:0; z-index:10;">
+              <th style="padding:0.75rem 0.8rem; position:sticky; left:0; z-index:11; background:var(--card-bg);">Company / Underlying Stock</th>
+              <th style="padding:0.75rem 0.8rem;">Sector</th>
+              <th style="padding:0.75rem 0.8rem; text-align:right;">Direct Holding (₹)</th>
+              <th style="padding:0.75rem 0.8rem; text-align:right;">MF Look-Through (₹)</th>
+              <th style="padding:0.75rem 0.8rem; text-align:right;">Combined Exposure (₹)</th>
+              <th style="padding:0.75rem 0.8rem; text-align:right;">Portfolio %</th>
+              <th style="padding:0.75rem 0.8rem;">Attribution Source(s) (Direct / MF look-through)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  container.style.display = 'block';
+  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function renderXRayReport(report) {
   if (!report) return;
+  _latestXRayReport = report;
 
   const fmtCurrency = (valRs) => {
     if (valRs === null || valRs === undefined) return '₹0';
@@ -8285,13 +8536,16 @@ function renderXRayReport(report) {
   const styleBoxContainer = document.getElementById('xray-style-box-container');
   if (styleBoxContainer && report.styleBox) {
     const sb = report.styleBox;
-    const renderCell = (cell) => {
+    const renderCell = (cell, key, label) => {
       const alpha = Math.max(0.15, Math.min(0.85, (cell.pct / 40)));
       const borderColor = cell.pct > 20 ? '#818cf8' : 'rgba(148,163,184,0.2)';
       return `
-        <div style="background: rgba(99,102,241, ${alpha}); border: 1px solid ${borderColor}; border-radius: 8px; padding: 0.7rem 0.5rem; text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 70px;">
+        <div class="xray-clickable-cell" style="background: rgba(99,102,241, ${alpha}); border: 1px solid ${borderColor}; border-radius: 8px; padding: 0.7rem 0.5rem; text-align: center; display: flex; flex-direction: column; justify-content: center; min-height: 70px; cursor: pointer; transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;"
+             onclick="toggleXRayDrilldown('style', '${key}', '${label}', this, 'xray-style-drilldown-container')"
+             title="Click to view all underlying holdings in ${label}">
           <div style="font-weight: 700; font-size: 1.1rem; color: #ffffff;">${cell.pct}%</div>
           <div style="font-size: 0.75rem; color: #e2e8f0; margin-top: 0.2rem;">${fmtCurrency(cell.val)}</div>
+          <div style="font-size: 0.65rem; color: #a5b4fc; margin-top: 0.25rem;">🔍 Holdings</div>
         </div>
       `;
     };
@@ -8304,19 +8558,19 @@ function renderXRayReport(report) {
         <div style="text-align: center; color: var(--text-secondary); font-weight: 600;">High Growth</div>
 
         <div style="color: var(--text-secondary); font-weight: 600;">Large Cap</div>
-        ${renderCell(sb.largeValue)}
-        ${renderCell(sb.largeBlend)}
-        ${renderCell(sb.largeGrowth)}
+        ${renderCell(sb.largeValue, 'largeValue', 'Large Cap • Value / Dividend')}
+        ${renderCell(sb.largeBlend, 'largeBlend', 'Large Cap • Core / Blend')}
+        ${renderCell(sb.largeGrowth, 'largeGrowth', 'Large Cap • High Growth')}
 
         <div style="color: var(--text-secondary); font-weight: 600;">Mid Cap</div>
-        ${renderCell(sb.midValue)}
-        ${renderCell(sb.midBlend)}
-        ${renderCell(sb.midGrowth)}
+        ${renderCell(sb.midValue, 'midValue', 'Mid Cap • Value / Dividend')}
+        ${renderCell(sb.midBlend, 'midBlend', 'Mid Cap • Core / Blend')}
+        ${renderCell(sb.midGrowth, 'midGrowth', 'Mid Cap • High Growth')}
 
         <div style="color: var(--text-secondary); font-weight: 600;">Small Cap</div>
-        ${renderCell(sb.smallValue)}
-        ${renderCell(sb.smallBlend)}
-        ${renderCell(sb.smallGrowth)}
+        ${renderCell(sb.smallValue, 'smallValue', 'Small Cap • Value / Dividend')}
+        ${renderCell(sb.smallBlend, 'smallBlend', 'Small Cap • Core / Blend')}
+        ${renderCell(sb.smallGrowth, 'smallGrowth', 'Small Cap • High Growth')}
       </div>
     `;
 
@@ -8363,7 +8617,7 @@ function renderXRayReport(report) {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'right', labels: { color: '#e5e7eb', font: { family: 'Outfit', size: 10 } } },
+          legend: { position: 'bottom', labels: { color: '#e5e7eb', boxWidth: 10, padding: 10, font: { family: 'Outfit', size: 10 } } },
           tooltip: {
             callbacks: {
               label: function(context) {
@@ -8377,6 +8631,26 @@ function renderXRayReport(report) {
         }
       }
     });
+  }
+
+  // Populate Sector Breakdown Summary Table (below Sector Pie Chart in Row 1)
+  const secSummaryBody = document.getElementById('xray-sector-summary-body');
+  if (secSummaryBody && report.sectorExposure) {
+    const secEntries = Object.entries(report.sectorExposure).sort((a, b) => b[1] - a[1]);
+    const secTotal = secEntries.reduce((acc, val) => acc + val[1], 0);
+    secSummaryBody.innerHTML = secEntries.slice(0, 7).map(([sec, val]) => {
+      const pct = secTotal > 0 ? ((val / secTotal) * 100).toFixed(1) : '0';
+      const cleanSec = sec.replace(/'/g, "\\'");
+      return `
+        <tr class="xray-clickable-row" style="border-bottom:1px solid rgba(255,255,255,0.05); cursor:pointer; transition:background 0.15s;"
+            onclick="toggleXRayDrilldown('sector', '${cleanSec}', '${cleanSec}', this, 'xray-sector-summary-drilldown')"
+            title="Click to view all holdings in ${sec}">
+          <td style="padding:0.45rem 0.5rem; font-weight:600; color:#f3f4f6;">${sec} <span style="font-size:0.65rem; color:#818cf8; margin-left:0.3rem;">▶</span></td>
+          <td style="padding:0.45rem 0.5rem; text-align:right; color:#d1d5db;">${fmtCurrency(val)}</td>
+          <td style="padding:0.45rem 0.5rem; text-align:right; font-weight:700; color:#818cf8;">${pct}%</td>
+        </tr>
+      `;
+    }).join('');
   }
 
   // 4. Render Cap Chart with Formatted Currency & % Tooltips
@@ -8399,7 +8673,7 @@ function renderXRayReport(report) {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom', labels: { color: '#e5e7eb', boxWidth: 12, padding: 12, font: { family: 'Outfit', size: 11 } } },
+          legend: { position: 'bottom', labels: { color: '#e5e7eb', boxWidth: 10, padding: 10, font: { family: 'Outfit', size: 10 } } },
           tooltip: {
             callbacks: {
               label: function(context) {
@@ -8413,6 +8687,23 @@ function renderXRayReport(report) {
         }
       }
     });
+  }
+
+  // Populate Cap & Geography Summary Table (below Cap Pie Chart in Row 3)
+  const capSummaryBody = document.getElementById('xray-cap-summary-body');
+  if (capSummaryBody && report.capExposure) {
+    const capEntries = Object.entries(report.capExposure).sort((a, b) => b[1] - a[1]);
+    const capTotal = capEntries.reduce((acc, val) => acc + val[1], 0);
+    capSummaryBody.innerHTML = capEntries.map(([seg, val]) => {
+      const pct = capTotal > 0 ? ((val / capTotal) * 100).toFixed(1) : '0';
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:0.45rem 0.5rem; font-weight:600; color:#f3f4f6;">${seg}</td>
+          <td style="padding:0.45rem 0.5rem; text-align:right; color:#d1d5db;">${fmtCurrency(val)}</td>
+          <td style="padding:0.45rem 0.5rem; text-align:right; font-weight:700; color:#818cf8;">${pct}%</td>
+        </tr>
+      `;
+    }).join('');
   }
 
   // 5. Look-Through Stock Overlap Table
@@ -8480,9 +8771,17 @@ function renderXRayReport(report) {
       const deltaColor = s.rebalanceDeltaRs > 0 ? '#ef4444' : (s.rebalanceDeltaRs < 0 ? '#3b82f6' : '#9ca3af');
 
       const tr = document.createElement('tr');
+      tr.className = 'xray-clickable-row';
       tr.style.borderBottom = '1px solid var(--card-border)';
+      tr.style.cursor = 'pointer';
+      tr.style.transition = 'background 0.15s';
+      tr.title = `Click to view all holdings in ${s.sector}`;
+      const cleanSec = s.sector.replace(/'/g, "\\'");
+      tr.onclick = function() {
+        toggleXRayDrilldown('sector', cleanSec, cleanSec, this, 'xray-sector-table-drilldown');
+      };
       tr.innerHTML = `
-        <td style="padding:0.7rem 0.5rem; font-weight:600; color:#f3f4f6;">${s.sector}</td>
+        <td style="padding:0.7rem 0.5rem; font-weight:600; color:#f3f4f6;">${s.sector} <span style="font-size:0.65rem; color:#818cf8; margin-left:0.3rem;">▶</span></td>
         <td style="padding:0.7rem 0.5rem; text-align:right; font-weight:600; color:#f3f4f6;">${s.actualPct}%</td>
         <td style="padding:0.7rem 0.5rem; text-align:right; color:#9ca3af;">${s.targetPct}%</td>
         <td style="padding:0.7rem 0.5rem; text-align:center;">
@@ -8540,9 +8839,12 @@ function renderXRayReport(report) {
     recTableBody.innerHTML = report.recommendationsTable.map(row => {
       const deltaText = row.deltaRs === 0 ? '—' : (row.deltaRs > 0 ? `+${fmtCurrency(row.deltaRs)}` : `-${fmtCurrency(Math.abs(row.deltaRs))}`);
       const deltaColor = row.deltaRs > 0 ? '#10b981' : (row.deltaRs < 0 ? '#ef4444' : '#9ca3af');
+      const cleanCat = row.category.replace(/'/g, "\\'");
       return `
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.05); transition: background 0.2s;">
-          <td style="padding:0.85rem 0.6rem; font-weight:600; color:#f3f4f6;">${row.category}</td>
+        <tr class="xray-clickable-row" style="border-bottom:1px solid rgba(255,255,255,0.05); transition: background 0.2s; cursor: pointer;"
+            onclick="toggleXRayDrilldown('recommendation', '${cleanCat}', '${cleanCat}', this, 'xray-recommendations-drilldown')"
+            title="Click to view holdings related to this strategic recommendation">
+          <td style="padding:0.85rem 0.6rem; font-weight:600; color:#f3f4f6;">${row.category} <span style="font-size:0.65rem; color:#818cf8; margin-left:0.3rem;">▶</span></td>
           <td style="padding:0.85rem 0.6rem; color:#e5e7eb;">${row.target}</td>
           <td style="padding:0.85rem 0.6rem; color:#9ca3af; font-size:0.85rem;">${row.currentStatus}</td>
           <td style="padding:0.85rem 0.6rem;">

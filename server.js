@@ -435,7 +435,7 @@ app.get('/api/live-mf-nav/:schemeCode', async (req, res) => {
   // concurrently the full-history endpoint made refreshes appear to hang right
   // as the MF phase started. The client supplies its own previous NAV (from its
   // last saved snapshot) since this endpoint doesn't carry history.
-  const url = `https://api.mfapi.in/mf/${schemeCode}/latest`;
+  const url = `https://api.mfapi.in/mf/${schemeCode}`;
 
   try {
     const response = await fetchWithTimeout(url, {
@@ -452,11 +452,14 @@ app.get('/api/live-mf-nav/:schemeCode', async (req, res) => {
     const parsed = await response.json();
     if (parsed && parsed.data && parsed.data.length > 0) {
       const latest = parsed.data[0];
+      const previous = parsed.data.length > 1 ? parsed.data[1] : null;
       const result = {
         schemeCode,
         schemeName: parsed.meta?.scheme_name || '',
         nav: parseFloat(latest.nav),
         navDate: latest.date,
+        prevNav: previous && previous.nav ? parseFloat(previous.nav) : null,
+        prevNavDate: previous ? previous.date : null,
       };
       setCache(cacheKey, result);
       res.json(result);

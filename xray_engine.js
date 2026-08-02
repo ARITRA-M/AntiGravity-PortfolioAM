@@ -153,13 +153,68 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
   const normalizeSector = (sec) => {
     if (!sec) return 'Other Equities';
     if (sec.includes('Banking') || sec.includes('Financial') || sec.includes('Insurance')) return 'Banking & Financials';
-    if (sec.includes('IT') || sec.includes('Technology') || sec.includes('Software')) return 'IT & Technology';
+    if (sec.includes('IT') || sec.includes('Technology') || sec.includes('Software')) return 'Indian IT & Software Services';
     if (sec.includes('Pharma') || sec.includes('Healthcare') || sec.includes('Biotech')) return 'Healthcare & Pharma';
     if (sec.includes('Auto')) return 'Automobile & Ancillaries';
-    if (sec.includes('FMCG') || sec.includes('Consumer')) return 'Consumer & FMCG';
+    if (sec.includes('FMCG') || sec.includes('Consumer')) return 'Consumer & Retail';
     if (sec.includes('Energy') || sec.includes('Mining') || sec.includes('Metals') || sec.includes('Chemicals')) return 'Energy, Metals & Chemicals';
-    if (sec.includes('Real Estate') || sec.includes('Construction') || sec.includes('Infrastructure')) return 'Real Estate & Construction';
+    if (sec.includes('Real Estate') || sec.includes('Construction') || sec.includes('Infrastructure')) return 'Infrastructure & Construction';
     return 'Other Equities';
+  };
+
+  const inferStockSector = (canonicalName, fallbackSector) => {
+    if (fallbackSector && fallbackSector !== 'Diversified / Blend' && fallbackSector !== 'Other Equities') {
+      return normalizeSector(fallbackSector);
+    }
+    const lName = canonicalName.toLowerCase();
+    if (lName.includes('hdfc bank') || lName.includes('icici bank') || lName.includes('state bank') || lName.includes('axis bank') || lName.includes('kotak') || lName.includes('vysya') || lName.includes('bse')) {
+      return 'Banking & Financials';
+    }
+    if (lName.includes('infosys') || lName.includes('tcs') || lName.includes('hcl') || lName.includes('wipro') || lName.includes('tech mahindra')) {
+      return 'Indian IT & Software Services';
+    }
+    if (lName.includes('apple') || lName.includes('microsoft') || lName.includes('nvidia') || lName.includes('amazon') || lName.includes('alphabet') || lName.includes('meta')) {
+      return 'US Tech & Global Innovation (Offshore)';
+    }
+    if (lName.includes('reliance') || lName.includes('larsen') || lName.includes('power') || lName.includes('energy') || lName.includes('apar') || lName.includes('crompton')) {
+      return 'Energy, Metals & Chemicals';
+    }
+    if (lName.includes('itc') || lName.includes('hindustan unilever') || lName.includes('nestle') || lName.includes('britannia') || lName.includes('tata consumer') || lName.includes('zomato') || lName.includes('radico') || lName.includes('trent')) {
+      return 'Consumer & Retail';
+    }
+    if (lName.includes('dlf') || lName.includes('reit')) {
+      return 'Infrastructure & Construction';
+    }
+    return normalizeSector(fallbackSector || 'Diversified / Blend');
+  };
+
+  const getOrCreateBlendedHolding = (canonicalName, secHint) => {
+    if (!blendedHoldingsMap[canonicalName]) {
+      const cap = classifyStockCap(canonicalName);
+      const style = classifyStockStyle(canonicalName);
+      let styleBoxKey = 'largeBlend';
+      if (cap === 'Large Cap') {
+        styleBoxKey = style === 'Value' ? 'largeValue' : (style === 'Growth' ? 'largeGrowth' : 'largeBlend');
+      } else if (cap === 'Mid Cap') {
+        styleBoxKey = style === 'Value' ? 'midValue' : (style === 'Growth' ? 'midGrowth' : 'midBlend');
+      } else {
+        styleBoxKey = style === 'Value' ? 'smallValue' : (style === 'Growth' ? 'smallGrowth' : 'smallBlend');
+      }
+      blendedHoldingsMap[canonicalName] = {
+        company: canonicalName,
+        directVal: 0,
+        mfVal: 0,
+        totalVal: 0,
+        cap: cap,
+        style: style,
+        styleBoxKey: styleBoxKey,
+        sector: inferStockSector(canonicalName, secHint),
+        sources: []
+      };
+    } else if (secHint && secHint !== 'Diversified / Blend' && (blendedHoldingsMap[canonicalName].sector === 'Diversified / Blend' || blendedHoldingsMap[canonicalName].sector === 'Other Equities')) {
+      blendedHoldingsMap[canonicalName].sector = inferStockSector(canonicalName, secHint);
+    }
+    return blendedHoldingsMap[canonicalName];
   };
 
   // Representative top underlying weights for major index/cap types
@@ -292,11 +347,10 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
     lookthroughList.forEach(item => {
       const canonicalName = canonicalizeStock(item.name);
       const impliedVal = val * (item.pct / 100);
-      if (!blendedHoldingsMap[canonicalName]) {
-        blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
-      }
-      blendedHoldingsMap[canonicalName].mfVal += impliedVal;
-      blendedHoldingsMap[canonicalName].totalVal += impliedVal;
+      const h = getOrCreateBlendedHolding(canonicalName, null);
+      h.mfVal += impliedVal;
+      h.totalVal += impliedVal;
+      h.sources.push(`${name} (${item.pct}% look-through: ₹${Math.round(impliedVal).toLocaleString('en-IN')})`);
     });
 
     fundConcentration.push({ name, value: val });
@@ -347,11 +401,10 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
         constituents.forEach(item => {
           const canonicalName = canonicalizeStock(item.name);
           const impliedVal = val * (item.pct / 100);
-          if (!blendedHoldingsMap[canonicalName]) {
-            blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
-          }
-          blendedHoldingsMap[canonicalName].mfVal += impliedVal; // Look-through ETF component
-          blendedHoldingsMap[canonicalName].totalVal += impliedVal;
+          const h = getOrCreateBlendedHolding(canonicalName, stock.sector);
+          h.mfVal += impliedVal; // Look-through ETF component
+          h.totalVal += impliedVal;
+          h.sources.push(`${stock.instrument || rawName} (${item.pct}% ETF constituent: ₹${Math.round(impliedVal).toLocaleString('en-IN')})`);
         });
         break;
       }
@@ -383,11 +436,10 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
     // If regular stock (not broken-up ETF), add to Direct Look-through
     if (!etfFound) {
       const canonicalName = canonicalizeStock(rawName);
-      if (!blendedHoldingsMap[canonicalName]) {
-        blendedHoldingsMap[canonicalName] = { company: canonicalName, directVal: 0, mfVal: 0, totalVal: 0 };
-      }
-      blendedHoldingsMap[canonicalName].directVal += val;
-      blendedHoldingsMap[canonicalName].totalVal += val;
+      const h = getOrCreateBlendedHolding(canonicalName, stock.sector);
+      h.directVal += val;
+      h.totalVal += val;
+      h.sources.push(`Direct Stock (₹${Math.round(val).toLocaleString('en-IN')})`);
     }
   }
 
@@ -410,14 +462,15 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
   }
 
   // Sort and extract Top 10 Blended Holdings
-  const topBlendedHoldings = Object.values(blendedHoldingsMap)
+  const allBlendedHoldings = Object.values(blendedHoldingsMap)
     .sort((a, b) => b.totalVal - a.totalVal)
-    .slice(0, 10)
     .map(h => ({
       ...h,
       pct: totalValue > 0 ? Number(((h.totalVal / totalValue) * 100).toFixed(1)) : 0,
       risk: ((h.totalVal / totalValue) * 100) > 8 ? 'High' : (((h.totalVal / totalValue) * 100) > 4 ? 'Moderate' : 'Optimal')
     }));
+
+  const topBlendedHoldings = allBlendedHoldings.slice(0, 10);
 
   // Cost Analysis
   const avgTer = totalMfValue > 0 ? Number((weightedTerSum / totalMfValue).toFixed(2)) : 0.40;
@@ -641,48 +694,48 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
   const recommendationsTable = [
     {
       category: 'Value / Dividend Yield Cushion (Large & Mid Value Anchor)',
-      target: 'Nifty 50 Value 20 ETF (NIFTY50VAL), COALINDIA, ONGC, ITC, SBIN, CASTROLIND, HEROMOTOCO',
-      currentStatus: `₹${(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val >= 100000 ? ((styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val)/100000).toFixed(2) + ' L' : Math.round(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val))} (${(styleBox.largeValue.pct + styleBox.midValue.pct + styleBox.smallValue.pct).toFixed(1)}% of Eq)`,
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>ETF Anchor:</strong> Nifty 50 Value 20 ETF (NIFTY50VAL)</div><div>• <strong>Direct Stocks:</strong> COALINDIA, ONGC, ITC, SBIN, CASTROLIND, HEROMOTOCO</div></div>',
+      currentStatus: `<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Current Value:</strong> ₹${(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val >= 100000 ? ((styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val)/100000).toFixed(2) + ' L' : Math.round(styleBox.largeValue.val + styleBox.midValue.val + styleBox.smallValue.val))}</div><div>• <strong>Equity Share:</strong> ${(styleBox.largeValue.pct + styleBox.midValue.pct + styleBox.smallValue.pct).toFixed(1)}% of Eq</div></div>`,
       action: 'DEPLOY VALUE SIPs / ADD',
       badgeColor: '#10b981',
       deltaRs: Math.round(totalEquity * 0.094),
-      guidance: 'Defensive Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%). Actionable Step: Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% defensive anchor.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Defensive Deficit:</strong> Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%).</div><div>• <strong>Actionable Step:</strong> Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% anchor.</div></div>'
     },
     {
       category: '9-Box Growth Overextension & Small-Cap Profit Booking',
-      target: 'Quant Small Cap Fund, Nippon India Small Cap, Tata Small Cap & Direct Growth Stocks (INFY, KPITTECH, SYNGENE)',
-      currentStatus: 'Growth Boxes: 39.8% (Small Growth: 9.4% / ₹32.0 L)',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Small Cap Funds:</strong> Quant Small Cap, Nippon India Small Cap, Tata Small Cap</div><div>• <strong>Growth Stocks:</strong> INFY, KPITTECH, SYNGENE</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Total Growth:</strong> 39.8% of Eq</div><div>• <strong>Small Growth:</strong> 9.4% (₹32.0 L)</div></div>',
       action: 'TRIM GROWTH / TAKE PROFITS',
       badgeColor: '#f59e0b',
       deltaRs: -Math.round(totalEquity * 0.094),
-      guidance: 'Small-Cap Growth (9.4% / ₹32.0 L) and overall Growth boxes (39.8%) create high beta and valuation risk. Actionable Step: Book partial profits in Small-Cap active funds (Quant Small Cap, Nippon India Small Cap) and exit negative-alpha direct growth stocks; redirect proceeds into the Value & Dividend cushion.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Valuation Risk:</strong> Small-Cap Growth (9.4% / ₹32.0 L) & total Growth (39.8%) create high portfolio beta.</div><div>• <strong>Actionable Step:</strong> Book partial profits in Small-Cap active funds (Quant, Nippon) & exit negative-alpha growth stocks into Value cushion.</div></div>'
     },
     {
       category: 'International Exposure Quality Audit: US Tech Concentration & Product Overlap',
-      target: 'Navi NASDAQ 100 FOF (₹19.70 L / 0.13% TER) • Motilal Oswal NASDAQ 100 (₹8.83 L / 0.24% TER) • Edelweiss US Tech (₹6.63 L / 1.41% TER)',
-      currentStatus: '14.3% Offshore Allocation (₹35.15 L) • 100% US Tech Concentrated • 2x NASDAQ-100 FOF Overlap',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Navi NASDAQ 100 FOF:</strong> ₹19.70 L (0.13% TER)</div><div>• <strong>Motilal Oswal NASDAQ 100:</strong> ₹8.83 L (0.24% TER)</div><div>• <strong>Edelweiss US Tech:</strong> ₹6.63 L (1.41% TER)</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Offshore Share:</strong> 14.3% (₹35.15 L)</div><div>• <strong>Concentration:</strong> 100% US Tech</div><div>• <strong>Overlap:</strong> 2x NASDAQ-100 FOFs</div></div>',
       action: 'QUALITY OPTIMIZATION & CONSOLIDATION',
       badgeColor: '#0ea5e9',
       deltaRs: 0,
-      guidance: '1. Eliminate Product Overlap: You hold two identical index FOFs (Navi NASDAQ 100 and Motilal Oswal NASDAQ 100). Consolidate the ₹8.83 L Motilal Oswal tranche into Navi NASDAQ 100 to lower tracking TER from 0.24% to 0.13%. 2. Active Expense Drag: Monitor Edelweiss US Tech (1.41% TER) for net-of-fee alpha over NASDAQ 100; consolidate into index if lagging. 3. Diversification & Taxation: Offshore exposure is 100% US Growth/AI. Use equity-taxed Flexi-Cap schemes (Parag Parikh Flexi Cap) for future overseas allocations to avoid marginal slab-rate LRS FOF taxation.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>1. Product Overlap:</strong> Consolidate Motilal Oswal NASDAQ 100 into Navi NASDAQ 100 to cut TER from 0.24% to 0.13%.</div><div>• <strong>2. Expense Drag:</strong> Monitor Edelweiss US Tech (1.41% TER) net alpha; consolidate into index if lagging.</div><div>• <strong>3. LRS Tax Efficiency:</strong> Use equity-taxed Flexi-Cap schemes (Parag Parikh) for future overseas SIPs to avoid slab-rate FOF taxation.</div></div>'
     },
     {
       category: 'Low-Alpha Laggards & Tail Stock Rationalization',
-      target: 'TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%), KPITTECH (-26.1%), BALKRISIND (-17.1%), HDFCBANK (-10.9%), 716GS2050 (-9.8%)',
-      currentStatus: '7 Direct Holdings in Persistent Negative Alpha',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>IT Laggards:</strong> TCS (-32.9%), INFY (-29.9%), KPITTECH (-26.1%)</div><div>• <strong>Other Exits:</strong> SYNGENE (-29.7%), BALKRISIND (-17.1%), HDFCBANK (-10.9%), 716GS2050 (-9.8%)</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Count:</strong> 7 Direct Holdings</div><div>• <strong>Status:</strong> Persistent Negative Alpha</div></div>',
       action: 'EXIT / REDEPLOY CAPITAL',
       badgeColor: '#ef4444',
       deltaRs: -406000,
-      guidance: '7 direct stock holdings display persistent negative alpha (< -10% return). Actionable Step: Exit or trim these 7 underperforming positions (totaling ₹4.06 L) and redeploy proceeds into outperforming Direct Plan mutual funds or high-dividend bluechip stocks.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Persistent Laggards:</strong> 7 direct stock holdings display persistent negative alpha (< -10% return).</div><div>• <strong>Actionable Step:</strong> Exit or trim these 7 positions (₹4.06 L total) & redeploy proceeds into Direct Plan MFs or high-dividend bluechips.</div></div>'
     },
     {
       category: 'Sector Target Analysis: Domestic IT vs US Tech Separation',
-      target: 'Indian IT (14.5% / ₹35.41 L) • US Tech Offshore (14.3% / ₹35.15 L)',
-      currentStatus: 'Both Segregated Allocations Within Institutional 14%–15% Targets',
+      target: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Indian IT:</strong> 14.5% (₹35.41 L)</div><div>• <strong>US Tech Offshore:</strong> 14.3% (₹35.15 L)</div></div>',
+      currentStatus: '<div style="display:flex; flex-direction:column; gap:0.3rem;"><div>• <strong>Status:</strong> Segregated Allocations</div><div>• <strong>Target Fit:</strong> Within 14%–15% Targets</div></div>',
       action: 'OPTIMAL GEOGRAPHIC SPLIT',
       badgeColor: '#0ea5e9',
       deltaRs: 0,
-      guidance: 'Segregating US Tech (14.3% USD hedge) from domestic Indian IT (14.5%) validates that no sector trimming is needed. Both technology levers act independently within institutional risk boundaries.'
+      guidance: '<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Segregated Attribution:</strong> US Tech (14.3% USD hedge) and domestic Indian IT (14.5%) act independently.</div><div>• <strong>Institutional Validation:</strong> Both are well within institutional 14%–15% risk boundaries; no sector trimming is required.</div></div>'
     }
   ];
 
@@ -697,8 +750,8 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
         badgeColor: s.status === 'UNDEREXPOSED' ? '#3b82f6' : '#ef4444',
         deltaRs: s.status === 'UNDEREXPOSED' ? Math.abs(s.rebalanceDeltaRs) : -Math.abs(s.rebalanceDeltaRs),
         guidance: s.status === 'UNDEREXPOSED' 
-          ? `Direct monthly SIP inflows to bring ${s.sector} up to ${s.targetPct}% benchmark floor.`
-          : `Trim ${s.sector} exposure or pause fresh SIP inflows.`
+          ? `<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Allocation Gap:</strong> Currently below target benchmark floor.</div><div>• <strong>Actionable Step:</strong> Direct monthly SIP inflows to bring ${s.sector} up to ${s.targetPct}% benchmark floor.</div></div>`
+          : `<div style="display:flex; flex-direction:column; gap:0.4rem;"><div>• <strong>Allocation Excess:</strong> Exceeds target benchmark ceiling.</div><div>• <strong>Actionable Step:</strong> Trim ${s.sector} exposure or pause fresh SIP inflows.</div></div>`
       });
     }
   });
@@ -715,6 +768,7 @@ function analyzePortfolio(latestMfInput, latestEquityInput, opts = {}) {
     mfXirr,
     styleBox,
     topBlendedHoldings,
+    allBlendedHoldings,
     assetClassAnalysis,
     costAnalysis,
     sectorIntelligence,

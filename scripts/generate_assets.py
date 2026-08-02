@@ -345,12 +345,14 @@ for inst_name, info in historical_holdings["stocks"].items():
     last_hist = info["history"][-1]
     formatted_latest_date = f"{latest_e_date[:4]}-{latest_e_date[4:6]}-{latest_e_date[6:8]}"
     if last_hist["date"] == formatted_latest_date and last_hist["qty"] > 0:
+        prev_close = None
         latest_equity_list.append({
             "instrument": inst_name,
             "sector": info["sector"],
             "qty": last_hist["qty"],
             "avg_cost": last_hist["avg_cost"],
             "ltp": last_hist["ltp"],
+            "yesterdayClose": prev_close,
             "invested": last_hist["invested"],
             "cur_val": last_hist["cur_val"],
             "pnl": last_hist["pnl"],
@@ -362,11 +364,13 @@ for inst_name, info in historical_holdings["mfs"].items():
     last_hist = info["history"][-1]
     formatted_latest_date = f"{latest_mf_date[:4]}-{latest_mf_date[4:6]}-{latest_mf_date[6:8]}"
     if last_hist["date"] == formatted_latest_date and last_hist["qty"] > 0:
+        prev_nav = None
         latest_mf_list.append({
             "scheme": inst_name,
             "scheme_type": info["category"],
             "qty": last_hist["qty"],
             "price": last_hist["ltp"],
+            "previousNav": prev_nav,
             "avg_nav": last_hist["avg_cost"],
             "invested": last_hist["invested"],
             "cur_val": last_hist["cur_val"],

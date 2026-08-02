@@ -1,162 +1,1942 @@
 {
-  "timestamp": 1785343886473,
-  "totalValue": 34131800.4803635,
-  "totalEquity": 24517543.780363504,
+  "timestamp": 1785377895862,
+  "totalValue": 34091399.312658794,
+  "totalEquity": 24477980.2126588,
   "totalDebt": 9120334.2,
-  "totalGold": 493922.5,
+  "totalGold": 493084.9,
   "totalReit": 0,
   "portfolioXirr": 0.128,
   "stockXirr": 0.098,
   "mfXirr": 0.175,
   "styleBox": {
     "largeValue": {
-      "val": 1683617.6,
-      "pct": 4.9
+      "val": 1694950.25,
+      "pct": 5
     },
     "largeBlend": {
-      "val": 5274450.4181339,
-      "pct": 15.5
+      "val": 5246593.50428155,
+      "pct": 15.4
     },
     "largeGrowth": {
-      "val": 8263182.8771978,
-      "pct": 24.2
+      "val": 8223351.563345452,
+      "pct": 24.1
     },
     "midValue": {
-      "val": 143538,
+      "val": 145495.5,
       "pct": 0.4
     },
     "midBlend": {
-      "val": 1685374.0334760803,
-      "pct": 4.9
+      "val": 1693204.9334760802,
+      "pct": 5
     },
     "midGrowth": {
-      "val": 2128384.4002141203,
+      "val": 2130180.05021412,
       "pct": 6.2
     },
     "smallValue": {
-      "val": 102873.59999999999,
+      "val": 103390.40000000001,
       "pct": 0.3
     },
     "smallBlend": {
-      "val": 2032141.4684024798,
+      "val": 2037189.62840248,
       "pct": 6
     },
     "smallGrowth": {
-      "val": 3203981.38293912,
+      "val": 3203624.38293912,
       "pct": 9.4
     }
   },
   "topBlendedHoldings": [
     {
       "company": "HDFC Bank Ltd.",
-      "directVal": 69127.59999999999,
-      "mfVal": 803500.0685387115,
-      "totalVal": 872627.6685387115,
+      "directVal": 70330.8,
+      "mfVal": 799728.2507223,
+      "totalVal": 870059.0507223001,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (10.5% look-through: ₹53,355)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (10.5% look-through: ₹1,84,073)",
+        "Navi Nifty 50 Index Fund Direct - Growth (10.5% look-through: ₹1,43,942)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (10.5% look-through: ₹84,321)",
+        "Axis Greater China Equity FoF Direct-Growth (10.5% look-through: ₹1,12,096)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (10.5% look-through: ₹33,035)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (10.5% look-through: ₹39,248)",
+        "Direct Stock (₹70,331)",
+        "BANKIETF (30% ETF constituent: ₹1,49,660)"
+      ],
       "pct": 2.6,
       "risk": "Optimal"
     },
     {
       "company": "ICICI Bank Ltd.",
-      "directVal": 84417.2,
-      "mfVal": 616570.8682338877,
-      "totalVal": 700988.0682338878,
-      "pct": 2.1,
+      "directVal": 84836.1,
+      "mfVal": 613815.59578154,
+      "totalVal": 698651.6957815401,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (7.9% look-through: ₹40,143)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (7.9% look-through: ₹1,38,493)",
+        "Navi Nifty 50 Index Fund Direct - Growth (7.9% look-through: ₹1,08,299)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (7.9% look-through: ₹63,442)",
+        "Axis Greater China Equity FoF Direct-Growth (7.9% look-through: ₹84,339)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (7.9% look-through: ₹24,855)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (7.9% look-through: ₹29,529)",
+        "Direct Stock (₹84,836)",
+        "BANKIETF (25% ETF constituent: ₹1,24,716)"
+      ],
+      "pct": 2,
       "risk": "Optimal"
     },
     {
       "company": "Reliance Industries Ltd.",
       "directVal": 0,
-      "mfVal": 611203.1973027975,
-      "totalVal": 611203.1973027975,
+      "mfVal": 606730.83400748,
+      "totalVal": 606730.83400748,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (9.8% look-through: ₹49,798)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (9.8% look-through: ₹1,71,801)",
+        "Navi Nifty 50 Index Fund Direct - Growth (9.8% look-through: ₹1,34,346)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (9.8% look-through: ₹78,700)",
+        "Axis Greater China Equity FoF Direct-Growth (9.8% look-through: ₹1,04,623)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (9.8% look-through: ₹30,832)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (9.8% look-through: ₹36,631)"
+      ],
       "pct": 1.8,
       "risk": "Optimal"
     },
     {
       "company": "Infosys Ltd.",
-      "directVal": 71870.5,
-      "mfVal": 508991.84847647144,
-      "totalVal": 580862.3484764714,
+      "directVal": 75114,
+      "mfVal": 506344.93958740606,
+      "totalVal": 581458.9395874061,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (5.8% look-through: ₹29,472)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (5.8% look-through: ₹1,01,678)",
+        "Navi Nifty 50 Index Fund Direct - Growth (5.8% look-through: ₹79,511)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (5.8% look-through: ₹46,578)",
+        "Axis Greater China Equity FoF Direct-Growth (5.8% look-through: ₹61,920)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (5.8% look-through: ₹18,248)",
+        "Nippon India Nifty IT Index Fund Direct - Growth (26.5% look-through: ₹1,47,259)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (5.8% look-through: ₹21,680)",
+        "Direct Stock (₹75,114)"
+      ],
       "pct": 1.7,
       "risk": "Optimal"
     },
     {
       "company": "Bharti Airtel Ltd.",
-      "directVal": 342324,
-      "mfVal": 224523.62349898682,
-      "totalVal": 566847.6234989868,
+      "directVal": 351036,
+      "mfVal": 222880.71453336003,
+      "totalVal": 573916.71453336,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Other Equities",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (3.6% look-through: ₹18,293)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (3.6% look-through: ₹63,111)",
+        "Navi Nifty 50 Index Fund Direct - Growth (3.6% look-through: ₹49,352)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (3.6% look-through: ₹28,910)",
+        "Axis Greater China Equity FoF Direct-Growth (3.6% look-through: ₹38,433)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (3.6% look-through: ₹11,326)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (3.6% look-through: ₹13,456)",
+        "Direct Stock (₹3,51,036)"
+      ],
       "pct": 1.7,
       "risk": "Optimal"
     },
     {
-      "company": "ITC Ltd.",
-      "directVal": 224304.19999999998,
-      "mfVal": 296516.56941548456,
-      "totalVal": 520820.76941548457,
+      "company": "Larsen & Toubro Ltd.",
+      "directVal": 243746.80000000002,
+      "mfVal": 278600.8931667,
+      "totalVal": 522347.6931667001,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (4.5% look-through: ₹22,866)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (4.5% look-through: ₹78,888)",
+        "Navi Nifty 50 Index Fund Direct - Growth (4.5% look-through: ₹61,689)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (4.5% look-through: ₹36,138)",
+        "Axis Greater China Equity FoF Direct-Growth (4.5% look-through: ₹48,041)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (4.5% look-through: ₹14,158)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (4.5% look-through: ₹16,820)",
+        "Direct Stock (₹2,43,747)"
+      ],
       "pct": 1.5,
       "risk": "Optimal"
     },
     {
-      "company": "Larsen & Toubro Ltd.",
-      "directVal": 237584,
-      "mfVal": 280654.5293737335,
-      "totalVal": 518238.5293737335,
+      "company": "ITC Ltd.",
+      "directVal": 225565,
+      "mfVal": 295153.73828892,
+      "totalVal": 520718.73828892,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (4.2% look-through: ₹21,342)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (4.2% look-through: ₹73,629)",
+        "Navi Nifty 50 Index Fund Direct - Growth (4.2% look-through: ₹57,577)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (4.2% look-through: ₹33,729)",
+        "Axis Greater China Equity FoF Direct-Growth (4.2% look-through: ₹44,838)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (4.2% look-through: ₹13,214)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (4.2% look-through: ₹15,699)",
+        "Direct Stock (₹2,25,565)",
+        "FMCGIETF (35% ETF constituent: ₹35,126)"
+      ],
       "pct": 1.5,
       "risk": "Optimal"
     },
     {
       "company": "TCS Ltd.",
-      "directVal": 79134,
-      "mfVal": 389074.41310768435,
-      "totalVal": 468208.41310768435,
+      "directVal": 80737.8,
+      "mfVal": 387203.322341276,
+      "totalVal": 467941.122341276,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (4.1% look-through: ₹20,834)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (4.1% look-through: ₹71,876)",
+        "Navi Nifty 50 Index Fund Direct - Growth (4.1% look-through: ₹56,206)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (4.1% look-through: ₹32,925)",
+        "Axis Greater China Equity FoF Direct-Growth (4.1% look-through: ₹43,771)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (4.1% look-through: ₹12,899)",
+        "Nippon India Nifty IT Index Fund Direct - Growth (24% look-through: ₹1,33,367)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (4.1% look-through: ₹15,325)",
+        "Direct Stock (₹80,738)"
+      ],
       "pct": 1.4,
       "risk": "Optimal"
     },
     {
       "company": "State Bank of India",
-      "directVal": 66871.2,
-      "mfVal": 252795.58690190528,
-      "totalVal": 319666.78690190526,
+      "directVal": 66904.2,
+      "mfVal": 251788.85973705997,
+      "totalVal": 318693.05973706,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (3.1% look-through: ₹15,752)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (3.1% look-through: ₹54,345)",
+        "Navi Nifty 50 Index Fund Direct - Growth (3.1% look-through: ₹42,497)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (3.1% look-through: ₹24,895)",
+        "Axis Greater China Equity FoF Direct-Growth (3.1% look-through: ₹33,095)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (3.1% look-through: ₹9,753)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (3.1% look-through: ₹11,587)",
+        "Direct Stock (₹66,904)",
+        "BANKIETF (12% ETF constituent: ₹59,864)"
+      ],
       "pct": 0.9,
       "risk": "Optimal"
     },
     {
       "company": "Apple Inc.",
       "directVal": 0,
-      "mfVal": 309341.114576296,
-      "totalVal": 309341.114576296,
+      "mfVal": 304686.8062320368,
+      "totalVal": 304686.8062320368,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "sources": [
+        "Motilal Oswal Nasdaq 100 FOF Direct - Growth (8.8% look-through: ₹77,686)",
+        "Edelweiss US Technology Equity FoF Direct - Growth (8.8% look-through: ₹55,406)",
+        "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth (8.8% look-through: ₹1,71,595)"
+      ],
       "pct": 0.9,
+      "risk": "Optimal"
+    }
+  ],
+  "allBlendedHoldings": [
+    {
+      "company": "HDFC Bank Ltd.",
+      "directVal": 70330.8,
+      "mfVal": 799728.2507223,
+      "totalVal": 870059.0507223001,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (10.5% look-through: ₹53,355)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (10.5% look-through: ₹1,84,073)",
+        "Navi Nifty 50 Index Fund Direct - Growth (10.5% look-through: ₹1,43,942)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (10.5% look-through: ₹84,321)",
+        "Axis Greater China Equity FoF Direct-Growth (10.5% look-through: ₹1,12,096)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (10.5% look-through: ₹33,035)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (10.5% look-through: ₹39,248)",
+        "Direct Stock (₹70,331)",
+        "BANKIETF (30% ETF constituent: ₹1,49,660)"
+      ],
+      "pct": 2.6,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ICICI Bank Ltd.",
+      "directVal": 84836.1,
+      "mfVal": 613815.59578154,
+      "totalVal": 698651.6957815401,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (7.9% look-through: ₹40,143)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (7.9% look-through: ₹1,38,493)",
+        "Navi Nifty 50 Index Fund Direct - Growth (7.9% look-through: ₹1,08,299)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (7.9% look-through: ₹63,442)",
+        "Axis Greater China Equity FoF Direct-Growth (7.9% look-through: ₹84,339)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (7.9% look-through: ₹24,855)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (7.9% look-through: ₹29,529)",
+        "Direct Stock (₹84,836)",
+        "BANKIETF (25% ETF constituent: ₹1,24,716)"
+      ],
+      "pct": 2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Reliance Industries Ltd.",
+      "directVal": 0,
+      "mfVal": 606730.83400748,
+      "totalVal": 606730.83400748,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (9.8% look-through: ₹49,798)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (9.8% look-through: ₹1,71,801)",
+        "Navi Nifty 50 Index Fund Direct - Growth (9.8% look-through: ₹1,34,346)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (9.8% look-through: ₹78,700)",
+        "Axis Greater China Equity FoF Direct-Growth (9.8% look-through: ₹1,04,623)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (9.8% look-through: ₹30,832)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (9.8% look-through: ₹36,631)"
+      ],
+      "pct": 1.8,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Infosys Ltd.",
+      "directVal": 75114,
+      "mfVal": 506344.93958740606,
+      "totalVal": 581458.9395874061,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (5.8% look-through: ₹29,472)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (5.8% look-through: ₹1,01,678)",
+        "Navi Nifty 50 Index Fund Direct - Growth (5.8% look-through: ₹79,511)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (5.8% look-through: ₹46,578)",
+        "Axis Greater China Equity FoF Direct-Growth (5.8% look-through: ₹61,920)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (5.8% look-through: ₹18,248)",
+        "Nippon India Nifty IT Index Fund Direct - Growth (26.5% look-through: ₹1,47,259)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (5.8% look-through: ₹21,680)",
+        "Direct Stock (₹75,114)"
+      ],
+      "pct": 1.7,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Bharti Airtel Ltd.",
+      "directVal": 351036,
+      "mfVal": 222880.71453336003,
+      "totalVal": 573916.71453336,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Other Equities",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (3.6% look-through: ₹18,293)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (3.6% look-through: ₹63,111)",
+        "Navi Nifty 50 Index Fund Direct - Growth (3.6% look-through: ₹49,352)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (3.6% look-through: ₹28,910)",
+        "Axis Greater China Equity FoF Direct-Growth (3.6% look-through: ₹38,433)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (3.6% look-through: ₹11,326)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (3.6% look-through: ₹13,456)",
+        "Direct Stock (₹3,51,036)"
+      ],
+      "pct": 1.7,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Larsen & Toubro Ltd.",
+      "directVal": 243746.80000000002,
+      "mfVal": 278600.8931667,
+      "totalVal": 522347.6931667001,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (4.5% look-through: ₹22,866)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (4.5% look-through: ₹78,888)",
+        "Navi Nifty 50 Index Fund Direct - Growth (4.5% look-through: ₹61,689)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (4.5% look-through: ₹36,138)",
+        "Axis Greater China Equity FoF Direct-Growth (4.5% look-through: ₹48,041)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (4.5% look-through: ₹14,158)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (4.5% look-through: ₹16,820)",
+        "Direct Stock (₹2,43,747)"
+      ],
+      "pct": 1.5,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ITC Ltd.",
+      "directVal": 225565,
+      "mfVal": 295153.73828892,
+      "totalVal": 520718.73828892,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (4.2% look-through: ₹21,342)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (4.2% look-through: ₹73,629)",
+        "Navi Nifty 50 Index Fund Direct - Growth (4.2% look-through: ₹57,577)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (4.2% look-through: ₹33,729)",
+        "Axis Greater China Equity FoF Direct-Growth (4.2% look-through: ₹44,838)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (4.2% look-through: ₹13,214)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (4.2% look-through: ₹15,699)",
+        "Direct Stock (₹2,25,565)",
+        "FMCGIETF (35% ETF constituent: ₹35,126)"
+      ],
+      "pct": 1.5,
+      "risk": "Optimal"
+    },
+    {
+      "company": "TCS Ltd.",
+      "directVal": 80737.8,
+      "mfVal": 387203.322341276,
+      "totalVal": 467941.122341276,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (4.1% look-through: ₹20,834)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (4.1% look-through: ₹71,876)",
+        "Navi Nifty 50 Index Fund Direct - Growth (4.1% look-through: ₹56,206)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (4.1% look-through: ₹32,925)",
+        "Axis Greater China Equity FoF Direct-Growth (4.1% look-through: ₹43,771)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (4.1% look-through: ₹12,899)",
+        "Nippon India Nifty IT Index Fund Direct - Growth (24% look-through: ₹1,33,367)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (4.1% look-through: ₹15,325)",
+        "Direct Stock (₹80,738)"
+      ],
+      "pct": 1.4,
+      "risk": "Optimal"
+    },
+    {
+      "company": "State Bank of India",
+      "directVal": 66904.2,
+      "mfVal": 251788.85973705997,
+      "totalVal": 318693.05973706,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (3.1% look-through: ₹15,752)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (3.1% look-through: ₹54,345)",
+        "Navi Nifty 50 Index Fund Direct - Growth (3.1% look-through: ₹42,497)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (3.1% look-through: ₹24,895)",
+        "Axis Greater China Equity FoF Direct-Growth (3.1% look-through: ₹33,095)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (3.1% look-through: ₹9,753)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (3.1% look-through: ₹11,587)",
+        "Direct Stock (₹66,904)",
+        "BANKIETF (12% ETF constituent: ₹59,864)"
+      ],
+      "pct": 0.9,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Apple Inc.",
+      "directVal": 0,
+      "mfVal": 304686.8062320368,
+      "totalVal": 304686.8062320368,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "sources": [
+        "Motilal Oswal Nasdaq 100 FOF Direct - Growth (8.8% look-through: ₹77,686)",
+        "Edelweiss US Technology Equity FoF Direct - Growth (8.8% look-through: ₹55,406)",
+        "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth (8.8% look-through: ₹1,71,595)"
+      ],
+      "pct": 0.9,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Axis Bank Ltd.",
+      "directVal": 76594.8,
+      "mfVal": 223238.16685927997,
+      "totalVal": 299832.96685927996,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "UTI Nifty Next 50 Index Fund Direct - Growth (2.8% look-through: ₹14,228)",
+        "Parag Parikh Flexi Cap Fund Direct-Growth (2.8% look-through: ₹49,086)",
+        "Navi Nifty 50 Index Fund Direct - Growth (2.8% look-through: ₹38,385)",
+        "Navi Nifty Next 50 Index Fund Direct - Growth (2.8% look-through: ₹22,486)",
+        "Axis Greater China Equity FoF Direct-Growth (2.8% look-through: ₹29,892)",
+        "HDFC BSE Sensex Index Fund Direct-Growth (2.8% look-through: ₹8,809)",
+        "PGIM India Global Equity Opportunities FoF Direct-Growth (2.8% look-through: ₹10,466)",
+        "Direct Stock (₹76,595)",
+        "BANKIETF (10% ETF constituent: ₹49,887)"
+      ],
+      "pct": 0.9,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Microsoft Corp.",
+      "directVal": 0,
+      "mfVal": 294299.75601958105,
+      "totalVal": 294299.75601958105,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "sources": [
+        "Motilal Oswal Nasdaq 100 FOF Direct - Growth (8.5% look-through: ₹75,037)",
+        "Edelweiss US Technology Equity FoF Direct - Growth (8.5% look-through: ₹53,517)",
+        "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth (8.5% look-through: ₹1,65,745)"
+      ],
+      "pct": 0.9,
+      "risk": "Optimal"
+    },
+    {
+      "company": "NVIDIA Corp.",
+      "directVal": 0,
+      "mfVal": 283912.7058071252,
+      "totalVal": 283912.7058071252,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "sources": [
+        "Motilal Oswal Nasdaq 100 FOF Direct - Growth (8.2% look-through: ₹72,389)",
+        "Edelweiss US Technology Equity FoF Direct - Growth (8.2% look-through: ₹51,628)",
+        "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth (8.2% look-through: ₹1,59,896)"
+      ],
+      "pct": 0.8,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Sun Pharma Ltd.",
+      "directVal": 276596.10000000003,
+      "mfVal": 0,
+      "totalVal": 276596.10000000003,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹2,76,596)"
+      ],
+      "pct": 0.8,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Bajaj Auto Ltd.",
+      "directVal": 215422,
+      "mfVal": 0,
+      "totalVal": 215422,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹2,15,422)"
+      ],
+      "pct": 0.6,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Tata Steel Ltd.",
+      "directVal": 196633.5,
+      "mfVal": 0,
+      "totalVal": 196633.5,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Direct Stock (₹1,96,634)"
+      ],
+      "pct": 0.6,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Coal India Ltd.",
+      "directVal": 192723.5,
+      "mfVal": 0,
+      "totalVal": 192723.5,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Direct Stock (₹1,92,724)"
+      ],
+      "pct": 0.6,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Amazon.com Inc.",
+      "directVal": 0,
+      "mfVal": 180042.20368256723,
+      "totalVal": 180042.20368256723,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "sources": [
+        "Motilal Oswal Nasdaq 100 FOF Direct - Growth (5.2% look-through: ₹45,905)",
+        "Edelweiss US Technology Equity FoF Direct - Growth (5.2% look-through: ₹32,740)",
+        "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth (5.2% look-through: ₹1,01,397)"
+      ],
+      "pct": 0.5,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Alphabet Inc.",
+      "directVal": 0,
+      "mfVal": 166192.8033992928,
+      "totalVal": 166192.8033992928,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "sources": [
+        "Motilal Oswal Nasdaq 100 FOF Direct - Growth (4.8% look-through: ₹42,374)",
+        "Edelweiss US Technology Equity FoF Direct - Growth (4.8% look-through: ₹30,221)",
+        "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth (4.8% look-through: ₹93,597)"
+      ],
+      "pct": 0.5,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Kotak Mahindra Bank",
+      "directVal": 111207,
+      "mfVal": 49886.5,
+      "totalVal": 161093.5,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹1,11,207)",
+        "BANKIETF (10% ETF constituent: ₹49,887)"
+      ],
+      "pct": 0.5,
+      "risk": "Optimal"
+    },
+    {
+      "company": "OBEROIRLTY",
+      "directVal": 146920,
+      "mfVal": 0,
+      "totalVal": 146920,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Infrastructure & Construction",
+      "sources": [
+        "Direct Stock (₹1,46,920)"
+      ],
+      "pct": 0.4,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Meta Platforms Inc.",
+      "directVal": 0,
+      "mfVal": 145418.70297438122,
+      "totalVal": 145418.70297438122,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "US Tech & Global Innovation (Offshore)",
+      "sources": [
+        "Motilal Oswal Nasdaq 100 FOF Direct - Growth (4.2% look-through: ₹37,077)",
+        "Edelweiss US Technology Equity FoF Direct - Growth (4.2% look-through: ₹26,444)",
+        "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth (4.2% look-through: ₹81,898)"
+      ],
+      "pct": 0.4,
+      "risk": "Optimal"
+    },
+    {
+      "company": "SIEMENS",
+      "directVal": 127778,
+      "mfVal": 0,
+      "totalVal": 127778,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Other Equities",
+      "sources": [
+        "Direct Stock (₹1,27,778)"
+      ],
+      "pct": 0.4,
+      "risk": "Optimal"
+    },
+    {
+      "company": "FEDERALBNK",
+      "directVal": 126061.65,
+      "mfVal": 0,
+      "totalVal": 126061.65,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹1,26,062)"
+      ],
+      "pct": 0.4,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Crompton Greaves Ltd.",
+      "directVal": 0,
+      "mfVal": 123705.9953175648,
+      "totalVal": 123705.9953175648,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Axis Small Cap Fund Direct-Growth (2.8% look-through: ₹52,630)",
+        "HDFC Small Cap Fund Direct- Growth (2.8% look-through: ₹19,188)",
+        "Canara Robeco Small Cap Fund Direct - Growth (2.8% look-through: ₹38,907)",
+        "Quant Small Cap Fund Direct Plan-Growth (2.8% look-through: ₹12,981)"
+      ],
+      "pct": 0.4,
+      "risk": "Optimal"
+    },
+    {
+      "company": "TITAN",
+      "directVal": 116404.79999999999,
+      "mfVal": 0,
+      "totalVal": 116404.79999999999,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Other Equities",
+      "sources": [
+        "Direct Stock (₹1,16,405)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "OFSS",
+      "directVal": 114270,
+      "mfVal": 0,
+      "totalVal": 114270,
+      "cap": "Mid Cap",
+      "style": "Value",
+      "styleBoxKey": "midValue",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹1,14,270)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "COFORGE",
+      "directVal": 111468.5,
+      "mfVal": 0,
+      "totalVal": 111468.5,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹1,11,469)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ENRIN",
+      "directVal": 110974.5,
+      "mfVal": 0,
+      "totalVal": 110974.5,
+      "cap": "Small Cap",
+      "style": "Growth",
+      "styleBoxKey": "smallGrowth",
+      "sector": "Other Equities",
+      "sources": [
+        "Direct Stock (₹1,10,975)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "MFSL",
+      "directVal": 110602.29999999999,
+      "mfVal": 0,
+      "totalVal": 110602.29999999999,
+      "cap": "Mid Cap",
+      "style": "Blend",
+      "styleBoxKey": "midBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹1,10,602)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Multi Commodity Exchange (MCX)",
+      "directVal": 0,
+      "mfVal": 110451.78153354002,
+      "totalVal": 110451.78153354002,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Other Equities",
+      "sources": [
+        "Axis Small Cap Fund Direct-Growth (2.5% look-through: ₹46,991)",
+        "HDFC Small Cap Fund Direct- Growth (2.5% look-through: ₹17,132)",
+        "Canara Robeco Small Cap Fund Direct - Growth (2.5% look-through: ₹34,739)",
+        "Quant Small Cap Fund Direct Plan-Growth (2.5% look-through: ₹11,590)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "JBCHEPHARM",
+      "directVal": 108724.5,
+      "mfVal": 0,
+      "totalVal": 108724.5,
+      "cap": "Mid Cap",
+      "style": "Blend",
+      "styleBoxKey": "midBlend",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹1,08,725)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "APOLLOTYRE",
+      "directVal": 106025,
+      "mfVal": 0,
+      "totalVal": 106025,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹1,06,025)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Trent Ltd.",
+      "directVal": 0,
+      "mfVal": 105579.21792915702,
+      "totalVal": 105579.21792915702,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (3.5% look-through: ₹20,107)",
+        "Quant Mid Cap Fund Direct-Growth (3.5% look-through: ₹47,989)",
+        "Kotak Midcap Fund Direct-Growth (3.5% look-through: ₹37,483)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "KARURVYSYA",
+      "directVal": 103390.40000000001,
+      "mfVal": 0,
+      "totalVal": 103390.40000000001,
+      "cap": "Small Cap",
+      "style": "Value",
+      "styleBoxKey": "smallValue",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹1,03,390)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "SBILIFE",
+      "directVal": 102324.6,
+      "mfVal": 0,
+      "totalVal": 102324.6,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹1,02,325)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Apar Industries Ltd.",
+      "directVal": 0,
+      "mfVal": 101615.63901085679,
+      "totalVal": 101615.63901085679,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Axis Small Cap Fund Direct-Growth (2.3% look-through: ₹43,232)",
+        "HDFC Small Cap Fund Direct- Growth (2.3% look-through: ₹15,762)",
+        "Canara Robeco Small Cap Fund Direct - Growth (2.3% look-through: ₹31,960)",
+        "Quant Small Cap Fund Direct Plan-Growth (2.3% look-through: ₹10,663)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "EXIDEIND",
+      "directVal": 100199.5,
+      "mfVal": 0,
+      "totalVal": 100199.5,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹1,00,200)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "HCLTECH",
+      "directVal": 99478.2,
+      "mfVal": 0,
+      "totalVal": 99478.2,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹99,478)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "PIDILITIND",
+      "directVal": 97794,
+      "mfVal": 0,
+      "totalVal": 97794,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Direct Stock (₹97,794)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Karur Vysya Bank Ltd.",
+      "directVal": 0,
+      "mfVal": 97197.5677495152,
+      "totalVal": 97197.5677495152,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Axis Small Cap Fund Direct-Growth (2.2% look-through: ₹41,352)",
+        "HDFC Small Cap Fund Direct- Growth (2.2% look-through: ₹15,076)",
+        "Canara Robeco Small Cap Fund Direct - Growth (2.2% look-through: ₹30,570)",
+        "Quant Small Cap Fund Direct Plan-Growth (2.2% look-through: ₹10,199)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Bharat Electronics Ltd.",
+      "directVal": 0,
+      "mfVal": 96529.57067808641,
+      "totalVal": 96529.57067808641,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Other Equities",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (3.2% look-through: ₹18,383)",
+        "Quant Mid Cap Fund Direct-Growth (3.2% look-through: ₹43,876)",
+        "Kotak Midcap Fund Direct-Growth (3.2% look-through: ₹34,270)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Hindustan Aeronautics Ltd.",
+      "directVal": 0,
+      "mfVal": 90496.47251070601,
+      "totalVal": 90496.47251070601,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Other Equities",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (3% look-through: ₹17,234)",
+        "Quant Mid Cap Fund Direct-Growth (3% look-through: ₹41,134)",
+        "Kotak Midcap Fund Direct-Growth (3% look-through: ₹32,129)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ICICIGI",
+      "directVal": 89035.2,
+      "mfVal": 0,
+      "totalVal": 89035.2,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹89,035)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Blue Star Ltd.",
+      "directVal": 0,
+      "mfVal": 88361.425226832,
+      "totalVal": 88361.425226832,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Other Equities",
+      "sources": [
+        "Axis Small Cap Fund Direct-Growth (2% look-through: ₹37,593)",
+        "HDFC Small Cap Fund Direct- Growth (2% look-through: ₹13,706)",
+        "Canara Robeco Small Cap Fund Direct - Growth (2% look-through: ₹27,791)",
+        "Quant Small Cap Fund Direct Plan-Growth (2% look-through: ₹9,272)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "PERSISTENT",
+      "directVal": 87732.8,
+      "mfVal": 0,
+      "totalVal": 87732.8,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹87,733)"
+      ],
+      "pct": 0.3,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Tata Power Ltd.",
+      "directVal": 0,
+      "mfVal": 84463.3743433256,
+      "totalVal": 84463.3743433256,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (2.8% look-through: ₹16,085)",
+        "Quant Mid Cap Fund Direct-Growth (2.8% look-through: ₹38,391)",
+        "Kotak Midcap Fund Direct-Growth (2.8% look-through: ₹29,987)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Bajaj Finance Ltd.",
+      "directVal": 84352,
+      "mfVal": 0,
+      "totalVal": 84352,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹84,352)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Radico Khaitan Ltd.",
+      "directVal": 0,
+      "mfVal": 83943.35396549039,
+      "totalVal": 83943.35396549039,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Axis Small Cap Fund Direct-Growth (1.9% look-through: ₹35,713)",
+        "HDFC Small Cap Fund Direct- Growth (1.9% look-through: ₹13,020)",
+        "Canara Robeco Small Cap Fund Direct - Growth (1.9% look-through: ₹26,401)",
+        "Quant Small Cap Fund Direct Plan-Growth (1.9% look-through: ₹8,808)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Zomato Ltd.",
+      "directVal": 0,
+      "mfVal": 78430.27617594521,
+      "totalVal": 78430.27617594521,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (2.6% look-through: ₹14,936)",
+        "Quant Mid Cap Fund Direct-Growth (2.6% look-through: ₹35,649)",
+        "Kotak Midcap Fund Direct-Growth (2.6% look-through: ₹27,845)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "MPHASIS",
+      "directVal": 77922.90000000001,
+      "mfVal": 0,
+      "totalVal": 77922.90000000001,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹77,923)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "BRITANNIA",
+      "directVal": 77245,
+      "mfVal": 0,
+      "totalVal": 77245,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Direct Stock (₹77,245)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "HDFCLIFE",
+      "directVal": 75711.20000000001,
+      "mfVal": 0,
+      "totalVal": 75711.20000000001,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹75,711)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "DLF Ltd.",
+      "directVal": 0,
+      "mfVal": 75413.72709225501,
+      "totalVal": 75413.72709225501,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Infrastructure & Construction",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (2.5% look-through: ₹14,362)",
+        "Quant Mid Cap Fund Direct-Growth (2.5% look-through: ₹34,278)",
+        "Kotak Midcap Fund Direct-Growth (2.5% look-through: ₹26,774)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "LALPATHLAB",
+      "directVal": 75300,
+      "mfVal": 0,
+      "totalVal": 75300,
+      "cap": "Mid Cap",
+      "style": "Blend",
+      "styleBoxKey": "midBlend",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹75,300)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "MANKIND",
+      "directVal": 72595.59999999999,
+      "mfVal": 0,
+      "totalVal": 72595.59999999999,
+      "cap": "Mid Cap",
+      "style": "Growth",
+      "styleBoxKey": "midGrowth",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹72,596)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ONGC",
+      "directVal": 71493,
+      "mfVal": 0,
+      "totalVal": 71493,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Direct Stock (₹71,493)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "DRREDDY",
+      "directVal": 68538,
+      "mfVal": 0,
+      "totalVal": 68538,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹68,538)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ENDURANCE",
+      "directVal": 66799.20000000001,
+      "mfVal": 0,
+      "totalVal": 66799.20000000001,
+      "cap": "Mid Cap",
+      "style": "Blend",
+      "styleBoxKey": "midBlend",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹66,799)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "BSE Ltd.",
+      "directVal": 0,
+      "mfVal": 66364.07984118442,
+      "totalVal": 66364.07984118442,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (2.2% look-through: ₹12,639)",
+        "Quant Mid Cap Fund Direct-Growth (2.2% look-through: ₹30,165)",
+        "Kotak Midcap Fund Direct-Growth (2.2% look-through: ₹23,561)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "CIPLA",
+      "directVal": 66343.5,
+      "mfVal": 0,
+      "totalVal": 66343.5,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹66,344)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "AJANTPHARM",
+      "directVal": 64533.5,
+      "mfVal": 0,
+      "totalVal": 64533.5,
+      "cap": "Mid Cap",
+      "style": "Blend",
+      "styleBoxKey": "midBlend",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹64,534)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "MARICO",
+      "directVal": 64145.100000000006,
+      "mfVal": 0,
+      "totalVal": 64145.100000000006,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Direct Stock (₹64,145)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "CG Power Ltd.",
+      "directVal": 0,
+      "mfVal": 63347.53075749421,
+      "totalVal": 63347.53075749421,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Energy, Metals & Chemicals",
+      "sources": [
+        "Axis Midcap Direct Plan-Growth (2.1% look-through: ₹12,064)",
+        "Quant Mid Cap Fund Direct-Growth (2.1% look-through: ₹28,794)",
+        "Kotak Midcap Fund Direct-Growth (2.1% look-through: ₹22,490)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ZYDUSLIFE",
+      "directVal": 60625.8,
+      "mfVal": 0,
+      "totalVal": 60625.8,
+      "cap": "Mid Cap",
+      "style": "Blend",
+      "styleBoxKey": "midBlend",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹60,626)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ICICIPRULI",
+      "directVal": 60374.7,
+      "mfVal": 0,
+      "totalVal": 60374.7,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹60,375)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "ERIS",
+      "directVal": 59913,
+      "mfVal": 0,
+      "totalVal": 59913,
+      "cap": "Mid Cap",
+      "style": "Growth",
+      "styleBoxKey": "midGrowth",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹59,913)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "PHOENIXLTD",
+      "directVal": 59225.5,
+      "mfVal": 0,
+      "totalVal": 59225.5,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Infrastructure & Construction",
+      "sources": [
+        "Direct Stock (₹59,226)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "HCL Technologies Ltd.",
+      "directVal": 0,
+      "mfVal": 58348.04194258201,
+      "totalVal": 58348.04194258201,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Nippon India Nifty IT Index Fund Direct - Growth (10.5% look-through: ₹58,348)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "TVSMOTOR",
+      "directVal": 57058.4,
+      "mfVal": 0,
+      "totalVal": 57058.4,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹57,058)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "PRESTIGE",
+      "directVal": 55209,
+      "mfVal": 0,
+      "totalVal": 55209,
+      "cap": "Mid Cap",
+      "style": "Growth",
+      "styleBoxKey": "midGrowth",
+      "sector": "Infrastructure & Construction",
+      "sources": [
+        "Direct Stock (₹55,209)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "EICHERMOT",
+      "directVal": 54453,
+      "mfVal": 0,
+      "totalVal": 54453,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹54,453)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "HEROMOTOCO",
+      "directVal": 51491,
+      "mfVal": 0,
+      "totalVal": 51491,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹51,491)"
+      ],
+      "pct": 0.2,
+      "risk": "Optimal"
+    },
+    {
+      "company": "KPITTECH",
+      "directVal": 51100,
+      "mfVal": 0,
+      "totalVal": 51100,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹51,100)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "TATACONSUM",
+      "directVal": 50420.6,
+      "mfVal": 0,
+      "totalVal": 50420.6,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Direct Stock (₹50,421)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "VBL",
+      "directVal": 49192,
+      "mfVal": 0,
+      "totalVal": 49192,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Direct Stock (₹49,192)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Wipro Ltd.",
+      "directVal": 0,
+      "mfVal": 47234.12919161401,
+      "totalVal": 47234.12919161401,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Nippon India Nifty IT Index Fund Direct - Growth (8.5% look-through: ₹47,234)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "DMART",
+      "directVal": 46177.2,
+      "mfVal": 0,
+      "totalVal": 46177.2,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Other Equities",
+      "sources": [
+        "Direct Stock (₹46,177)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "COLPAL",
+      "directVal": 45494.4,
+      "mfVal": 0,
+      "totalVal": 45494.4,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Direct Stock (₹45,494)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "BANKBARODA",
+      "directVal": 44776.4,
+      "mfVal": 0,
+      "totalVal": 44776.4,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Banking & Financials",
+      "sources": [
+        "Direct Stock (₹44,776)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Tech Mahindra Ltd.",
+      "directVal": 0,
+      "mfVal": 44455.65100387201,
+      "totalVal": 44455.65100387201,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Nippon India Nifty IT Index Fund Direct - Growth (8% look-through: ₹44,456)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "DLF",
+      "directVal": 44236.5,
+      "mfVal": 0,
+      "totalVal": 44236.5,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Infrastructure & Construction",
+      "sources": [
+        "Direct Stock (₹44,237)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "GODREJPROP",
+      "directVal": 43120,
+      "mfVal": 0,
+      "totalVal": 43120,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Infrastructure & Construction",
+      "sources": [
+        "Direct Stock (₹43,120)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "MOTHERSON",
+      "directVal": 41610,
+      "mfVal": 0,
+      "totalVal": 41610,
+      "cap": "Large Cap",
+      "style": "Growth",
+      "styleBoxKey": "largeGrowth",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹41,610)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "EMBASSY-RR",
+      "directVal": 40209.52,
+      "mfVal": 0,
+      "totalVal": 40209.52,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹40,210)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "MINDSPACE-RR",
+      "directVal": 37131.75,
+      "mfVal": 0,
+      "totalVal": 37131.75,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹37,132)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "CIEINDIA",
+      "directVal": 36498,
+      "mfVal": 0,
+      "totalVal": 36498,
+      "cap": "Mid Cap",
+      "style": "Growth",
+      "styleBoxKey": "midGrowth",
+      "sector": "Other Equities",
+      "sources": [
+        "Direct Stock (₹36,498)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "UNOMINDA",
+      "directVal": 35061,
+      "mfVal": 0,
+      "totalVal": 35061,
+      "cap": "Mid Cap",
+      "style": "Growth",
+      "styleBoxKey": "midGrowth",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹35,061)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "NXST-RR",
+      "directVal": 34622.82,
+      "mfVal": 0,
+      "totalVal": 34622.82,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "Indian IT & Software Services",
+      "sources": [
+        "Direct Stock (₹34,623)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "CASTROLIND",
+      "directVal": 33291,
+      "mfVal": 0,
+      "totalVal": 33291,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Other Equities",
+      "sources": [
+        "Direct Stock (₹33,291)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "M&M",
+      "directVal": 32218,
+      "mfVal": 0,
+      "totalVal": 32218,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹32,218)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "BALKRISIND",
+      "directVal": 31225.499999999996,
+      "mfVal": 0,
+      "totalVal": 31225.499999999996,
+      "cap": "Mid Cap",
+      "style": "Value",
+      "styleBoxKey": "midValue",
+      "sector": "Automobile & Ancillaries",
+      "sources": [
+        "Direct Stock (₹31,225)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "SYNGENE",
+      "directVal": 31068.75,
+      "mfVal": 0,
+      "totalVal": 31068.75,
+      "cap": "Mid Cap",
+      "style": "Growth",
+      "styleBoxKey": "midGrowth",
+      "sector": "Healthcare & Pharma",
+      "sources": [
+        "Direct Stock (₹31,069)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "BRIGADE",
+      "directVal": 29905.25,
+      "mfVal": 0,
+      "totalVal": 29905.25,
+      "cap": "Mid Cap",
+      "style": "Growth",
+      "styleBoxKey": "midGrowth",
+      "sector": "Infrastructure & Construction",
+      "sources": [
+        "Direct Stock (₹29,905)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "NESTLEIND",
+      "directVal": 27059.399999999998,
+      "mfVal": 0,
+      "totalVal": 27059.399999999998,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "Direct Stock (₹27,059)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Hindustan Unilever Ltd.",
+      "directVal": 0,
+      "mfVal": 25090.170000000002,
+      "totalVal": 25090.170000000002,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "FMCGIETF (25% ETF constituent: ₹25,090)"
+      ],
+      "pct": 0.1,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Federal Bank Ltd.",
+      "directVal": 0,
+      "mfVal": 14965.949999999999,
+      "totalVal": 14965.949999999999,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Banking & Financials",
+      "sources": [
+        "BANKIETF (3% ETF constituent: ₹14,966)"
+      ],
+      "pct": 0,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Nestle India Ltd.",
+      "directVal": 0,
+      "mfVal": 10036.068000000001,
+      "totalVal": 10036.068000000001,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "FMCGIETF (10% ETF constituent: ₹10,036)"
+      ],
+      "pct": 0,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Britannia Ltd.",
+      "directVal": 0,
+      "mfVal": 8028.854400000001,
+      "totalVal": 8028.854400000001,
+      "cap": "Large Cap",
+      "style": "Value",
+      "styleBoxKey": "largeValue",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "FMCGIETF (8% ETF constituent: ₹8,029)"
+      ],
+      "pct": 0,
+      "risk": "Optimal"
+    },
+    {
+      "company": "Tata Consumer Ltd.",
+      "directVal": 0,
+      "mfVal": 7025.2476000000015,
+      "totalVal": 7025.2476000000015,
+      "cap": "Large Cap",
+      "style": "Blend",
+      "styleBoxKey": "largeBlend",
+      "sector": "Consumer & Retail",
+      "sources": [
+        "FMCGIETF (7% ETF constituent: ₹7,025)"
+      ],
+      "pct": 0,
+      "risk": "Optimal"
+    },
+    {
+      "company": "TVSMNCRPS",
+      "directVal": 578.48,
+      "mfVal": 0,
+      "totalVal": 578.48,
+      "cap": "Small Cap",
+      "style": "Blend",
+      "styleBoxKey": "smallBlend",
+      "sector": "Other Equities",
+      "sources": [
+        "Direct Stock (₹578)"
+      ],
+      "pct": 0,
       "risk": "Optimal"
     }
   ],
   "assetClassAnalysis": [
     {
       "asset": "Equity (Stocks, MFs & REITs)",
-      "actualVal": 24517544,
+      "actualVal": 24477980,
       "actualPct": 71.8,
       "targetPct": 75,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": -1081307
+      "rebalanceDeltaRs": -1090569
     },
     {
       "asset": "Debt & Bonds (PF, PPF, NPS, Bonds)",
       "actualVal": 9120334,
-      "actualPct": 26.7,
+      "actualPct": 26.8,
       "targetPct": 20,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": 2293974
+      "rebalanceDeltaRs": 2302054
     },
     {
       "asset": "Gold & SGBs",
-      "actualVal": 493923,
+      "actualVal": 493085,
       "actualPct": 1.4,
       "targetPct": 5,
       "status": "UNDEREXPOSED",
-      "rebalanceDeltaRs": -1212668
+      "rebalanceDeltaRs": -1211485
     }
   ],
   "costAnalysis": {
     "totalTer": 0.43,
-    "annualLeakageRs": 76292,
+    "annualLeakageRs": 75868,
     "regularFundsCount": 0,
     "savingsRs": 0,
     "status": "Optimal (Low Cost)"
@@ -164,15 +1944,15 @@
   "sectorIntelligence": [
     {
       "sector": "US Tech & Global Innovation (Offshore)",
-      "actualVal": 3899037,
-      "actualPct": 15.9,
+      "actualVal": 3836137,
+      "actualPct": 15.7,
       "targetPct": 14,
       "status": "OPTIMAL (USD HEDGE)",
       "rebalanceDeltaRs": 0
     },
     {
       "sector": "Indian IT & Software Services",
-      "actualVal": 3479815,
+      "actualVal": 3485798,
       "actualPct": 14.2,
       "targetPct": 14,
       "status": "OPTIMAL",
@@ -180,59 +1960,59 @@
     },
     {
       "sector": "Banking & Financials",
-      "actualVal": 5417335,
+      "actualVal": 5415916,
       "actualPct": 22.1,
       "targetPct": 23,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": -221701
+      "rebalanceDeltaRs": -214019
     },
     {
       "sector": "Energy, Metals & Chemicals",
-      "actualVal": 2679396,
+      "actualVal": 2678958,
       "actualPct": 10.9,
       "targetPct": 12,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": -262710
+      "rebalanceDeltaRs": -258399
     },
     {
       "sector": "Consumer & FMCG",
-      "actualVal": 2493350,
-      "actualPct": 10.2,
+      "actualVal": 1855275,
+      "actualPct": 7.6,
       "targetPct": 11,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": -203579
+      "rebalanceDeltaRs": -837303
     },
     {
       "sector": "Healthcare & Pharma",
-      "actualVal": 2202859,
+      "actualVal": 2209435,
       "actualPct": 9,
       "targetPct": 9,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": -3720
+      "rebalanceDeltaRs": 6417
     },
     {
       "sector": "Automobile & Ancillaries",
-      "actualVal": 1849699,
-      "actualPct": 7.5,
+      "actualVal": 1851720,
+      "actualPct": 7.6,
       "targetPct": 7,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": 133471
+      "rebalanceDeltaRs": 138261
     },
     {
       "sector": "Real Estate & Construction",
-      "actualVal": 618363,
-      "actualPct": 2.5,
+      "actualVal": 0,
+      "actualPct": 0,
       "targetPct": 3,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": -117163
+      "rebalanceDeltaRs": -734339
     },
     {
       "sector": "Other Equities",
-      "actualVal": 1877689,
+      "actualVal": 1882895,
       "actualPct": 7.7,
       "targetPct": 7,
       "status": "OPTIMAL",
-      "rebalanceDeltaRs": 161461
+      "rebalanceDeltaRs": 169437
     }
   ],
   "quarterlyActionPlan": {
@@ -247,7 +2027,7 @@
     "multiAssetActions": [
       {
         "action": "Increase Gold & SGB Hedge",
-        "amountRs": 1212668,
+        "amountRs": 1211485,
         "rationale": "Gold/SGB allocation is 1.4% vs 12% institutional inflation hedge target. Add ~₹12.1 L in SGBs/Gold ETFs."
       }
     ],
@@ -267,29 +2047,29 @@
         "rationale": "Your direct equity stock picking (9.8% XIRR) is lagging mutual funds (17.5% XIRR). Recommendation: Consider indexing more capital into mutual funds."
       },
       {
-        "action": "Rationalize 52 Sub-1% Tail Stocks",
-        "amountRs": 3010750,
+        "action": "Rationalize 51 Sub-1% Tail Stocks",
+        "amountRs": 2936884,
         "badgeText": "DECLUTTER",
-        "rationale": "You hold 52 small direct positions (e.g., AJANTPHARM, AXISBANK, BAJFINANCE) worth ~₹30.11 L. Consolidate these tail bets into your top 10 conviction stocks."
+        "rationale": "You hold 51 small direct positions (e.g., AJANTPHARM, AXISBANK, BAJFINANCE) worth ~₹29.37 L. Consolidate these tail bets into your top 10 conviction stocks."
       },
       {
         "action": "Review / Exit Lagging Direct Stocks",
-        "amountRs": 181691,
+        "amountRs": 186921,
         "badgeText": "TAX LOSS / EXIT",
-        "rationale": "Underperforming direct stocks: TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%). Evaluate for tax-loss harvesting or set strict turnaround stop-losses."
+        "rationale": "Underperforming direct stocks: TCS (-31.6%), SYNGENE (-28.8%), INFY (-26.7%). Evaluate for tax-loss harvesting or set strict turnaround stop-losses."
       }
     ],
-    "timestamp": "29 Jul 2026"
+    "timestamp": "30 Jul 2026"
   },
   "recommendationsTable": [
     {
       "category": "Value / Dividend Yield Cushion (Large & Mid Value Anchor)",
       "target": "Nifty 50 Value 20 ETF (NIFTY50VAL), COALINDIA, ONGC, ITC, SBIN, CASTROLIND, HEROMOTOCO",
-      "currentStatus": "₹19.30 L (5.6% of Eq)",
+      "currentStatus": "₹19.44 L (5.7% of Eq)",
       "action": "DEPLOY VALUE SIPs / ADD",
       "badgeColor": "#10b981",
-      "deltaRs": 2304649,
-      "guidance": "Defensive Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%). Actionable Step: Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% defensive anchor."
+      "deltaRs": 2300930,
+      "guidance": "<div style=\"display:flex; flex-direction:column; gap:0.4rem;\"><div>• <strong>Defensive Deficit:</strong> Value anchor is only 5.6% of equity (Large Value: 4.9%, Mid Value: 0.4%).</div><div>• <strong>Actionable Step:</strong> Deploy ₹23.00 L via SIPs into Nifty 50 Value 20 ETFs or high-dividend bluechips (COALINDIA, ONGC, ITC, SBIN) over 4 quarters to build a 15% anchor.</div></div>"
     },
     {
       "category": "9-Box Growth Overextension & Small-Cap Profit Booking",
@@ -297,8 +2077,8 @@
       "currentStatus": "Growth Boxes: 39.8% (Small Growth: 9.4% / ₹32.0 L)",
       "action": "TRIM GROWTH / TAKE PROFITS",
       "badgeColor": "#f59e0b",
-      "deltaRs": -2304649,
-      "guidance": "Small-Cap Growth (9.4% / ₹32.0 L) and overall Growth boxes (39.8%) create high beta and valuation risk. Actionable Step: Book partial profits in Small-Cap active funds (Quant Small Cap, Nippon India Small Cap) and exit negative-alpha direct growth stocks; redirect proceeds into the Value & Dividend cushion."
+      "deltaRs": -2300930,
+      "guidance": "<div style=\"display:flex; flex-direction:column; gap:0.4rem;\"><div>• <strong>Valuation Risk:</strong> Small-Cap Growth (9.4% / ₹32.0 L) & total Growth (39.8%) create high portfolio beta.</div><div>• <strong>Actionable Step:</strong> Book partial profits in Small-Cap active funds (Quant, Nippon) & exit negative-alpha growth stocks into Value cushion.</div></div>"
     },
     {
       "category": "International Exposure Quality Audit: US Tech Concentration & Product Overlap",
@@ -307,7 +2087,7 @@
       "action": "QUALITY OPTIMIZATION & CONSOLIDATION",
       "badgeColor": "#0ea5e9",
       "deltaRs": 0,
-      "guidance": "1. Eliminate Product Overlap: You hold two identical index FOFs (Navi NASDAQ 100 and Motilal Oswal NASDAQ 100). Consolidate the ₹8.83 L Motilal Oswal tranche into Navi NASDAQ 100 to lower tracking TER from 0.24% to 0.13%. 2. Active Expense Drag: Monitor Edelweiss US Tech (1.41% TER) for net-of-fee alpha over NASDAQ 100; consolidate into index if lagging. 3. Diversification & Taxation: Offshore exposure is 100% US Growth/AI. Use equity-taxed Flexi-Cap schemes (Parag Parikh Flexi Cap) for future overseas allocations to avoid marginal slab-rate LRS FOF taxation."
+      "guidance": "<div style=\"display:flex; flex-direction:column; gap:0.4rem;\"><div>• <strong>1. Product Overlap:</strong> Consolidate Motilal Oswal NASDAQ 100 into Navi NASDAQ 100 to cut TER from 0.24% to 0.13%.</div><div>• <strong>2. Expense Drag:</strong> Monitor Edelweiss US Tech (1.41% TER) net alpha; consolidate into index if lagging.</div><div>• <strong>3. LRS Tax Efficiency:</strong> Use equity-taxed Flexi-Cap schemes (Parag Parikh) for future overseas SIPs to avoid slab-rate FOF taxation.</div></div>"
     },
     {
       "category": "Low-Alpha Laggards & Tail Stock Rationalization",
@@ -316,7 +2096,7 @@
       "action": "EXIT / REDEPLOY CAPITAL",
       "badgeColor": "#ef4444",
       "deltaRs": -406000,
-      "guidance": "7 direct stock holdings display persistent negative alpha (< -10% return). Actionable Step: Exit or trim these 7 underperforming positions (totaling ₹4.06 L) and redeploy proceeds into outperforming Direct Plan mutual funds or high-dividend bluechip stocks."
+      "guidance": "<div style=\"display:flex; flex-direction:column; gap:0.4rem;\"><div>• <strong>Persistent Laggards:</strong> 7 direct stock holdings display persistent negative alpha (< -10% return).</div><div>• <strong>Actionable Step:</strong> Exit or trim these 7 positions (₹4.06 L total) & redeploy proceeds into Direct Plan MFs or high-dividend bluechips.</div></div>"
     },
     {
       "category": "Sector Target Analysis: Domestic IT vs US Tech Separation",
@@ -325,25 +2105,26 @@
       "action": "OPTIMAL GEOGRAPHIC SPLIT",
       "badgeColor": "#0ea5e9",
       "deltaRs": 0,
-      "guidance": "Segregating US Tech (14.3% USD hedge) from domestic Indian IT (14.5%) validates that no sector trimming is needed. Both technology levers act independently within institutional risk boundaries."
+      "guidance": "<div style=\"display:flex; flex-direction:column; gap:0.4rem;\"><div>• <strong>Segregated Attribution:</strong> US Tech (14.3% USD hedge) and domestic Indian IT (14.5%) act independently.</div><div>• <strong>Institutional Validation:</strong> Both are well within institutional 14%–15% risk boundaries; no sector trimming is required.</div></div>"
     }
   ],
   "sectorExposure": {
-    "Banking & Financials": 5417334.535272668,
-    "Indian IT & Software Services": 3479815.4334184956,
-    "Consumer & FMCG": 2493350.3626363347,
-    "Healthcare & Pharma": 2202859.3161688102,
-    "Energy, Metals & Chemicals": 2679395.505870096,
-    "Automobile & Ancillaries": 1849699.252935048,
-    "Other Equities": 1877689.432935048,
-    "US Tech & Global Innovation (Offshore)": 3899036.941127,
-    "Real Estate & Construction": 618363
+    "Banking & Financials": 5415916.443824505,
+    "Indian IT & Software Services": 3485798.2668766873,
+    "Consumer & FMCG": 1855275.0469122524,
+    "Healthcare & Pharma": 2209435.21208018,
+    "Energy, Metals & Chemicals": 2678958.339328288,
+    "Automobile & Ancillaries": 1851719.769664144,
+    "Other Equities": 1882895.149664144,
+    "US Tech & Global Innovation (Offshore)": 3836136.7543086,
+    "Infrastructure & Construction": 622363.05,
+    "Consumer & Retail": 639482.18
   },
   "capExposure": {
-    "Large Cap": 8465934.0590639,
-    "Mid Cap": 3957296.4336902,
-    "Small Cap": 5338996.4513416,
-    "International / Multi Cap": 6755316.836267799
+    "Large Cap": 8508104.7090639,
+    "Mid Cap": 3968880.4836902,
+    "Small Cap": 5344204.4113416,
+    "International / Multi Cap": 6656790.6085631
   },
   "recommendations": [
     {
@@ -358,13 +2139,13 @@
     },
     {
       "type": "Info",
-      "title": "Rationalize 52 Sub-1% Tail Stocks",
-      "desc": "You hold 52 small direct positions (e.g., AJANTPHARM, AXISBANK, BAJFINANCE) worth ~₹30.11 L. Consolidate these tail bets into your top 10 conviction stocks."
+      "title": "Rationalize 51 Sub-1% Tail Stocks",
+      "desc": "You hold 51 small direct positions (e.g., AJANTPHARM, AXISBANK, BAJFINANCE) worth ~₹29.37 L. Consolidate these tail bets into your top 10 conviction stocks."
     },
     {
       "type": "Info",
       "title": "Review / Exit Lagging Direct Stocks",
-      "desc": "Underperforming direct stocks: TCS (-32.9%), INFY (-29.9%), SYNGENE (-29.7%). Evaluate for tax-loss harvesting or set strict turnaround stop-losses."
+      "desc": "Underperforming direct stocks: TCS (-31.6%), SYNGENE (-28.8%), INFY (-26.7%). Evaluate for tax-loss harvesting or set strict turnaround stop-losses."
     }
   ]
 }

@@ -857,13 +857,14 @@
           <div id="xray-style-box-container" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
             <!-- 9-Box Table injected by app.js -->
           </div>
+          <div id="xray-style-drilldown-container" class="xray-drilldown-container" style="display:none;"></div>
           <div id="xray-style-box-insights" style="margin-top:1rem; padding-top:0.85rem; border-top:1px dashed var(--card-border);">
             <!-- Style Matrix Insights & Actionable Implications injected by app.js -->
           </div>
         </div>
 
         <!-- True Look-Through Sector Chart -->
-        <div class="chart-card">
+        <div class="chart-card" style="display:flex; flex-direction:column;">
           <div class="chart-header">
             <h3>Look-Through Sector Exposure</h3>
             <span style="font-size:0.75rem; color:var(--text-secondary);">Combined Direct + Mutual Fund Underlying</span>
@@ -871,8 +872,30 @@
           <div class="chart-container" style="height:310px; position:relative;">
             <canvas id="xray-sector-chart"></canvas>
           </div>
+          <div style="margin-top:1.25rem; border-top:1px dashed var(--card-border); padding-top:1rem;">
+            <div style="font-size:0.8rem; font-weight:600; color:#f3f4f6; margin-bottom:0.6rem; display:flex; justify-content:space-between; align-items:center;">
+              <span>Sector Breakdown Summary</span>
+              <span style="font-size:0.7rem; color:#9ca3af; font-weight:normal;">Top look-through weights</span>
+            </div>
+            <div class="table-wrapper" style="overflow-x:auto; max-height:220px;">
+              <table class="data-table" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem;">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--card-border); color:#9ca3af;">
+                    <th style="padding:0.45rem 0.5rem; font-weight:600;">Sector</th>
+                    <th style="padding:0.45rem 0.5rem; text-align:right; font-weight:600;">Value (₹)</th>
+                    <th style="padding:0.45rem 0.5rem; text-align:right; font-weight:600;">Share %</th>
+                  </tr>
+                </thead>
+                <tbody id="xray-sector-summary-body">
+                  <!-- Dynamically populated by app.js -->
+                </tbody>
+              </table>
+            </div>
+            <div id="xray-sector-summary-drilldown" class="xray-drilldown-container" style="display:none;"></div>
+          </div>
         </div>
       </div>
+
 
       <!-- Row 2: Look-Through Stock Overlap & Multi-Asset Allocation Table -->
       <div class="chart-card full-width-card" style="margin-bottom:1.5rem;">
@@ -884,8 +907,8 @@
           <span class="badge" style="background:rgba(99,102,241,0.15); color:#6366f1; padding:0.3rem 0.75rem; border-radius:20px; font-size:0.75rem; font-weight:600;">Top 10 Blended</span>
         </div>
         
-        <div style="overflow-x:auto; margin-top:1rem;">
-          <table class="data-table" style="width:100%; border-collapse:collapse; text-align:left;">
+        <div class="table-wrapper" style="overflow-x:auto; margin-top:1rem;">
+          <table class="data-table" id="xray-blended-table" style="width:100%; border-collapse:separate; border-spacing:0; text-align:left;">
             <thead>
               <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary); font-size:0.85rem;">
                 <th style="padding:0.75rem 1rem;">Company / Underlying Stock</th>
@@ -908,8 +931,8 @@
             <h3>🌐 Institutional Multi-Asset Rebalancing Matrix (Equity vs Gold vs Debt vs REITs)</h3>
             <span style="font-size:0.8rem; color:var(--text-secondary);">Holistic asset class allocation tracking against institutional target models</span>
           </div>
-          <div style="overflow-x:auto;">
-            <table class="data-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+          <div class="table-wrapper" style="overflow-x:auto;">
+            <table class="data-table" id="xray-asset-class-table" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.85rem;">
               <thead>
                 <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary);">
                   <th style="padding:0.6rem 0.75rem;">Asset Class</th>
@@ -929,15 +952,35 @@
       </div>
 
       <!-- Row 3: Market Cap Spread & Sector Heatmap vs Benchmarks -->
-      <div class="dashboard-grid" style="margin-bottom:1.5rem; display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 450px), 1fr)); gap:1.5rem; width:100%; max-width:100%; box-sizing:border-box;">
+      <div class="dashboard-grid xray-row-3" style="margin-bottom:1.5rem;">
         <!-- Cap Spread Chart -->
-        <div class="chart-card">
+        <div class="chart-card" style="display:flex; flex-direction:column;">
           <div class="chart-header">
             <h3>Market Cap & Geography Spread</h3>
             <span style="font-size:0.75rem; color:var(--text-secondary);">Large Cap / Mid / Small / US & Multi</span>
           </div>
           <div class="chart-container" style="height:310px; position:relative;">
             <canvas id="xray-cap-chart"></canvas>
+          </div>
+          <div style="margin-top:1.25rem; border-top:1px dashed var(--card-border); padding-top:1rem;">
+            <div style="font-size:0.8rem; font-weight:600; color:#f3f4f6; margin-bottom:0.6rem; display:flex; justify-content:space-between; align-items:center;">
+              <span>Cap &amp; Geography Breakdown</span>
+              <span style="font-size:0.7rem; color:#9ca3af; font-weight:normal;">Allocation summary</span>
+            </div>
+            <div class="table-wrapper" style="overflow-x:auto;">
+              <table class="data-table" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem;">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--card-border); color:#9ca3af;">
+                    <th style="padding:0.45rem 0.5rem; font-weight:600;">Segment</th>
+                    <th style="padding:0.45rem 0.5rem; text-align:right; font-weight:600;">Value (₹)</th>
+                    <th style="padding:0.45rem 0.5rem; text-align:right; font-weight:600;">Share %</th>
+                  </tr>
+                </thead>
+                <tbody id="xray-cap-summary-body">
+                  <!-- Dynamically populated by app.js -->
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -947,8 +990,8 @@
             <h3>Sector Target Intelligence Table</h3>
             <span style="font-size:0.75rem; color:var(--text-secondary);">Actual % vs Institutional Benchmark %</span>
           </div>
-          <div style="overflow-x:auto; flex:1; margin-top:0.5rem;">
-            <table class="data-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+          <div class="table-wrapper" style="overflow-x:auto; flex:1; margin-top:0.5rem;">
+            <table class="data-table" id="xray-sector-table" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.85rem;">
               <thead>
                 <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary);">
                   <th style="padding:0.6rem 0.5rem;">Sector</th>
@@ -963,6 +1006,7 @@
               </tbody>
             </table>
           </div>
+          <div id="xray-sector-table-drilldown" class="xray-drilldown-container" style="display:none;"></div>
         </div>
       </div>
 
@@ -1039,8 +1083,8 @@
               Quarterly Monitoring Scorecard
             </span>
           </div>
-          <div style="overflow-x:auto; margin-top:1.25rem;">
-            <table class="modern-table" id="xray-recommendations-table" style="width:100%; border-collapse:collapse; text-align:left;">
+          <div class="table-wrapper" style="overflow-x:auto; margin-top:1.25rem;">
+            <table class="modern-table" id="xray-recommendations-table" style="width:100%; border-collapse:separate; border-spacing:0; text-align:left;">
               <thead>
                 <tr style="border-bottom:1px solid var(--card-border); color:#9ca3af; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">
                   <th style="padding:0.75rem 0.5rem;">Strategic Category</th>
@@ -1056,6 +1100,7 @@
               </tbody>
             </table>
           </div>
+          <div id="xray-recommendations-drilldown" class="xray-drilldown-container" style="display:none;"></div>
         </div>
       </div>
     </div>
