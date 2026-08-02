@@ -1289,27 +1289,30 @@
         <span>Calculator</span>
         <button type="button" class="calc-close" onclick="toggleCalculator()">✕</button>
       </div>
-      <input id="calc-display" class="calculator-display" readonly value="0">
+      <input id="calc-display" class="calculator-display" readonly value="0" onclick="calcCopyResult()" title="Click to copy result to clipboard">
       <div class="calculator-keys">
-        <button type="button" class="calc-key calc-op" onclick="calcClear()">C</button>
-        <button type="button" class="calc-key calc-op" onclick="calcBackspace()">⌫</button>
-        <button type="button" class="calc-key calc-op" onclick="calcInput('%')">%</button>
-        <button type="button" class="calc-key calc-op" onclick="calcInput('/')">÷</button>
+        <button type="button" class="calc-key calc-op" onclick="calcClear()" title="Clear (C or Delete)">C</button>
+        <button type="button" class="calc-key calc-op" onclick="calcBackspace()" title="Backspace (⌫)">⌫</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('(')" title="Left Parenthesis">(</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput(')')" title="Right Parenthesis">)</button>
         <button type="button" class="calc-key" onclick="calcInput('7')">7</button>
         <button type="button" class="calc-key" onclick="calcInput('8')">8</button>
         <button type="button" class="calc-key" onclick="calcInput('9')">9</button>
-        <button type="button" class="calc-key calc-op" onclick="calcInput('*')">×</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('/')" title="Divide (/)">÷</button>
         <button type="button" class="calc-key" onclick="calcInput('4')">4</button>
         <button type="button" class="calc-key" onclick="calcInput('5')">5</button>
         <button type="button" class="calc-key" onclick="calcInput('6')">6</button>
-        <button type="button" class="calc-key calc-op" onclick="calcInput('-')">−</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('*')" title="Multiply (* or X)">×</button>
         <button type="button" class="calc-key" onclick="calcInput('1')">1</button>
         <button type="button" class="calc-key" onclick="calcInput('2')">2</button>
         <button type="button" class="calc-key" onclick="calcInput('3')">3</button>
-        <button type="button" class="calc-key calc-op" onclick="calcInput('+')">+</button>
-        <button type="button" class="calc-key calc-zero" onclick="calcInput('0')">0</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('-')" title="Subtract (-)">−</button>
+        <button type="button" class="calc-key" onclick="calcInput('0')">0</button>
         <button type="button" class="calc-key" onclick="calcInput('.')">.</button>
-        <button type="button" class="calc-key calc-equals" onclick="calcEquals()">=</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('%')" title="Percentage (%)">%</button>
+        <button type="button" class="calc-key calc-op" onclick="calcInput('+')" title="Add (+)">+</button>
+        <button type="button" class="calc-key calc-copy" id="calc-copy-btn" onclick="calcCopyResult()" title="Copy result to clipboard">📋 Copy</button>
+        <button type="button" class="calc-key calc-equals" onclick="calcEquals()" title="Calculate (= or Enter)">=</button>
       </div>
     </div>
 

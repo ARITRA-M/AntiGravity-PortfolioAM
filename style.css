@@ -2797,6 +2797,13 @@ p.manage-hint.trend-down { color: var(--accent-red); }
   background: rgba(255,255,255,0.04);
   color: var(--text-primary);
   margin-bottom: 0.6rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.calculator-display:hover, .calculator-display:focus {
+  border-color: var(--accent-indigo, #818cf8);
+  background: rgba(255,255,255,0.07);
+  outline: none;
 }
 .calculator-keys {
   display: grid;
@@ -2812,11 +2819,37 @@ p.manage-hint.trend-down { color: var(--accent-red); }
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 0.08s ease, background 0.08s ease;
 }
 .calc-key:hover { background: rgba(255,255,255,0.09); }
 .calc-key.calc-op { color: var(--accent-indigo, #818cf8); }
-.calc-key.calc-zero { grid-column: span 2; }
-.calc-key.calc-equals { background: var(--accent-indigo, #6366f1); color: #fff; border-color: transparent; }
+.calc-key.calc-copy {
+  grid-column: span 2;
+  background: rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-color: rgba(255,255,255,0.15);
+}
+.calc-key.calc-copy:hover {
+  background: rgba(255,255,255,0.14);
+  color: #fff;
+}
+.calc-key.calc-copied {
+  background: rgba(16, 185, 129, 0.25) !important;
+  color: #10b981 !important;
+  border-color: #10b981 !important;
+}
+.calc-key.calc-equals {
+  grid-column: span 2;
+  background: var(--accent-indigo, #6366f1);
+  color: #fff;
+  border-color: transparent;
+}
+.calc-key.calc-key-active, .calc-key:active {
+  background: rgba(255, 255, 255, 0.22) !important;
+  transform: scale(0.95);
+}
 
 .manage-actions {
   display: flex;

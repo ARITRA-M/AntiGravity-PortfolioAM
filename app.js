@@ -6807,11 +6807,15 @@ function initManageTab() {
 let _calcExpr = '';
 let _calcJustEvaluated = false;
 
-function toggleCalculator() {
+function toggleCalculator(forceOpen) {
   const panel = document.getElementById('calculator-panel');
   if (!panel) return;
-  const showing = panel.style.display !== 'none';
+  const showing = typeof forceOpen === 'boolean' ? !forceOpen : panel.style.display !== 'none';
   panel.style.display = showing ? 'none' : 'block';
+  if (!showing) {
+    const disp = document.getElementById('calc-display');
+    if (disp) disp.focus();
+  }
 }
 
 function _calcRender() {
@@ -6819,18 +6823,44 @@ function _calcRender() {
   if (el) el.value = _calcExpr === '' ? '0' : _calcExpr;
 }
 
+function _calcHighlightKey(key) {
+  const keys = document.querySelectorAll('#calculator-panel .calc-key');
+  const map = {
+    '*': '×',
+    '/': '÷',
+    '-': '−',
+    '=': '=',
+    'Enter': '=',
+    'Backspace': '⌫',
+    'Delete': 'C',
+    'c': 'C',
+    'C': 'C'
+  };
+  const targetText = map[key] || key;
+  keys.forEach(btn => {
+    if (btn.textContent.trim() === targetText) {
+      btn.classList.add('calc-key-active');
+      setTimeout(() => btn.classList.remove('calc-key-active'), 160);
+    }
+  });
+}
+
 function calcInput(ch) {
   const isOp = ['+', '-', '*', '/'].includes(ch);
   if (_calcJustEvaluated) {
-    _calcExpr = isOp ? _calcExpr : '';
+    _calcExpr = (isOp || ch === ')') ? _calcExpr : '';
     _calcJustEvaluated = false;
   }
   if (isOp && (_calcExpr === '' && ch !== '-')) return; // no leading operator (minus allowed for negatives)
   if (isOp && /[+\-*/]$/.test(_calcExpr)) { _calcExpr = _calcExpr.slice(0, -1) + ch; _calcRender(); return; }
   if (ch === '%') {
-    // Convert the trailing number to a percentage of itself (e.g. "1000" → "1000*0.01")
     const m = _calcExpr.match(/(\d+\.?\d*)$/);
     if (m) { _calcExpr = _calcExpr.slice(0, -m[1].length) + (parseFloat(m[1]) / 100); _calcRender(); }
+    return;
+  }
+  if (ch === '(' && /[0-9)\.]$/.test(_calcExpr)) {
+    _calcExpr += '*(';
+    _calcRender();
     return;
   }
   _calcExpr += ch;
@@ -6849,11 +6879,34 @@ function calcClear() {
   _calcRender();
 }
 
+function calcCopyResult() {
+  const disp = document.getElementById('calc-display');
+  if (!disp || !disp.value || disp.value === 'Error') return;
+  navigator.clipboard.writeText(disp.value).then(() => {
+    const copyBtn = document.getElementById('calc-copy-btn');
+    if (copyBtn) {
+      const oldHtml = copyBtn.innerHTML;
+      copyBtn.innerHTML = '✓ Copied!';
+      copyBtn.classList.add('calc-copied');
+      setTimeout(() => {
+        copyBtn.innerHTML = oldHtml;
+        copyBtn.classList.remove('calc-copied');
+      }, 1200);
+    }
+  }).catch(() => {});
+}
+
 function calcEquals() {
-  if (!/^[0-9+\-*/.\s]+$/.test(_calcExpr)) return; // only digits/operators — no eval injection
+  if (!/^[0-9+\-*/.%\(\)\s]+$/.test(_calcExpr)) return; // safe digits/operators/parens
   try {
+    let expr = _calcExpr;
+    const openCount = (expr.match(/\(/g) || []).length;
+    const closeCount = (expr.match(/\)/g) || []).length;
+    if (openCount > closeCount) {
+      expr += ')'.repeat(openCount - closeCount);
+    }
     // eslint-disable-next-line no-new-func
-    const result = Function(`"use strict"; return (${_calcExpr})`)();
+    const result = Function(`"use strict"; return (${expr})`)();
     if (!isFinite(result)) throw new Error('Invalid result');
     _calcExpr = String(+result.toFixed(6));
   } catch (_) {
@@ -6861,6 +6914,84 @@ function calcEquals() {
   }
   _calcJustEvaluated = true;
   _calcRender();
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('keydown', (e) => {
+    const panel = document.getElementById('calculator-panel');
+    if (!panel || panel.style.display === 'none') return;
+
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT') && active.id !== 'calc-display') {
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      toggleCalculator(false);
+      return;
+    }
+    if (/^[0-9.()]$/.test(e.key)) {
+      e.preventDefault();
+      calcInput(e.key);
+      _calcHighlightKey(e.key);
+      return;
+    }
+    if (e.key === '+' || e.key === '-' || e.key === '*' || e.key === '/' || e.key === '%') {
+      e.preventDefault();
+      calcInput(e.key);
+      _calcHighlightKey(e.key);
+      return;
+    }
+    if (e.key.toLowerCase() === 'x') {
+      e.preventDefault();
+      calcInput('*');
+      _calcHighlightKey('*');
+      return;
+    }
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      calcBackspace();
+      _calcHighlightKey('Backspace');
+      return;
+    }
+    if (e.key.toLowerCase() === 'c' || e.key === 'Delete') {
+      e.preventDefault();
+      calcClear();
+      _calcHighlightKey('Delete');
+      return;
+    }
+    if (e.key === 'Enter' || e.key === '=') {
+      e.preventDefault();
+      calcEquals();
+      _calcHighlightKey('=');
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      if (active && active.id === 'calc-display') {
+        e.preventDefault();
+        calcCopyResult();
+      }
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    const panel = document.getElementById('calculator-panel');
+    if (panel && panel.style.display !== 'none' && panel.contains(e.target)) {
+      if (e.target.tagName !== 'BUTTON') {
+        document.getElementById('calc-display')?.focus();
+      }
+    }
+  });
+}
+
+if (typeof window !== 'undefined') {
+  window.toggleCalculator = toggleCalculator;
+  window.calcInput = calcInput;
+  window.calcBackspace = calcBackspace;
+  window.calcClear = calcClear;
+  window.calcEquals = calcEquals;
+  window.calcCopyResult = calcCopyResult;
 }
 
 // Populate the instrument autocomplete from current holdings for the chosen class.
