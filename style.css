@@ -3518,3 +3518,85 @@ table tbody:empty::after {
   }
 }
 
+/* ==========================================================================
+   v16 UNDER-CONSTRUCTION REAL ESTATE & HOME LOAN SUITE (#home-loan-panel)
+   ========================================================================== */
+#home-loan-panel {
+  background: linear-gradient(145deg, rgba(17, 24, 39, 0.75), rgba(15, 23, 42, 0.85));
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  padding: 1.75rem;
+}
+#home-loan-panel .chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+#home-loan-panel .section-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-top: 0.35rem;
+}
+#home-loan-panel .header-badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+#home-loan-panel .badge {
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.chart-legend-inline {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  align-items: center;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+#home-loan-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+#home-loan-table th, #home-loan-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 0.9rem;
+}
+#home-loan-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.02);
+}
+#home-loan-table tr:hover td {
+  background: rgba(255, 255, 255, 0.025);
+}
+@media (max-width: 768px) {
+  #home-loan-panel {
+    padding: 1rem;
+  }
+  .chart-legend-inline {
+    gap: 0.75rem;
+    font-size: 0.75rem;
+  }
+}
+

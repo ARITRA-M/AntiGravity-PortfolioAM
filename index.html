@@ -84,7 +84,7 @@
       <button class="tab-btn" onclick="switchTab('stocks')">Stock Analytics</button>
       <button class="tab-btn" onclick="switchTab('mfs')">Mutual Fund Analytics</button>
       <button class="tab-btn" onclick="switchTab('growth')">Growth & Benchmark</button>
-      <button class="tab-btn" onclick="switchTab('fixed-income')">Other Investments</button>
+      <button class="tab-btn" onclick="switchTab('fixed-income')">Other Investments & Real Estate</button>
       <button class="tab-btn" onclick="switchTab('monthly')">Periodic Performance</button>
       <button class="tab-btn" onclick="switchTab('xray')">Portfolio X-Ray</button>
       <button class="tab-btn" onclick="switchTab('manage')">✏️ Manage Portfolio</button>
@@ -98,6 +98,7 @@
           <div class="kpi-slim-label">Net Worth</div>
           <div class="kpi-slim-value" id="kpi-net-worth"></div>
           <div class="kpi-slim-sub">Total portfolio</div>
+          <div class="kpi-slim-sub" id="kpi-net-worth-leverage" style="color: #0ea5e9; font-weight: 500;">Gross Assets − Liabilities</div>
           <div class="kpi-slim-sub">XIRR: <span id="kpi-portfolio-xirr" class="kpi-slim-pct">—</span></div>
         </div>
       </div>
@@ -548,6 +549,83 @@
 
     <!-- ==================== FIXED INCOME TAB ==================== -->
     <div id="fixed-income-tab" class="tab-content">
+      <!-- Under-Construction Real Estate & Home Loan Suite (v16) -->
+      <section id="home-loan-panel" class="chart-card" style="margin-bottom: 2rem; border-left: 4px solid #0ea5e9;">
+        <div class="chart-header">
+          <div>
+            <h3>🏡 Under-Construction Real Estate & Home Loan Suite</h3>
+            <p class="section-subtitle">Tracking SBI Home Loan (A/C XXXXXXX9821) • Sanction Limit: ₹4.50 Cr • Handover: Oct 2029</p>
+          </div>
+          <div class="header-badges">
+            <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0ea5e9;">Under Construction</span>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">Matched Asset-Liability Model</span>
+          </div>
+        </div>
+        <!-- 4-Card Headline KPI Grid -->
+        <div class="tab-kpi-bar" style="margin: 1.25rem 0;">
+          <div class="tab-kpi-card" style="--card-accent: #0ea5e9;">
+            <div class="tab-kpi-label">Gross Property Asset</div>
+            <div class="tab-kpi-value" id="re-prop-val">₹1.19 Cr</div>
+            <div class="tab-kpi-sub" id="re-prop-sub" class="trend-up">₹119.18 L (26.5% Disbursed)</div>
+          </div>
+          <div class="tab-kpi-card" style="--card-accent: #f43f5e;">
+            <div class="tab-kpi-label">Home Loan Outstanding</div>
+            <div class="tab-kpi-value" id="loan-home-val">-₹1.17 Cr</div>
+            <div class="tab-kpi-sub" id="loan-home-sub" class="trend-down">-₹117.08 L Net Liability</div>
+          </div>
+          <div class="tab-kpi-card" style="--card-accent: #10b981;">
+            <div class="tab-kpi-label">Net Property Equity</div>
+            <div class="tab-kpi-value" id="re-equity-val">+₹2.10 L</div>
+            <div class="tab-kpi-sub" id="re-equity-sub" class="trend-up">Principal Equity Built</div>
+          </div>
+          <div class="tab-kpi-card" style="--card-accent: #8b5cf6;">
+            <div class="tab-kpi-label">Remaining Sanction Undisbursed</div>
+            <div class="tab-kpi-value" id="loan-undisbursed-val">₹3.31 Cr</div>
+            <div class="tab-kpi-sub" id="loan-undisbursed-sub">₹330.82 L to Oct 2029 Handover</div>
+          </div>
+        </div>
+
+        <!-- Timeline Chart Card -->
+        <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
+          <div class="chart-header" style="margin-bottom: 0.75rem;">
+            <h4>📈 Sanction Limit vs. Milestone Drawdown Timeline (to Oct 2029 Handover)</h4>
+            <div class="chart-legend-inline">
+              <span class="legend-item"><span class="legend-dot" style="background:#0ea5e9;"></span>Gross Disbursed</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#f43f5e;"></span>Loan Outstanding</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#10b981;"></span>Net Equity Built</span>
+            </div>
+          </div>
+          <div style="position: relative; height: 320px; width: 100%;">
+            <canvas id="home-loan-timeline-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Monthly Servicing Statement Table -->
+        <div>
+          <div class="chart-header" style="margin-bottom: 0.75rem;">
+            <h4>📋 SBI Home Loan Servicing Statement & Milestone Log</h4>
+            <span class="table-count-badge">Matched Asset-Liability Tracking</span>
+          </div>
+          <div class="table-responsive">
+            <table id="home-loan-table" class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description / Milestone</th>
+                  <th class="text-right">Gross Disbursed</th>
+                  <th class="text-right">Principal Repaid</th>
+                  <th class="text-right">Interest Paid</th>
+                  <th class="text-right">Outstanding Loan</th>
+                  <th class="text-right">Net Equity Built</th>
+                </tr>
+              </thead>
+              <tbody id="home-loan-table-body">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- KPI bars -->
       <div class="tab-kpi-bar" style="margin-bottom: 1.25rem;">
         <div class="tab-kpi-card" style="--card-accent: #f59e0b;">
@@ -1189,6 +1267,8 @@
                   <option value="Bonds">Bonds</option>
                   <option value="Cash">Cash</option>
                   <option value="Crypto">Crypto</option>
+                  <option value="RE-PROP">🏡 Real Estate (Property)</option>
+                  <option value="LOAN-HOME">🏦 Home Loan (Liability)</option>
                 </select>
               </label>
               <label>Date <input type="date" id="bal-date" required onchange="updateBalComputedValue()"></label>
@@ -1458,7 +1538,7 @@
     <button class="bottom-nav-btn active" data-tab="overview" onclick="switchTab('overview')"><span class="bn-icon">📊</span><span class="bn-label">Overview</span></button>
     <button class="bottom-nav-btn" data-tab="stocks" onclick="switchTab('stocks')"><span class="bn-icon">📈</span><span class="bn-label">Stocks</span></button>
     <button class="bottom-nav-btn" data-tab="mfs" onclick="switchTab('mfs')"><span class="bn-icon">💰</span><span class="bn-label">MF</span></button>
-    <button class="bottom-nav-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')"><span class="bn-icon">🏦</span><span class="bn-label">Other</span></button>
+    <button class="bottom-nav-btn" data-tab="fixed-income" onclick="switchTab('fixed-income')"><span class="bn-icon">🏡</span><span class="bn-label">Other & RE</span></button>
     <button class="bottom-nav-btn" data-tab="growth" onclick="switchTab('growth')"><span class="bn-icon">🚀</span><span class="bn-label">Growth</span></button>
     <button class="bottom-nav-btn" data-tab="monthly" onclick="switchTab('monthly')"><span class="bn-icon">📅</span><span class="bn-label">Periodic</span></button>
     <button class="bottom-nav-btn" data-tab="xray" onclick="switchTab('xray')"><span class="bn-icon">🔬</span><span class="bn-label">X-Ray</span></button>

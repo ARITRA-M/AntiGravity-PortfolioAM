@@ -33,8 +33,8 @@ let transactions = [];   // [{ id, date, assetClass:'stock'|'mf', instrument, ty
 let balances = [];       // [{ id, date, component, value, contribution, note }]
 let frozenBase = null;   // { baseDate, equity:[...], mf:[...] }  — immutable opening positions
 
-// The nine opaque (non-tradeable) components, in Breakup row order.
-const OPAQUE_COMPONENTS = ['NPS-E', 'NPS-C', 'NPS-G', 'PF', 'PPF', 'Bonds', 'Gold', 'Cash', 'Crypto'];
+// The eleven opaque (non-tradeable) components, in Breakup row order.
+const OPAQUE_COMPONENTS = ['NPS-E', 'NPS-C', 'NPS-G', 'PF', 'PPF', 'Bonds', 'Gold', 'Cash', 'Crypto', 'RE-PROP', 'LOAN-HOME'];
 
 // Map an opaque component code → its Breakup net_worth key + asset_type.
 const COMPONENT_BREAKUP = {
@@ -47,6 +47,8 @@ const COMPONENT_BREAKUP = {
   'Gold':  { key: 'Gold (Gold)', label: 'Gold', asset_type: 'Gold' },
   'Cash':  { key: 'Cash (Liquid)', label: 'Cash', asset_type: 'Liquid' },
   'Crypto':{ key: 'Crypto (Alternate)', label: 'Crypto', asset_type: 'Alternate' },
+  'RE-PROP':   { key: 'Real Estate (Property)', label: 'Real Estate', asset_type: 'Real Estate' },
+  'LOAN-HOME': { key: 'Home Loan (Liability)', label: 'Home Loan', asset_type: 'Liability' },
 };
 
 const LEDGER_KEYS = {
@@ -855,6 +857,7 @@ function _componentSources(label, ctx) {
     'Stocks': 'stock', 'Mutual Funds': 'mf', 'Gold': 'Gold', 'NPS E': 'NPS-E',
     'NPS C': 'NPS-C', 'NPS G': 'NPS-G', 'PF': 'PF', 'PPF': 'PPF', 'Cash': 'Cash',
     'Crypto': 'Crypto', 'Bonds': 'Bonds', 'NPS': 'NPS-combined',
+    'Real Estate': 'RE-PROP', 'Home Loan': 'LOAN-HOME',
   };
   const comp = m[label];
   if (!comp) return null;
@@ -1158,8 +1161,23 @@ function _endOfMonthStr(dateStr) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function ensureBreakupComponent(key, label, initialVal = 0) {
+  if (!breakupSummary || !breakupSummary.dates) return;
+  const numDates = breakupSummary.dates.length;
+  ['net_worth', 'new_investment', 'contribution', 'returns'].forEach(sec => {
+    if (breakupSummary[sec] && !breakupSummary[sec][key]) {
+      breakupSummary[sec][key] = {
+        label: label,
+        values: new Array(numDates).fill(sec === 'net_worth' ? initialVal : 0)
+      };
+    }
+  });
+}
+
 function rebuildBreakupFromLedger() {
   if (!breakupSummary || !breakupSummary.dates?.length || !frozenBase) return false;
+  ensureBreakupComponent('Real Estate (Property)', 'Real Estate', 119.18);
+  ensureBreakupComponent('Home Loan (Liability)', 'Home Loan', -117.08);
   const dates = breakupSummary.dates;
   const eraStart = _ledgerEraStart();
   const firstLedgerIdx = dates.findIndex(d => d > eraStart);
@@ -1253,7 +1271,11 @@ function rebuildBreakupFromLedger() {
         snapsChanged = true;
       }
       const latest = latestBalanceFor(comp, winEnd[i]);
-      const value = latest ? latest.value / L : (snaps[key] ?? nw[key]?.values[i] ?? prevValue);
+      let value = latest ? latest.value / L : (snaps[key] ?? nw[key]?.values[i] ?? prevValue);
+      if (!latest && (value === undefined || value === 0)) {
+        if (comp === 'RE-PROP') value = 119.18;
+        else if (comp === 'LOAN-HOME') value = -117.08;
+      }
       const newInv = balances
         .filter(b => b.component === comp && colFor(b.date) === i)
         .reduce((s, b) => s + (b.contribution || 0), 0) / L;
