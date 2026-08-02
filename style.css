@@ -3503,7 +3503,7 @@ table tbody:empty::after {
     padding-bottom: calc(2rem + env(safe-area-inset-bottom, 20px));
   }
   .instrument-kpi-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, 1fr) !important;
     gap: 0.65rem;
   }
   .instrument-hero-price {

@@ -1379,6 +1379,74 @@
               </table>
             </div>
           </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zerodha Coin-Inspired 360° X-Ray Look-Through & Recommendation Modal / Bottom Sheet Drawer -->
+    <div id="xray-slice-modal" class="instrument-modal-overlay" style="display:none;" onclick="handleXRaySliceModalBackdropClick(event)">
+      <div class="instrument-modal-drawer" style="max-width: 960px;">
+        <div class="instrument-modal-drag-handle"></div>
+        <div class="instrument-modal-header">
+          <button type="button" class="instrument-modal-close" onclick="closeXRaySliceModal()" title="Close (Escape)">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+          <div class="instrument-modal-title-group">
+            <h2 id="xray-slice-modal-title">Look-Through Slice</h2>
+            <span id="xray-slice-modal-badge" class="instrument-badge">X-RAY SLICE</span>
+          </div>
+          <span id="xray-slice-modal-count" class="instrument-sector-pill">0 Holdings</span>
+        </div>
+        
+        <div class="instrument-modal-body">
+          <!-- Top Hero Strip -->
+          <div class="instrument-hero-strip">
+            <div class="instrument-hero-price-col">
+              <span class="instrument-hero-label" id="xray-slice-hero-label">Total Slice Valuation</span>
+              <div class="instrument-hero-price-row">
+                <span id="xray-slice-modal-val" class="instrument-hero-price">₹0.00</span>
+                <span id="xray-slice-modal-pct" class="instrument-hero-change">+0.0% of Equity</span>
+              </div>
+            </div>
+            <div id="xray-slice-modal-split" class="instrument-hero-date">Direct 0% / MF Look-Through 0%</div>
+          </div>
+
+          <!-- Strategic Action & Rationale Card (shown when clicking Recommendations scorecard) -->
+          <div id="xray-slice-modal-rec-card" style="display:none; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 16px; padding: 1.15rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:0.6rem;">
+              <span id="xray-slice-rec-action" style="font-size:0.88rem; font-weight:700; color:#818cf8; text-transform:uppercase; letter-spacing:0.04em;">Recommended Action</span>
+              <span id="xray-slice-rec-delta" style="font-size:0.85rem; font-weight:700; padding:0.2rem 0.65rem; border-radius:8px; background:rgba(255,255,255,0.06); color:#f9fafb;">Rebalance Delta</span>
+            </div>
+            <div id="xray-slice-rec-guidance" style="font-size:0.82rem; color:var(--text-secondary); line-height:1.5;"></div>
+          </div>
+
+          <!-- 4-Card Slice KPI Grid -->
+          <div class="instrument-kpi-grid xray-slice-kpi-grid" id="xray-slice-modal-kpis" style="grid-template-columns: repeat(4, 1fr);"></div>
+
+          <!-- Look-Through Holdings Table -->
+          <div class="instrument-ledger-section">
+            <div class="instrument-section-header">
+              <span>Look-Through Underlying Holdings</span>
+            </div>
+            <div class="instrument-table-wrapper" style="max-height: 420px;">
+              <table class="instrument-ledger-table">
+                <thead>
+                  <tr>
+                    <th>Company / Underlying Stock</th>
+                    <th>Sector</th>
+                    <th style="text-align:right;">Direct Holding (₹)</th>
+                    <th style="text-align:right;">MF Look-Through (₹)</th>
+                    <th style="text-align:right;">Combined Exposure (₹)</th>
+                    <th style="text-align:right;">Share %</th>
+                    <th>Attribution Source(s)</th>
+                  </tr>
+                </thead>
+                <tbody id="xray-slice-modal-tbody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1025,7 +1025,11 @@ async function loadData() {
       try { autoCloseMonthIfNeeded(); } catch (e) { console.warn('autoCloseMonthIfNeeded:', e); }
       loadTransactionHistory(); // portfolio XIRR + dividends (was missing on cached loads)
 
-      document.getElementById('upload-status').textContent = 'Using locally saved data';
+      const statusEl = document.getElementById('upload-status');
+      if (statusEl) {
+        statusEl.textContent = hadRefresh ? '⚡ Cached live quotes restored' : '✅ Portfolio loaded';
+        statusEl.title = hadRefresh ? 'Showing live market prices cached from your last refresh session' : 'Portfolio snapshot loaded successfully';
+      }
       if (typeof startAutoRefresh === 'function') startAutoRefresh();
       return;
       } // end else (breakupSummary fetched ok)
@@ -1494,9 +1498,29 @@ function recomputeAllocation(summary) {
 }
 
 function formatDateString(dateStr) {
-  if (!dateStr || dateStr.startsWith('Period')) return dateStr;
+  if (!dateStr || String(dateStr).startsWith('Period') || dateStr === 'Latest') return String(dateStr || '');
   const d = new Date(dateStr);
+  if (isNaN(d)) return String(dateStr);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+}
+
+function formatModalDate(val) {
+  if (val == null || val === '' || val === 'Latest') return 'Latest Available';
+  if (typeof val === 'number') {
+    const d = new Date(val);
+    if (!isNaN(d)) return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  const str = String(val).trim();
+  if (str === 'Latest' || str.startsWith('Period')) return str;
+  const parts = str.split(/[-/]/);
+  if (parts.length === 3 && parts[0].length <= 2 && !isNaN(Number(parts[0]))) {
+    const month = isNaN(Number(parts[1])) ? parts[1] : (Number(parts[1]) - 1);
+    const d = new Date(parts[2], month, parts[0]);
+    if (!isNaN(d)) return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  const d = new Date(str);
+  if (!isNaN(d)) return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  return str;
 }
 
 // Full day-level date (e.g. "01 Jun 2026") — used where the exact date matters,
@@ -4351,24 +4375,36 @@ function openInstrumentDetailModal(instrument, type) {
   let ltp = 0;
   let changePct = 0;
   let changeAmt = 0;
-  let dateStr = 'Latest';
+  let dateVal = 'Latest';
 
   if (holding) {
     if (type === 'stock') {
       ltp = holding.ltp || holding.price || 0;
-      changePct = holding.pChg || holding.change_pct || 0;
-      changeAmt = holding.change || 0;
-      dateStr = holding.date || 'Latest';
+      const prevClose = holding.yesterdayClose || holding.prevClose || null;
+      if (prevClose && prevClose > 0) {
+        changePct = ((ltp - prevClose) / prevClose) * 100;
+        changeAmt = ltp - prevClose;
+      } else {
+        changePct = holding.pChg || holding.change_pct || 0;
+        changeAmt = holding.change || 0;
+      }
+      dateVal = holding.priceAsOf || holding.date || 'Latest';
     } else {
       ltp = holding.nav || holding.price || 0;
-      changePct = holding.dayChangePct || 0;
-      changeAmt = holding.dayChange || 0;
-      dateStr = holding.date || 'Latest';
+      const prevNav = typeof resolveMfPreviousNav === 'function' ? resolveMfPreviousNav(holding) : (holding.previousNav || holding.yesterdayClose || null);
+      if (prevNav && prevNav > 0) {
+        changePct = ((ltp - prevNav) / prevNav) * 100;
+        changeAmt = ltp - prevNav;
+      } else {
+        changePct = holding.dayChangePct || 0;
+        changeAmt = holding.dayChange || 0;
+      }
+      dateVal = holding.navDate || holding.date || 'Latest';
     }
   } else if (history && history.length > 0) {
     const last = history[history.length - 1];
     ltp = last.ltp || 0;
-    dateStr = last.date || 'Latest';
+    dateVal = last.date || 'Latest';
   }
 
   if (priceEl) priceEl.textContent = `₹${ltp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
@@ -4377,13 +4413,14 @@ function openInstrumentDetailModal(instrument, type) {
     const sign = isPos ? '+' : '';
     const amtSign = changeAmt >= 0 ? '+' : '−';
     const absAmt = Math.abs(changeAmt);
-    changeEl.textContent = `${sign}${changePct.toFixed(2)}%${absAmt > 0 ? ` (${amtSign}₹${absAmt.toFixed(2)})` : ''}`;
+    changeEl.textContent = `1D ${sign}${changePct.toFixed(2)}%${absAmt > 0 ? ` (${amtSign}₹${absAmt.toFixed(2)})` : ''}`;
+    changeEl.title = '1-Day Price Change (vs. Previous Session Close)';
     changeEl.className = 'instrument-hero-change ' + (isPos ? 'trend-up' : 'trend-down');
     changeEl.style.background = isPos ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
     changeEl.style.color = isPos ? '#34d399' : '#f87171';
     changeEl.style.border = isPos ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(239, 68, 68, 0.35)';
   }
-  if (dateEl) dateEl.textContent = `As of ${formatDateString(dateStr)}`;
+  if (dateEl) dateEl.textContent = `As of ${formatModalDate(dateVal)}`;
 
   // 4. Populate 6 KPI Summary Cards
   const kpisEl = document.getElementById('instrument-modal-kpis');
@@ -4419,15 +4456,15 @@ function openInstrumentDetailModal(instrument, type) {
     kpisEl.innerHTML = `
       <div class="instrument-kpi-card">
         <span class="instrument-kpi-label">Current Valuation</span>
-        <span class="instrument-kpi-value">₹${formatINR(curVal)}</span>
+        <span class="instrument-kpi-value">${formatINR(curVal)}</span>
       </div>
       <div class="instrument-kpi-card">
         <span class="instrument-kpi-label">Total Invested</span>
-        <span class="instrument-kpi-value">₹${formatINR(invested)}</span>
+        <span class="instrument-kpi-value">${formatINR(invested)}</span>
       </div>
       <div class="instrument-kpi-card">
         <span class="instrument-kpi-label">Total P&amp;L</span>
-        <span class="instrument-kpi-value ${pnlCls}">${pnlSign}₹${formatINR(Math.abs(totalPnl))} (${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(1)}%)</span>
+        <span class="instrument-kpi-value ${pnlCls}">${pnlSign}${formatINR(Math.abs(totalPnl))} (${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(1)}%)</span>
       </div>
       <div class="instrument-kpi-card">
         <span class="instrument-kpi-label">Current ${qtyLabel}</span>
@@ -4439,7 +4476,7 @@ function openInstrumentDetailModal(instrument, type) {
       </div>
       <div class="instrument-kpi-card" title="Cumulative realized gain/loss from recorded sales — hover table cells for transaction-level breakdown">
         <span class="instrument-kpi-label">Realized P&amp;L</span>
-        <span class="instrument-kpi-value ${realCls}">${realizedPnlSum !== 0 ? `${realSign}₹${formatINR(Math.abs(realizedPnlSum))}` : '—'}</span>
+        <span class="instrument-kpi-value ${realCls}">${realizedPnlSum !== 0 ? `${realSign}${formatINR(Math.abs(realizedPnlSum))}` : '—'}</span>
       </div>
     `;
   }
@@ -7139,9 +7176,16 @@ if (typeof document !== 'undefined') {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modal = document.getElementById('instrument-detail-modal');
+      const xrayModal = document.getElementById('xray-slice-modal');
       if (modal && modal.style.display !== 'none') {
         e.preventDefault();
         closeInstrumentDetailModal();
+        return;
+      }
+      if (xrayModal && xrayModal.style.display !== 'none') {
+        e.preventDefault();
+        closeXRaySliceModal();
+        return;
       }
     }
   });
@@ -7168,6 +7212,9 @@ if (typeof window !== 'undefined') {
   window.handleInstrumentModalBackdropClick = handleInstrumentModalBackdropClick;
   window.toggleStockRowHistory = toggleStockRowHistory;
   window.toggleMfRowHistory = toggleMfRowHistory;
+  window.openXRaySliceModal = openXRaySliceModal;
+  window.closeXRaySliceModal = closeXRaySliceModal;
+  window.handleXRaySliceModalBackdropClick = handleXRaySliceModalBackdropClick;
 }
 
 // Populate the instrument autocomplete from current holdings for the chosen class.
@@ -8653,40 +8700,31 @@ async function runXRayAnalysis() {
 
 let _latestXRayReport = null;
 
-function _closeXRayDrilldown(containerId) {
-  const c = document.getElementById(containerId);
-  if (c) {
-    c.innerHTML = '';
-    c.style.display = 'none';
+function handleXRaySliceModalBackdropClick(event) {
+  if (event.target && event.target.id === 'xray-slice-modal') {
+    closeXRaySliceModal();
   }
+}
+
+function closeXRaySliceModal(silent) {
+  const modal = document.getElementById('xray-slice-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  document.body.style.overflow = '';
   document.querySelectorAll('.xray-drilldown-active').forEach(el => {
-    if (el.getAttribute('data-drilldown-target') === containerId) {
-      el.classList.remove('xray-drilldown-active');
-    }
+    el.classList.remove('xray-drilldown-active');
   });
 }
 
-function toggleXRayDrilldown(type, key, label, clickedEl, containerId) {
-  if (!clickedEl || !containerId || !_latestXRayReport) return;
-  const container = document.getElementById(containerId);
-  if (!container) return;
+function _closeXRayDrilldown(containerId) {
+  closeXRaySliceModal();
+}
 
-  const wasActive = clickedEl.classList.contains('xray-drilldown-active') && clickedEl.getAttribute('data-drilldown-target') === containerId;
-
-  document.querySelectorAll('.xray-drilldown-active').forEach(el => {
-    if (el.getAttribute('data-drilldown-target') === containerId) {
-      el.classList.remove('xray-drilldown-active');
-    }
-  });
-
-  if (wasActive) {
-    container.innerHTML = '';
-    container.style.display = 'none';
-    return;
-  }
-
-  clickedEl.classList.add('xray-drilldown-active');
-  clickedEl.setAttribute('data-drilldown-target', containerId);
+function openXRaySliceModal(type, key, label) {
+  if (!_latestXRayReport) return;
+  const modal = document.getElementById('xray-slice-modal');
+  if (!modal) return;
 
   const allHoldings = _latestXRayReport.allBlendedHoldings || _latestXRayReport.topBlendedHoldings || [];
   let filtered = [];
@@ -8719,13 +8757,19 @@ function toggleXRayDrilldown(type, key, label, clickedEl, containerId) {
     } else {
       filtered = allHoldings;
     }
+  } else {
+    filtered = allHoldings;
   }
 
-  filtered.sort((a, b) => b.totalVal - a.totalVal);
+  filtered.sort((a, b) => (b.totalVal || 0) - (a.totalVal || 0));
 
-  const totalVal = filtered.reduce((acc, h) => acc + (h.totalVal || 0), 0);
+  const totalValRs = filtered.reduce((acc, h) => acc + (h.totalVal || 0), 0);
   const totalEq = _latestXRayReport.totalEquity || _latestXRayReport.totalValue || 1;
-  const totalPct = totalEq > 0 ? ((totalVal / totalEq) * 100).toFixed(1) : '0.0';
+  const slicePct = totalEq > 0 ? ((totalValRs / totalEq) * 100).toFixed(1) : '0.0';
+  const directTot = filtered.reduce((acc, h) => acc + (h.directVal || 0), 0);
+  const mfTot = filtered.reduce((acc, h) => acc + (h.mfVal || 0), 0);
+  const directPct = totalValRs > 0 ? Math.round((directTot / totalValRs) * 100) : 0;
+  const mfPct = 100 - directPct;
 
   const fmtCurrency = (valRs) => {
     if (valRs === null || valRs === undefined) return '₹0';
@@ -8735,67 +8779,123 @@ function toggleXRayDrilldown(type, key, label, clickedEl, containerId) {
     return '₹' + Math.round(valRs);
   };
 
-  const rowsHtml = filtered.length === 0 ? `
-    <tr>
-      <td colspan="7" style="padding:1.5rem; text-align:center; color:#9ca3af; font-style:italic;">No direct or Mutual Fund look-through holdings found in this category.</td>
-    </tr>
-  ` : filtered.map(h => {
-    const directStr = h.directVal > 0 ? fmtCurrency(h.directVal) : '—';
-    const mfStr = h.mfVal > 0 ? fmtCurrency(h.mfVal) : '—';
-    const totStr = fmtCurrency(h.totalVal);
-    const capBadge = h.cap ? `<span style="background:rgba(99,102,241,0.15); color:#a5b4fc; padding:0.15rem 0.45rem; border-radius:8px; font-size:0.65rem; margin-left:0.4rem;">${h.cap}</span>` : '';
-    const styleBadge = h.style ? `<span style="background:rgba(16,185,129,0.15); color:#34d399; padding:0.15rem 0.45rem; border-radius:8px; font-size:0.65rem; margin-left:0.3rem;">${h.style}</span>` : '';
-    const sourcesStr = (h.sources && h.sources.length > 0) ? h.sources.join(' • ') : 'Direct Stock';
-    return `
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); transition:background 0.15s;">
-        <td style="padding:0.75rem 0.8rem; font-weight:600; color:#f3f4f6; position:sticky; left:0; z-index:5; background:var(--card-bg); white-space:nowrap;">
-          ${h.company} ${capBadge} ${styleBadge}
-        </td>
-        <td style="padding:0.75rem 0.8rem; color:#9ca3af; white-space:nowrap;">${h.sector || 'Other Equities'}</td>
-        <td style="padding:0.75rem 0.8rem; text-align:right; color:#d1d5db; white-space:nowrap;">${directStr}</td>
-        <td style="padding:0.75rem 0.8rem; text-align:right; color:#d1d5db; white-space:nowrap;">${mfStr}</td>
-        <td style="padding:0.75rem 0.8rem; text-align:right; font-weight:700; color:#818cf8; white-space:nowrap;">${totStr}</td>
-        <td style="padding:0.75rem 0.8rem; text-align:right; font-weight:600; color:#34d399; white-space:nowrap;">${h.pct || 0}%</td>
-        <td style="padding:0.75rem 0.8rem; color:#9ca3af; font-size:0.75rem; line-height:1.3; min-width:240px;">${sourcesStr}</td>
-      </tr>
-    `;
-  }).join('');
+  const titleEl = document.getElementById('xray-slice-modal-title');
+  const badgeEl = document.getElementById('xray-slice-modal-badge');
+  const countEl = document.getElementById('xray-slice-modal-count');
+  const valEl = document.getElementById('xray-slice-modal-val');
+  const pctEl = document.getElementById('xray-slice-modal-pct');
+  const splitEl = document.getElementById('xray-slice-modal-split');
 
-  container.innerHTML = `
-    <div style="background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow:hidden; animation: fadeInSlideDown 0.25s ease-out; margin-top:0.85rem; margin-bottom:0.5rem;">
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.85rem 1rem; background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(30,27,75,0.4)); border-bottom:1px solid rgba(99,102,241,0.2);">
-        <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
-          <span style="font-weight:700; color:#ffffff; font-size:0.95rem;">🔍 Underlying Look-Through Holdings: <span style="color:#818cf8;">${label}</span></span>
-          <span style="background:rgba(99,102,241,0.25); color:#e0e7ff; padding:0.2rem 0.65rem; border-radius:20px; font-size:0.75rem; font-weight:600;">
-            ${filtered.length} Holdings • Total: ${fmtCurrency(totalVal)} (${totalPct}%)
-          </span>
-        </div>
-        <button onclick="_closeXRayDrilldown('${containerId}')" style="background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid rgba(239,68,68,0.3); padding:0.35rem 0.75rem; border-radius:6px; font-size:0.75rem; font-weight:600; cursor:pointer; transition:all 0.15s;">
-          ✕ Close Grid
-        </button>
+  if (titleEl) titleEl.textContent = label || key || 'Slice View';
+  if (badgeEl) {
+    if (type === 'style') {
+      badgeEl.textContent = '9-BOX STYLE MATRIX';
+      badgeEl.className = 'instrument-badge badge-stock';
+    } else if (type === 'sector') {
+      badgeEl.textContent = 'SECTOR EXPOSURE';
+      badgeEl.className = 'instrument-badge badge-etf';
+    } else if (type === 'recommendation') {
+      badgeEl.textContent = 'ACTIONABLE RECOMMENDATION';
+      badgeEl.className = 'instrument-badge badge-mf';
+    } else {
+      badgeEl.textContent = 'X-RAY SLICE';
+      badgeEl.className = 'instrument-badge';
+    }
+  }
+  if (countEl) countEl.textContent = `${filtered.length} Holdings`;
+  if (valEl) valEl.textContent = fmtCurrency(totalValRs);
+  if (pctEl) pctEl.textContent = `+${slicePct}% of Equity Portfolio`;
+  if (splitEl) splitEl.textContent = `Direct Equity ${fmtCurrency(directTot)} (${directPct}%) • MF Look-Through ${fmtCurrency(mfTot)} (${mfPct}%)`;
+
+  const recCard = document.getElementById('xray-slice-modal-rec-card');
+  if (recCard) {
+    let matchedRec = null;
+    if (type === 'recommendation' && _latestXRayReport.recommendationsTable) {
+      matchedRec = _latestXRayReport.recommendationsTable.find(r => 
+        (r.category && r.category.toLowerCase() === key.toLowerCase()) ||
+        (r.category && r.category.toLowerCase().includes(label.toLowerCase())) ||
+        (r.category && label.toLowerCase().includes(r.category.toLowerCase()))
+      );
+    }
+    if (matchedRec) {
+      recCard.style.display = 'flex';
+      const actionEl = document.getElementById('xray-slice-rec-action');
+      const deltaEl = document.getElementById('xray-slice-rec-delta');
+      const guidEl = document.getElementById('xray-slice-rec-guidance');
+      if (actionEl) actionEl.textContent = matchedRec.action || 'Recommended Action';
+      if (deltaEl) deltaEl.textContent = matchedRec.delta ? `Rebalance Delta: ${matchedRec.delta}` : 'Monitoring Rationale';
+      if (guidEl) guidEl.innerHTML = matchedRec.guidance || '';
+    } else {
+      recCard.style.display = 'none';
+    }
+  }
+
+  const kpisEl = document.getElementById('xray-slice-modal-kpis');
+  if (kpisEl) {
+    const topCompany = filtered.length > 0 ? filtered[0] : null;
+    kpisEl.innerHTML = `
+      <div class="instrument-kpi-card" style="--kpi-color: #818cf8;">
+        <div class="instrument-kpi-label">Total Slice Value</div>
+        <div class="instrument-kpi-val">${fmtCurrency(totalValRs)}</div>
+        <div class="instrument-kpi-sub" style="color: #a5b4fc;">${slicePct}% of total equity</div>
       </div>
-      <div class="table-wrapper" style="overflow-x:auto; max-height:420px;">
-        <table class="data-table" style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.82rem; text-align:left;">
-          <thead>
-            <tr style="border-bottom:2px solid var(--card-border); color:var(--text-secondary); background:rgba(30,41,59,0.85); position:sticky; top:0; z-index:10;">
-              <th style="padding:0.75rem 0.8rem; position:sticky; left:0; z-index:11; background:var(--card-bg);">Company / Underlying Stock</th>
-              <th style="padding:0.75rem 0.8rem;">Sector</th>
-              <th style="padding:0.75rem 0.8rem; text-align:right;">Direct Holding (₹)</th>
-              <th style="padding:0.75rem 0.8rem; text-align:right;">MF Look-Through (₹)</th>
-              <th style="padding:0.75rem 0.8rem; text-align:right;">Combined Exposure (₹)</th>
-              <th style="padding:0.75rem 0.8rem; text-align:right;">Portfolio %</th>
-              <th style="padding:0.75rem 0.8rem;">Attribution Source(s) (Direct / MF look-through)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
+      <div class="instrument-kpi-card" style="--kpi-color: #34d399;">
+        <div class="instrument-kpi-label">Direct vs MF Look-Through</div>
+        <div class="instrument-kpi-val" style="font-size:1.05rem;">${directPct}% Direct / ${mfPct}% MF</div>
+        <div class="instrument-kpi-sub">${fmtCurrency(directTot)} / ${fmtCurrency(mfTot)}</div>
       </div>
-    </div>
-  `;
-  container.style.display = 'block';
-  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      <div class="instrument-kpi-card" style="--kpi-color: #f59e0b;">
+        <div class="instrument-kpi-label">Underlying Companies</div>
+        <div class="instrument-kpi-val">${filtered.length}</div>
+        <div class="instrument-kpi-sub">Institutional look-through</div>
+      </div>
+      <div class="instrument-kpi-card" style="--kpi-color: #ec4899;">
+        <div class="instrument-kpi-label">Top Holding Concentration</div>
+        <div class="instrument-kpi-val" style="font-size:1.02rem;">${topCompany ? topCompany.company : '—'}</div>
+        <div class="instrument-kpi-sub">${topCompany ? fmtCurrency(topCompany.totalVal) + ' (' + (totalValRs > 0 ? ((topCompany.totalVal / totalValRs) * 100).toFixed(1) : '0') + '% of slice)' : '—'}</div>
+      </div>
+    `;
+  }
+
+  const tbody = document.getElementById('xray-slice-modal-tbody');
+  if (tbody) {
+    if (filtered.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" style="padding:1.5rem; text-align:center; color:#9ca3af; font-style:italic;">No direct or Mutual Fund look-through holdings found in this slice.</td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = filtered.map(h => {
+        const directStr = h.directVal > 0 ? fmtCurrency(h.directVal) : '—';
+        const mfStr = h.mfVal > 0 ? fmtCurrency(h.mfVal) : '—';
+        const totStr = fmtCurrency(h.totalVal);
+        const capBadge = h.cap ? `<span style="background:rgba(99,102,241,0.15); color:#a5b4fc; padding:0.15rem 0.45rem; border-radius:8px; font-size:0.65rem; margin-left:0.4rem;">${h.cap}</span>` : '';
+        const styleBadge = h.style ? `<span style="background:rgba(16,185,129,0.15); color:#34d399; padding:0.15rem 0.45rem; border-radius:8px; font-size:0.65rem; margin-left:0.3rem;">${h.style}</span>` : '';
+        const sourcesStr = (h.sources && h.sources.length > 0) ? h.sources.join(' • ') : 'Direct Stock';
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); transition:background 0.15s;">
+            <td style="padding:0.75rem 0.8rem; font-weight:600; color:#f3f4f6; position:sticky; left:0; z-index:5; background:var(--card-bg); white-space:nowrap;">
+              ${h.company} ${capBadge} ${styleBadge}
+            </td>
+            <td style="padding:0.75rem 0.8rem; color:#9ca3af; white-space:nowrap;">${h.sector || 'Other Equities'}</td>
+            <td style="padding:0.75rem 0.8rem; text-align:right; color:#d1d5db; white-space:nowrap;">${directStr}</td>
+            <td style="padding:0.75rem 0.8rem; text-align:right; color:#d1d5db; white-space:nowrap;">${mfStr}</td>
+            <td style="padding:0.75rem 0.8rem; text-align:right; font-weight:700; color:#818cf8; white-space:nowrap;">${totStr}</td>
+            <td style="padding:0.75rem 0.8rem; text-align:right; font-weight:600; color:#34d399; white-space:nowrap;">${h.pct || 0}%</td>
+            <td style="padding:0.75rem 0.8rem; color:#9ca3af; font-size:0.75rem; line-height:1.3; min-width:240px;">${sourcesStr}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function toggleXRayDrilldown(type, key, label, clickedEl, containerId) {
+  openXRaySliceModal(type, key, label);
 }
 
 function renderXRayReport(report) {
