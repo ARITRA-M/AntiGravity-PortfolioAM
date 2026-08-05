@@ -1199,16 +1199,19 @@ function recomputePortfolioFromLiveData() {
   const liveBonds = _liveOpaqueLakhs('Bonds');
   const liveCash  = _liveOpaqueLakhs('Cash');
   const liveCrypto = _liveOpaqueLakhs('Crypto');
+  const liveReProp = _liveOpaqueLakhs('RE-PROP') || 130.64;
+  const liveLoanHome = _liveOpaqueLakhs('LOAN-HOME') || -116.90;
 
   const liveTotalLakhs = liveStockLakhs + liveMfLakhs + liveGoldLakhs +
-    liveNpsE + liveNpsC + liveNpsG + livePf + livePpf + liveBonds + liveCash + liveCrypto;
+    liveNpsE + liveNpsC + liveNpsG + livePf + livePpf + liveBonds + liveCash + liveCrypto +
+    liveReProp + liveLoanHome;
 
   portfolioSummary.total_net_worth_lakhs = liveTotalLakhs;
   portfolioSummary.equity_lakhs = liveStockLakhs + liveMfLakhs + liveNpsE;
   portfolioSummary.debt_lakhs = liveNpsC + liveNpsG + livePf + livePpf + liveBonds;
   portfolioSummary.gold_lakhs = liveGoldLakhs;
   portfolioSummary.liquid_lakhs = liveCash;
-  portfolioSummary.alternate_lakhs = liveCrypto;
+  portfolioSummary.alternate_lakhs = liveCrypto + liveReProp + liveLoanHome;
   portfolioSummary.allocation_pct = recomputeAllocation(portfolioSummary);
   // Resync cumulative_investment_history from the CURRENT breakupSummary. The
   // committed data/portfolio_summary.json is a point-in-time snapshot — after any
@@ -3398,7 +3401,7 @@ function initGrowthTab() {
     'Debt':      ['NPS C (Debt)', 'NPS G (Debt)', 'PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)'],
     'Gold':      ['Gold (Gold)'],
     'Liquid':    ['Cash (Liquid)'],
-    'Alternate': ['Crypto (Alternate)']
+    'Alternate': ['Crypto (Alternate)', 'Real Estate (Property)', 'Home Loan (Liability)']
   };
   
   // Compute category-level absolute values per time point
@@ -3548,51 +3551,84 @@ function initGrowthTab() {
 }
 
 // ============ v16 UNDER-CONSTRUCTION REAL ESTATE & HOME LOAN SUITE ============
+const HOME_LOAN_MONTHLY_SCHEDULE = [
+  {
+    period: 'Apr 2026',
+    propVal: 10.50,
+    disbursedBank: 0.00,
+    disbursedSelf: 10.50,
+    repaymentSelf: 0.00,
+    loanVal: 0.00,
+    equity: 10.50,
+    interestPaid: 0.09
+  },
+  {
+    period: 'May 2026',
+    propVal: 36.48,
+    disbursedBank: 25.74,
+    disbursedSelf: 10.74,
+    repaymentSelf: 0.00,
+    loanVal: 25.74,
+    equity: 10.74,
+    interestPaid: 0.15
+  },
+  {
+    period: 'Jun 2026',
+    propVal: 36.48,
+    disbursedBank: 25.74,
+    disbursedSelf: 10.74,
+    repaymentSelf: 0.00,
+    loanVal: 25.74,
+    equity: 10.74,
+    interestPaid: 0.17
+  },
+  {
+    period: 'Jul 2026',
+    propVal: 130.64,
+    disbursedBank: 119.00,
+    disbursedSelf: 11.64,
+    repaymentSelf: 2.10,
+    loanVal: 116.90,
+    equity: 13.74,
+    interestPaid: 0.73
+  }
+];
 function initHomeLoanSuite() {
-  const propVal = _liveOpaqueLakhs('RE-PROP') || 119.18; // in Lakhs
-  const loanValRaw = _liveOpaqueLakhs('LOAN-HOME') || -117.08;
-  const loanVal = Math.abs(loanValRaw); // 117.08 Lakhs outstanding
-  const netEquity = propVal - loanVal; // +2.10 Lakhs
-  const sanctionLimit = 450.0; // ₹4.50 Cr Sanction Limit
-  const undisbursed = Math.max(0, sanctionLimit - propVal); // 330.82 Lakhs
+  const propVal = _liveOpaqueLakhs('RE-PROP') || 130.64; // in Lakhs
+  const loanValRaw = _liveOpaqueLakhs('LOAN-HOME') || -116.90;
+  const loanVal = Math.abs(loanValRaw); // 116.90 Lakhs outstanding
+  const netEquity = propVal - loanVal; // +13.74 Lakhs
 
-  // 1. Update Headline 4-Card KPI Grid
+  // 1. Update Headline 3-Card KPI Grid
   const elPropVal = document.getElementById('re-prop-val');
   const elPropSub = document.getElementById('re-prop-sub');
   if (elPropVal) {
     elPropVal.textContent = propVal >= 100 ? `₹${(propVal / 100).toFixed(2)} Cr` : `₹${propVal.toFixed(2)} L`;
-    elPropSub.textContent = `₹${propVal.toFixed(2)} L (${((propVal / sanctionLimit) * 100).toFixed(1)}% Disbursed)`;
+    elPropSub.textContent = `₹${propVal.toFixed(2)} L Total Disbursed Asset`;
   }
 
   const elLoanVal = document.getElementById('loan-home-val');
   const elLoanSub = document.getElementById('loan-home-sub');
   if (elLoanVal) {
     elLoanVal.textContent = loanVal >= 100 ? `-₹${(loanVal / 100).toFixed(2)} Cr` : `-₹${loanVal.toFixed(2)} L`;
-    elLoanSub.textContent = `-₹${loanVal.toFixed(2)} L Net Liability`;
+    elLoanSub.textContent = `-₹${loanVal.toFixed(2)} L Net Liability (₹2.10 L Principal Repaid)`;
   }
 
   const elEqVal = document.getElementById('re-equity-val');
   const elEqSub = document.getElementById('re-equity-sub');
   if (elEqVal) {
     elEqVal.textContent = `${netEquity >= 0 ? '+' : '-'}₹${Math.abs(netEquity).toFixed(2)} L`;
-    elEqSub.textContent = `Principal Equity Built`;
+    elEqSub.textContent = `₹11.64 L Disbursed Equity + ₹2.10 L Repaid`;
   }
 
-  const elUndisVal = document.getElementById('loan-undisbursed-val');
-  const elUndisSub = document.getElementById('loan-undisbursed-sub');
-  if (elUndisVal) {
-    elUndisVal.textContent = undisbursed >= 100 ? `₹${(undisbursed / 100).toFixed(2)} Cr` : `₹${undisbursed.toFixed(2)} L`;
-    elUndisSub.textContent = `₹${undisbursed.toFixed(2)} L to Oct 2029 Handover`;
-  }
+  // 2. Render Timeline Chart
+  renderHomeLoanTimelineChart(propVal, loanVal, netEquity);
 
-  // 2. Render Sanction Limit vs Milestone Drawdown Timeline Chart
-  renderHomeLoanTimelineChart(propVal, loanVal, netEquity, sanctionLimit);
-
-  // 3. Render SBI Home Loan Servicing Statement Table
+  // 3. Render Home Loan Servicing Statement Table
   renderHomeLoanServicingTable(propVal, loanVal, netEquity);
 }
 
-function renderHomeLoanTimelineChart(propVal, loanVal, netEquity, sanctionLimit) {
+function renderHomeLoanTimelineChart(propVal, loanVal, netEquity) {
   const canvas = document.getElementById('home-loan-timeline-chart');
   if (!canvas) return;
   if (window.homeLoanTimelineChartInstance) {
@@ -3603,49 +3639,13 @@ function renderHomeLoanTimelineChart(propVal, loanVal, netEquity, sanctionLimit)
   let propSeries = [];
   let loanSeries = [];
   let eqSeries = [];
-  let sanctionSeries = [];
 
-  const dates = breakupSummary?.dates || [];
-  const nw = breakupSummary?.net_worth || {};
-  const propVals = nw['Real Estate (Property)']?.values || [];
-  const loanVals = nw['Home Loan (Liability)']?.values || [];
-
-  if (dates.length > 0 && propVals.length === dates.length) {
-    dates.forEach((d, i) => {
-      const pv = propVals[i] || 0;
-      const lv = Math.abs(loanVals[i] || 0);
-      if (pv > 0 || lv > 0 || i >= dates.length - 4) {
-        labels.push(formatDateString(d));
-        propSeries.push(pv || propVal);
-        loanSeries.push(lv || loanVal);
-        eqSeries.push((pv || propVal) - (lv || loanVal));
-        sanctionSeries.push(sanctionLimit);
-      }
-    });
-  }
-
-  if (labels.length === 0) {
-    labels.push('Current Position');
-    propSeries.push(propVal);
-    loanSeries.push(loanVal);
-    eqSeries.push(netEquity);
-    sanctionSeries.push(sanctionLimit);
-  }
-
-  const currentYear = new Date().getFullYear();
-  if (currentYear <= 2029) {
-    labels.push('Oct 2028 (Projected)');
-    propSeries.push(Math.min(sanctionLimit, propVal + (sanctionLimit - propVal) * 0.5));
-    loanSeries.push(Math.min(sanctionLimit * 0.95, loanVal + (sanctionLimit - propVal) * 0.5 - 5));
-    eqSeries.push((propVal + (sanctionLimit - propVal) * 0.5) - (loanVal + (sanctionLimit - propVal) * 0.5 - 5));
-    sanctionSeries.push(sanctionLimit);
-
-    labels.push('Oct 2029 (Target Handover)');
-    propSeries.push(sanctionLimit);
-    loanSeries.push(sanctionLimit - 25);
-    eqSeries.push(25);
-    sanctionSeries.push(sanctionLimit);
-  }
+  HOME_LOAN_MONTHLY_SCHEDULE.forEach(entry => {
+    labels.push(entry.period);
+    propSeries.push(entry.propVal);
+    loanSeries.push(Math.abs(entry.loanVal));
+    eqSeries.push(entry.equity);
+  });
 
   const ctx = canvas.getContext('2d');
   const gradientEq = ctx.createLinearGradient(0, 0, 0, 300);
@@ -3657,16 +3657,6 @@ function renderHomeLoanTimelineChart(propVal, loanVal, netEquity, sanctionLimit)
     data: {
       labels: labels,
       datasets: [
-        {
-          label: 'Sanction Limit (₹4.50 Cr)',
-          data: sanctionSeries,
-          borderColor: '#94a3b8',
-          borderWidth: 2,
-          borderDash: [6, 6],
-          pointRadius: 0,
-          fill: false,
-          order: 4
-        },
         {
           label: 'Gross Disbursed (Property Value)',
           data: propSeries,
@@ -3744,47 +3734,26 @@ function renderHomeLoanServicingTable(propVal, loanVal, netEquity) {
   const tbody = document.getElementById('home-loan-table-body');
   if (!tbody) return;
 
-  const loanEntries = (balances || []).filter(b => b.component === 'LOAN-HOME' || b.component === 'RE-PROP');
   let rowsHtml = '';
-
-  if (loanEntries.length > 0) {
-    const sorted = [...loanEntries].sort((a, b) => b.date.localeCompare(a.date));
-    sorted.forEach(entry => {
-      const isProp = entry.component === 'RE-PROP';
-      const absVal = Math.abs(entry.value || 0);
-      const contrib = entry.contribution || 0;
-      const interest = entry.interest || 0;
-      rowsHtml += `
-        <tr>
-          <td><span class="table-date-badge">${formatDateString(entry.date)}</span></td>
-          <td>
-            <div style="font-weight: 500; color: #f3f4f6;">${entry.note || (isProp ? 'Under-Construction Milestone Disbursed' : 'Monthly Loan Repayment & Servicing')}</div>
-            <div style="font-size: 0.75rem; color: #9ca3af;">${isProp ? '🏡 Real Estate Tranche' : '🏦 SBI Home Loan A/C XXXXXXX9821'}</div>
-          </td>
-          <td class="text-right font-mono" style="color: #0ea5e9;">${isProp ? '₹' + absVal.toFixed(2) + ' L' : '—'}</td>
-          <td class="text-right font-mono" style="color: #10b981;">${!isProp && contrib > 0 ? '₹' + contrib.toFixed(2) + ' L' : '—'}</td>
-          <td class="text-right font-mono" style="color: #f43f5e;">${!isProp && interest > 0 ? '₹' + interest.toFixed(2) + ' L' : '—'}</td>
-          <td class="text-right font-mono" style="color: #e2e8f0;">${!isProp ? '-₹' + absVal.toFixed(2) + ' L' : '—'}</td>
-          <td class="text-right font-mono font-bold" style="color: #10b981;">+₹${netEquity.toFixed(2)} L</td>
-        </tr>
-      `;
-    });
-  }
-
-  rowsHtml += `
-    <tr>
-      <td><span class="table-date-badge">Current Position</span></td>
-      <td>
-        <div style="font-weight: 500; color: #f3f4f6;">Milestone Drawdown #3 (Current Disbursements Net of Repayments)</div>
-        <div style="font-size: 0.75rem; color: #9ca3af;">🏡 Under Construction • Expected Handover: Oct 2029</div>
-      </td>
-      <td class="text-right font-mono" style="color: #0ea5e9;">₹${propVal.toFixed(2)} L</td>
-      <td class="text-right font-mono" style="color: #10b981;">₹2.10 L</td>
-      <td class="text-right font-mono" style="color: #f43f5e;">₹0.73 L</td>
-      <td class="text-right font-mono" style="color: #e2e8f0;">-₹${loanVal.toFixed(2)} L</td>
-      <td class="text-right font-mono font-bold" style="color: #10b981;">+₹${netEquity.toFixed(2)} L</td>
-    </tr>
-  `;
+  HOME_LOAN_MONTHLY_SCHEDULE.forEach(entry => {
+    // Current styling if period includes current (though we removed 'Current' from July, leaving this logic just in case for future months)
+    const isCurrent = entry.period.includes('Current');
+    const badgeStyle = isCurrent 
+      ? 'background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);'
+      : '';
+    rowsHtml += `
+      <tr>
+        <td><span class="table-date-badge" style="${badgeStyle}">${entry.period}</span></td>
+        <td class="text-right font-mono" style="color: #0ea5e9;">₹${entry.propVal.toFixed(2)} L</td>
+        <td class="text-right font-mono" style="color: #94a3b8;">${entry.disbursedBank > 0 ? '₹' + entry.disbursedBank.toFixed(2) + ' L' : '—'}</td>
+        <td class="text-right font-mono" style="color: #cbd5e1;">₹${entry.disbursedSelf.toFixed(2)} L</td>
+        <td class="text-right font-mono" style="color: #34d399;">${entry.repaymentSelf > 0 ? '₹' + entry.repaymentSelf.toFixed(2) + ' L' : '—'}</td>
+        <td class="text-right font-mono" style="color: #e2e8f0;">${entry.loanVal > 0 ? '-₹' + entry.loanVal.toFixed(2) + ' L' : '₹0.00 L'}</td>
+        <td class="text-right font-mono font-bold" style="color: #10b981;">+₹${entry.equity.toFixed(2)} L</td>
+        <td class="text-right font-mono" style="color: #f87171;">${entry.interestPaid > 0 ? '₹' + entry.interestPaid.toFixed(2) + ' L' : '—'}</td>
+      </tr>
+    `;
+  });
 
   tbody.innerHTML = rowsHtml;
 }
@@ -6982,6 +6951,8 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     'Bonds (Debt)':       { label: 'Bonds',  category: 'Debt',      assetCategory: 'Bonds' },
     'Cash (Liquid)':      { label: 'Cash',   category: 'Liquid',    assetCategory: 'Cash' },
     'Crypto (Alternate)': { label: 'Crypto', category: 'Alternate', assetCategory: 'Crypto' },
+    'Real Estate (Property)': { label: 'Real Estate', category: 'Alternate', assetCategory: 'Real Estate' },
+    'Home Loan (Liability)': { label: 'Home Loan', category: 'Alternate', assetCategory: 'Home Loan' },
   };
   const niSec = breakupSummary.new_investment || {};
   Object.entries(COMP_META).forEach(([key, meta]) => {
@@ -7005,10 +6976,11 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   const _catAcFor = (code) => ({
     cat: /Debt|PF|PPF|Bonds|NPS-C|NPS-G/.test(code) ? 'Debt'
        : /Gold/.test(code) ? 'Gold' : /Cash/.test(code) ? 'Liquid'
-       : /Crypto/.test(code) ? 'Alternate' : 'Equity',
+       : /Crypto|RE-PROP|LOAN-HOME/.test(code) ? 'Alternate' : 'Equity',
     ac: /NPS/.test(code) ? 'NPS' : /PPF/.test(code) ? 'PPF' : /PF/.test(code) ? 'PF'
       : /Bonds/.test(code) ? 'Bonds' : /Gold/.test(code) ? 'Gold'
-      : /Cash/.test(code) ? 'Cash' : /Crypto/.test(code) ? 'Crypto' : 'NPS',
+      : /Cash/.test(code) ? 'Cash' : /Crypto/.test(code) ? 'Crypto'
+      : /RE-PROP/.test(code) ? 'Real Estate' : /LOAN-HOME/.test(code) ? 'Home Loan' : 'NPS',
   });
   const _fbBaseDateForLog = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
 
@@ -7062,6 +7034,8 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     'Bonds (Debt)':       { label: 'Bonds',    category: 'Debt',      assetCategory: 'Bonds' },
     'Cash (Liquid)':      { label: 'Cash',     category: 'Liquid',    assetCategory: 'Cash' },
     'Crypto (Alternate)': { label: 'Crypto',   category: 'Alternate', assetCategory: 'Crypto' },
+    'Real Estate (Property)': { label: 'Real Estate', category: 'Alternate', assetCategory: 'Real Estate' },
+    'Home Loan (Liability)': { label: 'Home Loan', category: 'Alternate', assetCategory: 'Home Loan' },
   };
   const returnsSec = breakupSummary.returns || {};
   Object.entries(RETURN_META).forEach(([key, meta]) => {
@@ -8130,15 +8104,30 @@ function startCloseChecklist() {
   const rows = comps.map(c => {
     const last = _lastBalanceFor(c);
     const lastTxt = last.date ? `${formatINR(last.value)} · ${formatDateString(last.date)}` : 'no record yet';
+    
+    let displayName = c;
+    let hintValue = 'Value ₹';
+    let hintContrib = 'Contribution ₹';
+    
+    if (c === 'RE-PROP') {
+      displayName = '🏡 RE-PROP (Gross Property Asset Value)';
+      hintValue = 'Total Asset Value ₹';
+      hintContrib = 'New Self Payment/Disbursement ₹';
+    } else if (c === 'LOAN-HOME') {
+      displayName = '🏦 LOAN-HOME (Home Loan Outstanding)';
+      hintValue = 'Loan Balance ₹ (Negative)';
+      hintContrib = 'Total EMI Paid (Principal + Interest) ₹';
+    }
+
     return `<div class="close-check-row" data-component="${c}" data-orig="${last.value}">
-      <div class="close-check-name">${c}<span class="close-check-last">${lastTxt}</span></div>
-      <label>Value ₹<input type="number" step="any" class="close-check-value" value="${Math.round(last.value)}"></label>
-      <label>Contribution ₹<input type="number" step="any" class="close-check-contrib" value="0"></label>
+      <div class="close-check-name">${displayName}<span class="close-check-last">${lastTxt}</span></div>
+      <label>${hintValue}<input type="number" step="any" class="close-check-value" value="${Math.round(last.value)}"></label>
+      <label>${hintContrib}<input type="number" step="any" class="close-check-contrib" value="0"></label>
     </div>`;
   }).join('');
   box.innerHTML = `
-    <p class="manage-hint">Update each component's current value (and any fresh contribution this month).
-    Untouched rows are skipped — only changed values are recorded.</p>
+    <p class="manage-hint">Update each component's current value and any fresh contribution/cash outflow this month.
+    <br><b>For Home Loan (LOAN-HOME):</b> Enter your updated loan balance (in ₹ negative) under Value, and your <b>Total EMI Paid (Principal + Interest)</b> under Contribution — this automatically factors all interest costs into your overall Portfolio XIRR.</p>
     ${rows}
     <div class="manage-actions">
       <button type="button" class="upload-btn" onclick="saveCloseChecklist()">✓ Save entered updates</button>

@@ -554,7 +554,7 @@
         <div class="chart-header">
           <div>
             <h3>🏡 Under-Construction Real Estate & Home Loan Suite</h3>
-            <p class="section-subtitle">Tracking SBI Home Loan (A/C XXXXXXX9821) • Sanction Limit: ₹4.50 Cr • Handover: Oct 2029</p>
+            <p class="section-subtitle">Tracking Monthly Property Asset & Home Loan Liability</p>
           </div>
           <div class="header-badges">
             <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0ea5e9;">Under Construction</span>
@@ -565,30 +565,25 @@
         <div class="tab-kpi-bar" style="margin: 1.25rem 0;">
           <div class="tab-kpi-card" style="--card-accent: #0ea5e9;">
             <div class="tab-kpi-label">Gross Property Asset</div>
-            <div class="tab-kpi-value" id="re-prop-val">₹1.19 Cr</div>
-            <div class="tab-kpi-sub" id="re-prop-sub" class="trend-up">₹119.18 L (26.5% Disbursed)</div>
+            <div class="tab-kpi-value" id="re-prop-val">₹1.31 Cr</div>
+            <div class="tab-kpi-sub" id="re-prop-sub" class="trend-up">₹130.64 L Total Value</div>
           </div>
           <div class="tab-kpi-card" style="--card-accent: #f43f5e;">
             <div class="tab-kpi-label">Home Loan Outstanding</div>
-            <div class="tab-kpi-value" id="loan-home-val">-₹1.17 Cr</div>
-            <div class="tab-kpi-sub" id="loan-home-sub" class="trend-down">-₹117.08 L Net Liability</div>
+            <div class="tab-kpi-value" id="loan-home-val">-₹1.19 Cr</div>
+            <div class="tab-kpi-sub" id="loan-home-sub" class="trend-down">-₹119.00 L Net Liability</div>
           </div>
           <div class="tab-kpi-card" style="--card-accent: #10b981;">
             <div class="tab-kpi-label">Net Property Equity</div>
-            <div class="tab-kpi-value" id="re-equity-val">+₹2.10 L</div>
+            <div class="tab-kpi-value" id="re-equity-val">+₹11.64 L</div>
             <div class="tab-kpi-sub" id="re-equity-sub" class="trend-up">Principal Equity Built</div>
-          </div>
-          <div class="tab-kpi-card" style="--card-accent: #8b5cf6;">
-            <div class="tab-kpi-label">Remaining Sanction Undisbursed</div>
-            <div class="tab-kpi-value" id="loan-undisbursed-val">₹3.31 Cr</div>
-            <div class="tab-kpi-sub" id="loan-undisbursed-sub">₹330.82 L to Oct 2029 Handover</div>
           </div>
         </div>
 
         <!-- Timeline Chart Card -->
         <div style="margin-top: 1.5rem; margin-bottom: 2rem;">
           <div class="chart-header" style="margin-bottom: 0.75rem;">
-            <h4>📈 Sanction Limit vs. Milestone Drawdown Timeline (to Oct 2029 Handover)</h4>
+            <h4>📈 Monthly Property Asset vs. Home Loan Timeline</h4>
             <div class="chart-legend-inline">
               <span class="legend-item"><span class="legend-dot" style="background:#0ea5e9;"></span>Gross Disbursed</span>
               <span class="legend-item"><span class="legend-dot" style="background:#f43f5e;"></span>Loan Outstanding</span>
@@ -603,20 +598,21 @@
         <!-- Monthly Servicing Statement Table -->
         <div>
           <div class="chart-header" style="margin-bottom: 0.75rem;">
-            <h4>📋 SBI Home Loan Servicing Statement & Milestone Log</h4>
-            <span class="table-count-badge">Matched Asset-Liability Tracking</span>
+            <h4>📋 Monthly Property Asset & Home Loan Tracking</h4>
+            <span class="table-count-badge">Asset-Liability Schedule</span>
           </div>
           <div class="table-responsive">
             <table id="home-loan-table" class="data-table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Description / Milestone</th>
-                  <th class="text-right">Gross Disbursed</th>
-                  <th class="text-right">Principal Repaid</th>
+                  <th>Period</th>
+                  <th class="text-right">Gross Property Asset</th>
+                  <th class="text-right">Total Disbursed Bank</th>
+                  <th class="text-right">Total Disbursed Self</th>
+                  <th class="text-right">Total Repayment Self</th>
+                  <th class="text-right">Home Loan Liability</th>
+                  <th class="text-right">Net Equity</th>
                   <th class="text-right">Interest Paid</th>
-                  <th class="text-right">Outstanding Loan</th>
-                  <th class="text-right">Net Equity Built</th>
                 </tr>
               </thead>
               <tbody id="home-loan-table-body">
