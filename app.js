@@ -1702,8 +1702,10 @@ function updateKpis() {
   document.getElementById('kpi-equity-pct').innerText = portfolioSummary.allocation_pct.Equity.toFixed(1) + '%';
   document.getElementById('kpi-debt-val').innerText = formatLakhs(portfolioSummary.debt_lakhs);
   document.getElementById('kpi-debt-pct').innerText = portfolioSummary.allocation_pct.Debt.toFixed(1) + '%';
-  document.getElementById('kpi-gold-val').innerText = formatLakhs(portfolioSummary.gold_lakhs);
-  document.getElementById('kpi-gold-pct').innerText = portfolioSummary.allocation_pct.Gold.toFixed(1) + '%';
+  const others_lakhs = portfolioSummary.gold_lakhs + portfolioSummary.liquid_lakhs + portfolioSummary.alternate_lakhs;
+  const others_pct = portfolioSummary.allocation_pct.Gold + portfolioSummary.allocation_pct.Liquid + portfolioSummary.allocation_pct.Alternate;
+  document.getElementById('kpi-others-val').innerText = formatLakhs(others_lakhs);
+  document.getElementById('kpi-others-pct').innerText = others_pct.toFixed(1) + '%';
 
   // Calculate last uploaded total value (sum of invested amounts across all holdings)
   // and this month's gain from breakup_summary net_worth values
@@ -1802,13 +1804,14 @@ function updateKpis() {
     debtXirrEl.innerText = (computedDebtXirr * 100).toFixed(1) + '%';
   }
 
-  // Gold XIRR: merge cashflows across all SGB + Gold ETF holdings
+  // Others XIRR (proxying to Gold XIRR for now since Alternate/Liquid don't have tracked XIRRs)
   const goldSectors = new Set(['Sovereign Gold Bonds', 'Gold Commodity (ETF)']);
   const goldInstruments = latestEquity.filter(s => goldSectors.has(s.sector)).map(s => s.instrument);
   const goldXirr = mergedXirr(goldInstruments);
-  const goldXirrEl = document.getElementById('kpi-gold-xirr');
-  if (goldXirrEl && goldXirr != null) {
-    goldXirrEl.innerText = (goldXirr * 100).toFixed(1) + '%';
+  const othersXirrEl = document.getElementById('kpi-others-xirr');
+  if (othersXirrEl && goldXirr != null) {
+    othersXirrEl.innerText = (goldXirr * 100).toFixed(1) + '%*';
+    othersXirrEl.title = 'XIRR proxy based on Gold holdings only';
   }
 
   // Stocks: current value + overall gain (absolute + %)
