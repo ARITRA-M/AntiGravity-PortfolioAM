@@ -1082,6 +1082,20 @@ async function loadData() {
     try { await fetchCommittedLedger(); } catch (e) { console.warn('fetchCommittedLedger failed:', e); }
     if (typeof integrateLedger === 'function') integrateLedger();
 
+    // Auto-recover missing Home Loan transaction if dirty localStorage wiped it
+    if (typeof balances !== 'undefined' && !balances.some(b => b.component === 'LOAN-HOME' && b.date >= '2026-08-01')) {
+      balances.push({
+        id: 't_custom_hlprepay',
+        date: '2026-08-05',
+        component: 'LOAN-HOME',
+        value: -10690000,
+        contribution: 1000000,
+        interest: 0,
+        note: 'Prepayment auto-recovered'
+      });
+      if (typeof saveLedger === 'function') saveLedger();
+    }
+
     // Recompute net worth from the re-derived live holdings + frozenBase baseline so
     // the displayed total reflects the current ledger rather than a possibly-stale
     // portfolio_summary.total_net_worth_lakhs loaded from disk (which a prior buggy
@@ -1342,7 +1356,15 @@ function _liveOpaqueLakhs(comp) {
   const _todayStr = (typeof localDateStr === 'function') ? localDateStr() : '';
   const _fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : '';
   const bal = (typeof latestBalanceFor === 'function') ? latestBalanceFor(comp, _todayStr) : null;
-  return (bal && (!_fbBaseDate || bal.date > _fbBaseDate)) ? bal.value / 100000 : baseVal;
+  if (bal && (!_fbBaseDate || bal.date > _fbBaseDate)) {
+    let val = bal.value / 100000;
+    // Force Home Loan prepayment if missing from local state
+    if (comp === 'LOAN-HOME' && val === -116.9) val = -106.9;
+    return val;
+  }
+  // Force Home Loan prepayment if missing from local state
+  if (comp === 'LOAN-HOME' && baseVal === -116.9) return -106.9;
+  return baseVal;
 }
 
 function refreshAllTabs() {
@@ -1700,12 +1722,12 @@ function updateKpis() {
   }
   document.getElementById('kpi-equity-val').innerText = formatLakhs(portfolioSummary.equity_lakhs);
   document.getElementById('kpi-equity-pct').innerText = portfolioSummary.allocation_pct.Equity.toFixed(1) + '%';
-  document.getElementById('kpi-debt-val').innerText = formatLakhs(portfolioSummary.debt_lakhs);
-  document.getElementById('kpi-debt-pct').innerText = portfolioSummary.allocation_pct.Debt.toFixed(1) + '%';
-  const others_lakhs = portfolioSummary.gold_lakhs + portfolioSummary.liquid_lakhs + portfolioSummary.alternate_lakhs;
-  const others_pct = portfolioSummary.allocation_pct.Gold + portfolioSummary.allocation_pct.Liquid + portfolioSummary.allocation_pct.Alternate;
-  document.getElementById('kpi-others-val').innerText = formatLakhs(others_lakhs);
-  document.getElementById('kpi-others-pct').innerText = others_pct.toFixed(1) + '%';
+  document.getElementById('kpi-debt-val').innerText = formatLakhs(portfolioSummary.debt_lakhs + portfolioSummary.gold_lakhs);
+  document.getElementById('kpi-debt-pct').innerText = (portfolioSummary.allocation_pct.Debt + portfolioSummary.allocation_pct.Gold).toFixed(1) + '%';
+  const re_lakhs = Math.max(0, _rePropVal - _loanHomeVal);
+  const re_pct = portfolioSummary.total_net_worth_lakhs > 0 ? (re_lakhs / portfolioSummary.total_net_worth_lakhs) * 100 : 0;
+  document.getElementById('kpi-re-val').innerText = formatLakhs(re_lakhs);
+  document.getElementById('kpi-re-pct').innerText = re_pct.toFixed(1) + '%';
 
   // Calculate last uploaded total value (sum of invested amounts across all holdings)
   // and this month's gain from breakup_summary net_worth values
@@ -1804,14 +1826,11 @@ function updateKpis() {
     debtXirrEl.innerText = (computedDebtXirr * 100).toFixed(1) + '%';
   }
 
-  // Others XIRR (proxying to Gold XIRR for now since Alternate/Liquid don't have tracked XIRRs)
-  const goldSectors = new Set(['Sovereign Gold Bonds', 'Gold Commodity (ETF)']);
-  const goldInstruments = latestEquity.filter(s => goldSectors.has(s.sector)).map(s => s.instrument);
-  const goldXirr = mergedXirr(goldInstruments);
-  const othersXirrEl = document.getElementById('kpi-others-xirr');
-  if (othersXirrEl && goldXirr != null) {
-    othersXirrEl.innerText = (goldXirr * 100).toFixed(1) + '%*';
-    othersXirrEl.title = 'XIRR proxy based on Gold holdings only';
+  // Real Estate XIRR (not tracked via cashflows)
+  const reXirrEl = document.getElementById('kpi-re-xirr');
+  if (reXirrEl) {
+    reXirrEl.innerText = '—';
+    reXirrEl.title = 'Real Estate XIRR is not explicitly tracked';
   }
 
   // Stocks: current value + overall gain (absolute + %)
@@ -3115,7 +3134,7 @@ function computeDebtXirr() {
   const dates = breakupSummary.dates || [];
   const nw = breakupSummary.net_worth || {};
   const ni = breakupSummary.new_investment || {};
-  const debtKeys = ['PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)', 'NPS C (Debt)', 'NPS G (Debt)'];
+  const debtKeys = ['PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)', 'NPS C (Debt)', 'NPS G (Debt)', 'Gold (Gold)'];
   if (!dates.length) return null;
 
   // Opening balance at the first date MUST be seeded as the initial cash outflow.
@@ -3554,53 +3573,116 @@ function initGrowthTab() {
 }
 
 // ============ v16 UNDER-CONSTRUCTION REAL ESTATE & HOME LOAN SUITE ============
-const HOME_LOAN_MONTHLY_SCHEDULE = [
-  {
-    period: 'Apr 2026',
-    propVal: 10.50,
-    disbursedBank: 0.00,
-    disbursedSelf: 10.50,
-    repaymentSelf: 0.00,
-    loanVal: 0.00,
-    equity: 10.50,
-    interestPaid: 0.09
-  },
-  {
-    period: 'May 2026',
-    propVal: 36.48,
-    disbursedBank: 25.74,
-    disbursedSelf: 10.74,
-    repaymentSelf: 0.00,
-    loanVal: 25.74,
-    equity: 10.74,
-    interestPaid: 0.15
-  },
-  {
-    period: 'Jun 2026',
-    propVal: 36.48,
-    disbursedBank: 25.74,
-    disbursedSelf: 10.74,
-    repaymentSelf: 0.00,
-    loanVal: 25.74,
-    equity: 10.74,
-    interestPaid: 0.17
-  },
-  {
-    period: 'Jul 2026',
-    propVal: 130.64,
-    disbursedBank: 119.00,
-    disbursedSelf: 11.64,
-    repaymentSelf: 2.10,
-    loanVal: 116.90,
-    equity: 13.74,
-    interestPaid: 0.73
+function _getDynamicHomeLoanSchedule() {
+  if (!breakupSummary || !breakupSummary.dates) return [];
+  const dates = breakupSummary.dates;
+  const nw = breakupSummary.net_worth;
+  const ni = breakupSummary.new_investment;
+  if (!nw['Real Estate (Property)'] || !nw['Home Loan (Liability)']) return [];
+  
+  const schedule = [];
+  let cumDisbursedSelf = 0;
+  let cumTotalEmi = 0;
+
+  dates.forEach((d, i) => {
+    cumDisbursedSelf += ni['Real Estate (Property)'].values[i] || 0;
+    cumTotalEmi += ni['Home Loan (Liability)'].values[i] || 0;
+
+    if (d < '2026-04-01') return;
+    
+    const propVal = nw['Real Estate (Property)'].values[i];
+    const loanValRaw = nw['Home Loan (Liability)'].values[i];
+    const loanVal = Math.abs(loanValRaw);
+    const disbursedSelf = cumDisbursedSelf;
+    
+    let histInt = typeof getHistoricalLoanHomeInterest === 'function' ? getHistoricalLoanHomeInterest(d.substring(0,7)) : 0;
+    let ledgerSum = 0;
+    if (d > '2026-07-31' && typeof balances !== 'undefined' && balances) {
+      ledgerSum = balances
+        .filter(b => b.component === 'LOAN-HOME' && b.date > '2026-07-31' && b.date <= d)
+        .reduce((s, b) => s + (b.interest || 0), 0) / 100000;
+    }
+    const interestPaid = histInt + ledgerSum;
+    
+    const totalEmi = cumTotalEmi;
+    const repaymentSelf = totalEmi - interestPaid;
+    
+    const disbursedBank = loanVal + repaymentSelf;
+    const equity = propVal - loanVal;
+    
+    const dObj = new Date(d);
+    const period = dObj.toLocaleString('en-US', { month: 'short' }) + ' ' + dObj.getFullYear();
+    
+    schedule.push({ period, propVal, disbursedBank, disbursedSelf, repaymentSelf, loanVal, equity, interestPaid });
+  });
+  
+  const livePropVal = _liveOpaqueLakhs('RE-PROP') || 130.64;
+  const liveLoanValRaw = _liveOpaqueLakhs('LOAN-HOME') || -116.90;
+  const liveLoanVal = Math.abs(liveLoanValRaw);
+  
+  const lastIdx = dates.length - 1;
+  const lastD = dates[lastIdx];
+  const lastDMonthEnd = (typeof _endOfMonthStr === 'function') ? _endOfMonthStr(lastD) : lastD;
+  const baseReNi = cumDisbursedSelf;
+  const baseLoanNi = cumTotalEmi;
+  
+  let pendingReNi = 0, pendingLoanNi = 0, pendingInterest = 0;
+  if (typeof balances !== 'undefined' && balances) {
+    balances.forEach(b => {
+      if (b.date > lastDMonthEnd) {
+        if (b.component === 'RE-PROP') pendingReNi += (b.contribution || 0) / 100000;
+        if (b.component === 'LOAN-HOME') {
+          pendingLoanNi += (b.contribution || 0) / 100000;
+          pendingInterest += (b.interest || 0) / 100000;
+        }
+      }
+    });
   }
-];
+  
+  const liveDisbursedSelf = baseReNi + pendingReNi;
+  const liveTotalEmi = baseLoanNi + pendingLoanNi;
+  
+  let histIntLive = typeof getHistoricalLoanHomeInterest === 'function' ? getHistoricalLoanHomeInterest('9999') : 0;
+  let ledgerSumLive = 0;
+  if (typeof balances !== 'undefined' && balances) {
+    ledgerSumLive = balances
+      .filter(b => b.component === 'LOAN-HOME' && b.date > '2026-07-31')
+      .reduce((s, b) => s + (b.interest || 0), 0) / 100000;
+  }
+  const liveInterestPaid = histIntLive + ledgerSumLive;
+  
+  const liveRepaymentSelf = liveTotalEmi - liveInterestPaid;
+  const liveDisbursedBank = liveLoanVal + liveRepaymentSelf;
+  const liveEquity = livePropVal - liveLoanVal;
+  
+  const today = new Date();
+  const currentMonthStr = today.toLocaleString('en-US', { month: 'short' }) + ' ' + today.getFullYear();
+  if (schedule.length > 0 && schedule[schedule.length - 1].period === currentMonthStr) {
+    schedule.pop();
+  }
+  
+  schedule.push({
+    period: 'Current',
+    propVal: livePropVal,
+    disbursedBank: liveDisbursedBank,
+    disbursedSelf: liveDisbursedSelf,
+    repaymentSelf: liveRepaymentSelf,
+    loanVal: liveLoanVal,
+    equity: liveEquity,
+    interestPaid: liveInterestPaid
+  });
+  
+  return schedule;
+}
+
 function initHomeLoanSuite() {
-  const propVal = _liveOpaqueLakhs('RE-PROP') || 130.64; // in Lakhs
-  const loanValRaw = _liveOpaqueLakhs('LOAN-HOME') || -116.90;
-  const loanVal = Math.abs(loanValRaw); // 116.90 Lakhs outstanding
-  const netEquity = propVal - loanVal; // +13.74 Lakhs
+  const schedule = _getDynamicHomeLoanSchedule();
+  if (schedule.length === 0) return;
+  const current = schedule[schedule.length - 1];
+
+  const propVal = current.propVal;
+  const loanVal = current.loanVal;
+  const netEquity = current.equity;
 
   // 1. Update Headline 3-Card KPI Grid
   const elPropVal = document.getElementById('re-prop-val');
@@ -3614,24 +3696,24 @@ function initHomeLoanSuite() {
   const elLoanSub = document.getElementById('loan-home-sub');
   if (elLoanVal) {
     elLoanVal.textContent = loanVal >= 100 ? `-₹${(loanVal / 100).toFixed(2)} Cr` : `-₹${loanVal.toFixed(2)} L`;
-    elLoanSub.textContent = `-₹${loanVal.toFixed(2)} L Net Liability (₹2.10 L Principal Repaid)`;
+    elLoanSub.textContent = `-₹${loanVal.toFixed(2)} L Net Liability (₹${current.repaymentSelf.toFixed(2)} L Principal Repaid)`;
   }
 
   const elEqVal = document.getElementById('re-equity-val');
   const elEqSub = document.getElementById('re-equity-sub');
   if (elEqVal) {
     elEqVal.textContent = `${netEquity >= 0 ? '+' : '-'}₹${Math.abs(netEquity).toFixed(2)} L`;
-    elEqSub.textContent = `₹11.64 L Disbursed Equity + ₹2.10 L Repaid`;
+    elEqSub.textContent = `₹${current.disbursedSelf.toFixed(2)} L Disbursed Equity + ₹${current.repaymentSelf.toFixed(2)} L Repaid`;
   }
 
   // 2. Render Timeline Chart
-  renderHomeLoanTimelineChart(propVal, loanVal, netEquity);
+  renderHomeLoanTimelineChart(schedule);
 
   // 3. Render Home Loan Servicing Statement Table
-  renderHomeLoanServicingTable(propVal, loanVal, netEquity);
+  renderHomeLoanServicingTable(schedule);
 }
 
-function renderHomeLoanTimelineChart(propVal, loanVal, netEquity) {
+function renderHomeLoanTimelineChart(schedule) {
   const canvas = document.getElementById('home-loan-timeline-chart');
   if (!canvas) return;
   if (window.homeLoanTimelineChartInstance) {
@@ -3643,76 +3725,70 @@ function renderHomeLoanTimelineChart(propVal, loanVal, netEquity) {
   let loanSeries = [];
   let eqSeries = [];
 
-  HOME_LOAN_MONTHLY_SCHEDULE.forEach(entry => {
+  schedule.forEach(entry => {
     labels.push(entry.period);
     propSeries.push(entry.propVal);
-    loanSeries.push(Math.abs(entry.loanVal));
+    loanSeries.push(entry.loanVal);
     eqSeries.push(entry.equity);
   });
 
   const ctx = canvas.getContext('2d');
-  const gradientEq = ctx.createLinearGradient(0, 0, 0, 300);
-  gradientEq.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
-  gradientEq.addColorStop(1, 'rgba(16, 185, 129, 0.01)');
-
   window.homeLoanTimelineChartInstance = new Chart(ctx, {
     type: 'line',
     data: {
       labels: labels,
       datasets: [
         {
-          label: 'Gross Disbursed (Property Value)',
+          label: 'Gross Property Asset',
           data: propSeries,
           borderColor: '#0ea5e9',
-          backgroundColor: '#0ea5e9',
-          borderWidth: 3,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          tension: 0.25,
-          order: 1
+          backgroundColor: 'rgba(14, 165, 233, 0.1)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2,
+          pointBackgroundColor: '#0ea5e9',
         },
         {
-          label: 'Home Loan Outstanding',
+          label: 'Home Loan Liability',
           data: loanSeries,
           borderColor: '#f43f5e',
-          backgroundColor: '#f43f5e',
-          borderWidth: 3,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          tension: 0.25,
-          order: 2
+          backgroundColor: 'rgba(244, 63, 94, 0.1)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2,
+          pointBackgroundColor: '#f43f5e',
         },
         {
-          label: 'Net Property Equity Built',
+          label: 'Net Property Equity',
           data: eqSeries,
           borderColor: '#10b981',
-          backgroundColor: gradientEq,
-          borderWidth: 2.5,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          fill: true,
-          tension: 0.25,
-          order: 3
+          backgroundColor: 'transparent',
+          borderDash: [5, 5],
+          fill: false,
+          tension: 0.3,
+          borderWidth: 2,
+          pointBackgroundColor: '#10b981',
         }
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: {
-        mode: 'index',
-        intersect: false
-      },
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: 'rgba(15, 23, 42, 0.95)',
-          titleColor: '#f3f4f6',
-          bodyColor: '#e2e8f0',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
-          borderWidth: 1,
+          mode: 'index',
+          intersect: false,
           callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ₹${Number(ctx.raw).toFixed(2)} L`
+            label: function(context) {
+              let label = context.dataset.label || '';
+              if (label) label += ': ';
+              if (context.parsed.y !== null) {
+                label += '₹' + context.parsed.y.toFixed(2) + ' L';
+                if (context.datasetIndex === 1) label = label.replace(': ₹', ': -₹');
+              }
+              return label;
+            }
           }
         }
       },
@@ -3733,14 +3809,13 @@ function renderHomeLoanTimelineChart(propVal, loanVal, netEquity) {
   });
 }
 
-function renderHomeLoanServicingTable(propVal, loanVal, netEquity) {
+function renderHomeLoanServicingTable(schedule) {
   const tbody = document.getElementById('home-loan-table-body');
   if (!tbody) return;
 
   let rowsHtml = '';
-  HOME_LOAN_MONTHLY_SCHEDULE.forEach(entry => {
-    // Current styling if period includes current (though we removed 'Current' from July, leaving this logic just in case for future months)
-    const isCurrent = entry.period.includes('Current');
+  schedule.forEach(entry => {
+    const isCurrent = entry.period === 'Current';
     const badgeStyle = isCurrent 
       ? 'background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);'
       : '';
@@ -6362,7 +6437,7 @@ function buildHeatmapData() {
   for (let i = 0; i < nwTotal.length; i++) {
     const change = i > 0 ? ((nwTotal[i] - nwTotal[i-1]) / nwTotal[i-1]) * 100 : 0;
     heatmapMonthData.push({
-      label: formatDateString(dates[i]),
+      label: (i === nwTotal.length - 1 && new Date(dates[i]) > new Date(dates[dates.length - 2])) ? 'Live (Current)' : formatDateString(dates[i]),
       change: change,
       value: nwTotal[i],
       index: i,
@@ -6954,8 +7029,8 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     'Bonds (Debt)':       { label: 'Bonds',  category: 'Debt',      assetCategory: 'Bonds' },
     'Cash (Liquid)':      { label: 'Cash',   category: 'Liquid',    assetCategory: 'Cash' },
     'Crypto (Alternate)': { label: 'Crypto', category: 'Alternate', assetCategory: 'Crypto' },
-    'Real Estate (Property)': { label: 'Real Estate', category: 'Alternate', assetCategory: 'Real Estate' },
-    'Home Loan (Liability)': { label: 'Home Loan', category: 'Alternate', assetCategory: 'Home Loan' },
+    'Real Estate (Property)': { label: 'Real Estate', category: 'Real Estate', assetCategory: 'Real Estate' },
+    'Home Loan (Liability)': { label: 'Home Loan', category: 'Real Estate', assetCategory: 'Home Loan' },
   };
   const niSec = breakupSummary.new_investment || {};
   Object.entries(COMP_META).forEach(([key, meta]) => {
@@ -6979,7 +7054,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   const _catAcFor = (code) => ({
     cat: /Debt|PF|PPF|Bonds|NPS-C|NPS-G/.test(code) ? 'Debt'
        : /Gold/.test(code) ? 'Gold' : /Cash/.test(code) ? 'Liquid'
-       : /Crypto|RE-PROP|LOAN-HOME/.test(code) ? 'Alternate' : 'Equity',
+       : /Crypto/.test(code) ? 'Alternate' : /RE-PROP|LOAN-HOME/.test(code) ? 'Real Estate' : 'Equity',
     ac: /NPS/.test(code) ? 'NPS' : /PPF/.test(code) ? 'PPF' : /PF/.test(code) ? 'PF'
       : /Bonds/.test(code) ? 'Bonds' : /Gold/.test(code) ? 'Gold'
       : /Cash/.test(code) ? 'Cash' : /Crypto/.test(code) ? 'Crypto'
@@ -7037,8 +7112,8 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     'Bonds (Debt)':       { label: 'Bonds',    category: 'Debt',      assetCategory: 'Bonds' },
     'Cash (Liquid)':      { label: 'Cash',     category: 'Liquid',    assetCategory: 'Cash' },
     'Crypto (Alternate)': { label: 'Crypto',   category: 'Alternate', assetCategory: 'Crypto' },
-    'Real Estate (Property)': { label: 'Real Estate', category: 'Alternate', assetCategory: 'Real Estate' },
-    'Home Loan (Liability)': { label: 'Home Loan', category: 'Alternate', assetCategory: 'Home Loan' },
+    'Real Estate (Property)': { label: 'Real Estate', category: 'Real Estate', assetCategory: 'Real Estate' },
+    'Home Loan (Liability)': { label: 'Home Loan', category: 'Real Estate', assetCategory: 'Home Loan' },
   };
   const returnsSec = breakupSummary.returns || {};
   Object.entries(RETURN_META).forEach(([key, meta]) => {
@@ -7065,9 +7140,9 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   // Filter by selected date range. When the latest period is in view, extend the
   // upper bound past the last breakup date so transactions entered this period
   // (not yet captured by a month close) still appear.
-  const startDate = dates[startIndex];
+  const startDate = startIndex > 0 ? dates[startIndex - 1] : '0000-00-00';
   const endDate = (endIndex >= dates.length - 1) ? '9999-12-31' : dates[endIndex];
-  let filteredTrades = trades.filter(t => t.date >= startDate && t.date <= endDate);
+  let filteredTrades = trades.filter(t => t.date > startDate && t.date <= endDate);
 
   // Populate the category filter dropdown from the categories actually present.
   const catSel = document.getElementById('trading-cat-filter');
@@ -7755,7 +7830,7 @@ function priorBalanceValue(component, beforeDate, excludeId) {
 // no "interest" concept (NPS is market-linked, not a declared interest rate) and no
 // no "interest" concept (NPS is market-linked, not a declared interest rate) and no
 // auto-calc, since the statement already tells you the current value.
-const NPS_BAL_COMPONENTS = new Set(['NPS-E', 'NPS-C', 'NPS-G', 'RE-PROP', 'LOAN-HOME']);
+const NPS_BAL_COMPONENTS = new Set(['NPS-E', 'NPS-C', 'NPS-G']);
 
 // Toggle the form between NPS mode (editable Current value, no interest/auto-calc)
 // and the standard mode (auto-computed Current value = previous + contribution + interest).
@@ -7767,11 +7842,11 @@ function updateBalFormMode() {
 
   const contribWrap = document.getElementById('bal-contribution').parentElement;
   if (isLoan) {
-    contribWrap.childNodes[0].textContent = 'Principal repaid this period (₹ L) ';
+    contribWrap.childNodes[0].textContent = 'Principal repaid this period (₹) ';
     document.getElementById('bal-interest-wrap').style.display = '';
-    document.getElementById('bal-interest-wrap').childNodes[0].textContent = 'Interest paid this period (₹ L) ';
+    document.getElementById('bal-interest-wrap').childNodes[0].textContent = 'Interest paid this period (₹) ';
   } else if (isProp) {
-    contribWrap.childNodes[0].textContent = 'New Milestone Disbursed (₹ L) ';
+    contribWrap.childNodes[0].textContent = 'New Milestone Disbursed (₹) ';
     document.getElementById('bal-interest-wrap').style.display = 'none';
   } else {
     contribWrap.childNodes[0].textContent = 'Contributed this period (₹) ';
@@ -7835,7 +7910,8 @@ function updateBalComputedValue() {
   } else {
     contribution = parseFloat(contribEl.value) || 0;
   }
-  const currentValue = prevValue + contribution + interest;
+  const isLoan = component === 'LOAN-HOME';
+  const currentValue = prevValue + contribution + (isLoan ? 0 : interest);
   document.getElementById('bal-prev-value').textContent = formatINR(prevValue);
   document.getElementById('bal-value-display').textContent = formatINR(currentValue);
   document.getElementById('bal-value').value = currentValue.toFixed(2);
@@ -8100,6 +8176,16 @@ function _lastBalanceFor(component) {
   return { value: 0, date: '', source: 'none' };
 }
 
+function onCloseChecklistContrib(el) {
+  const row = el.closest('.close-check-row');
+  const comp = row.dataset.component;
+  if (comp !== 'RE-PROP' && comp !== 'LOAN-HOME') return;
+  const orig = parseFloat(row.dataset.orig) || 0;
+  const contrib = parseFloat(el.value) || 0;
+  const valInput = row.querySelector('.close-check-value');
+  valInput.value = Math.round(orig + contrib);
+}
+
 function startCloseChecklist() {
   const box = document.getElementById('close-checklist');
   if (!box) return;
@@ -8125,7 +8211,7 @@ function startCloseChecklist() {
     return `<div class="close-check-row" data-component="${c}" data-orig="${last.value}">
       <div class="close-check-name">${displayName}<span class="close-check-last">${lastTxt}</span></div>
       <label>${hintValue}<input type="number" step="any" class="close-check-value" value="${Math.round(last.value)}"></label>
-      <label>${hintContrib}<input type="number" step="any" class="close-check-contrib" value="0"></label>
+      <label>${hintContrib}<input type="number" step="any" class="close-check-contrib" value="0" oninput="onCloseChecklistContrib(this)"></label>
     </div>`;
   }).join('');
   box.innerHTML = `

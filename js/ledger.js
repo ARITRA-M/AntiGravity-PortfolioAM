@@ -1175,7 +1175,33 @@ function getHistoricalLoanHomeValue(dateStr) {
   return -116.90;                         // Jul 2026 onwards: 119L Disbursed - 2.10L Repaid = -116.90L
 }
 
-function ensureBreakupComponent(key, label, initialVal = 0, valueFn = null) {
+function getHistoricalREPropNewInv(dateStr) {
+  if (dateStr < '2026-04') return 0;
+  if (dateStr < '2026-05') return 10.50;  // Apr 2026: Self Disbursed 10.50L
+  if (dateStr < '2026-06') return 0.24;   // May 2026: 10.74 - 10.50 = 0.24L
+  if (dateStr < '2026-07') return 0.00;   // Jun 2026: 10.74 - 10.74 = 0.00L
+  if (dateStr < '2026-08') return 0.90;   // Jul 2026: 11.64 - 10.74 = 0.90L
+  return 0;                               // Aug 2026 onwards (handled by live ledger)
+}
+
+function getHistoricalLoanHomeNewInv(dateStr) {
+  if (dateStr < '2026-04') return 0;
+  if (dateStr < '2026-05') return 0.09;   // Apr 2026
+  if (dateStr < '2026-06') return 0.06;   // May 2026: 0.15 - 0.09 = 0.06L
+  if (dateStr < '2026-07') return 0.02;   // Jun 2026: 0.17 - 0.15 = 0.02L
+  if (dateStr < '2026-08') return 2.66;   // Jul 2026: 2.83 - 0.17 = 2.66L
+  return 0;                               // Aug 2026 onwards (handled by live ledger)
+}
+
+function getHistoricalLoanHomeInterest(dateStr) {
+  if (dateStr < '2026-04') return 0;
+  if (dateStr < '2026-05') return 0.09;
+  if (dateStr < '2026-06') return 0.15;
+  if (dateStr < '2026-07') return 0.17;
+  return 0.73;
+}
+
+function ensureBreakupComponent(key, label, initialVal = 0, valueFn = null, newInvFn = null) {
   if (!breakupSummary || !breakupSummary.dates) return;
   const numDates = breakupSummary.dates.length;
   ['net_worth', 'new_investment', 'contribution', 'returns'].forEach(sec => {
@@ -1191,6 +1217,10 @@ function ensureBreakupComponent(key, label, initialVal = 0, valueFn = null) {
             values[i] = initialVal;
           }
         }
+      } else if (sec === 'new_investment' && typeof newInvFn === 'function') {
+        for (let i = 0; i < numDates; i++) {
+          values[i] = newInvFn(breakupSummary.dates[i]);
+        }
       }
       breakupSummary[sec][key] = {
         label: label,
@@ -1202,17 +1232,38 @@ function ensureBreakupComponent(key, label, initialVal = 0, valueFn = null) {
 
 function rebuildBreakupFromLedger() {
   if (!breakupSummary || !breakupSummary.dates?.length || !frozenBase) return false;
-  ensureBreakupComponent('Real Estate (Property)', 'Real Estate', 130.64, getHistoricalREPropValue);
-  ensureBreakupComponent('Home Loan (Liability)', 'Home Loan', -116.90, getHistoricalLoanHomeValue);
+
+  // Fix user typo: shift any errant backdated RE/Loan balances into the live era (August 2026)
+  // Since all data before Aug 2026 is hardcoded via getHistorical functions, any user balance
+  // before '2026-08-01' is guaranteed to be a user error (e.g. entering June instead of August).
+  if (typeof balances !== 'undefined' && balances) {
+    let changed = false;
+    balances.forEach(b => {
+      if ((b.component === 'RE-PROP' || b.component === 'LOAN-HOME') && b.date <= '2026-07-31') {
+        b.date = '2026-08-01';
+        changed = true;
+      }
+    });
+    if (changed && typeof saveLedger === 'function') saveLedger();
+  }
+
+  ensureBreakupComponent('Real Estate (Property)', 'Real Estate', 130.64, getHistoricalREPropValue, getHistoricalREPropNewInv);
+  ensureBreakupComponent('Home Loan (Liability)', 'Home Loan', -116.90, getHistoricalLoanHomeValue, getHistoricalLoanHomeNewInv);
   const dates = breakupSummary.dates;
   if (breakupSummary.net_worth && breakupSummary.net_worth['Real Estate (Property)']) {
     dates.forEach((d, i) => {
-      breakupSummary.net_worth['Real Estate (Property)'].values[i] = getHistoricalREPropValue(d);
-    });
-  }
-  if (breakupSummary.net_worth && breakupSummary.net_worth['Home Loan (Liability)']) {
-    dates.forEach((d, i) => {
-      breakupSummary.net_worth['Home Loan (Liability)'].values[i] = getHistoricalLoanHomeValue(d);
+      if (d <= '2026-08-31') {
+        breakupSummary.net_worth['Real Estate (Property)'].values[i] = getHistoricalREPropValue(d);
+        if (breakupSummary.new_investment && breakupSummary.new_investment['Real Estate (Property)']) {
+          breakupSummary.new_investment['Real Estate (Property)'].values[i] = getHistoricalREPropNewInv(d);
+        }
+      }
+      if (d <= '2026-07-31') {
+        breakupSummary.net_worth['Home Loan (Liability)'].values[i] = getHistoricalLoanHomeValue(d);
+        if (breakupSummary.new_investment && breakupSummary.new_investment['Home Loan (Liability)']) {
+          breakupSummary.new_investment['Home Loan (Liability)'].values[i] = getHistoricalLoanHomeNewInv(d);
+        }
+      }
     });
   }
   const eraStart = _ledgerEraStart();
@@ -1312,11 +1363,20 @@ function rebuildBreakupFromLedger() {
         if (comp === 'RE-PROP') value = getHistoricalREPropValue(dates[i]);
         else if (comp === 'LOAN-HOME') value = getHistoricalLoanHomeValue(dates[i]);
       }
-      if (comp === 'RE-PROP') value = getHistoricalREPropValue(dates[i]);
-      if (comp === 'LOAN-HOME') value = getHistoricalLoanHomeValue(dates[i]);
-      const newInv = balances
+
+      let newInv = balances
         .filter(b => b.component === comp && colFor(b.date) === i)
-        .reduce((s, b) => s + (b.contribution || 0), 0) / L;
+        .reduce((s, b) => s + (b.contribution || 0) + (comp === 'LOAN-HOME' ? (b.interest || 0) : 0), 0) / L;
+
+      if (dates[i] <= '2026-08-31' && comp === 'RE-PROP') {
+        value = getHistoricalREPropValue(dates[i]);
+        newInv = getHistoricalREPropNewInv(dates[i]);
+      }
+      if (dates[i] <= '2026-07-31' && comp === 'LOAN-HOME') {
+        value = getHistoricalLoanHomeValue(dates[i]);
+        newInv = getHistoricalLoanHomeNewInv(dates[i]);
+      }
+
       ctx.opaque[comp] = { value, prevValue, newInv };
     });
 
