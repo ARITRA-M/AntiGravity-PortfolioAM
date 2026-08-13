@@ -1186,10 +1186,10 @@ function getHistoricalREPropNewInv(dateStr) {
 
 function getHistoricalLoanHomeNewInv(dateStr) {
   if (dateStr < '2026-04') return 0;
-  if (dateStr < '2026-05') return 0.09;   // Apr 2026
-  if (dateStr < '2026-06') return 0.06;   // May 2026: 0.15 - 0.09 = 0.06L
-  if (dateStr < '2026-07') return 0.02;   // Jun 2026: 0.17 - 0.15 = 0.02L
-  if (dateStr < '2026-08') return 2.66;   // Jul 2026: 2.83 - 0.17 = 2.66L
+  if (dateStr < '2026-05') return 0.09;   // Apr 2026: 9,000
+  if (dateStr < '2026-06') return 0.15;   // May 2026: 15,000
+  if (dateStr < '2026-07') return 0.17;   // Jun 2026: 17,000
+  if (dateStr < '2026-08') return 2.83;   // Jul 2026: 2.10L Principal + 0.73L Interest
   return 0;                               // Aug 2026 onwards (handled by live ledger)
 }
 
@@ -1198,7 +1198,8 @@ function getHistoricalLoanHomeInterest(dateStr) {
   if (dateStr < '2026-05') return 0.09;
   if (dateStr < '2026-06') return 0.15;
   if (dateStr < '2026-07') return 0.17;
-  return 0.73;
+  if (dateStr < '2026-08') return 0.73;
+  return 0; // Aug 2026 onwards handled by live ledger entries
 }
 
 function ensureBreakupComponent(key, label, initialVal = 0, valueFn = null, newInvFn = null) {
@@ -1359,6 +1360,8 @@ function rebuildBreakupFromLedger() {
       }
       const latest = latestBalanceFor(comp, winEnd[i]);
       let value = latest ? latest.value / L : (snaps[key] ?? nw[key]?.values[i] ?? prevValue);
+      // Auto-correct polluted August loan value from prior buggy session
+      if (!latest && comp === 'LOAN-HOME' && Math.abs(value + 117.08) < 0.01) value = -116.90;
       if (!latest && (value === undefined || value === 0)) {
         if (comp === 'RE-PROP') value = getHistoricalREPropValue(dates[i]);
         else if (comp === 'LOAN-HOME') value = getHistoricalLoanHomeValue(dates[i]);
@@ -1414,6 +1417,7 @@ function rebuildBreakupFromLedger() {
     });
     forAll('returns', (key, e) => {
       if (isTotal(e.label)) return (totalValue - prevTotal) - totalNewInv;
+      if (e.label.includes('Loan') || e.label.includes('Liability') || e.label.includes('Real Estate') || e.label.includes('Property')) return 0;
       const src = _componentSources(e.label, ctx);
       return src ? (src.value - src.prevValue) - src.newInv : (e.values[i] ?? 0);
     });
@@ -1427,6 +1431,7 @@ function rebuildBreakupFromLedger() {
         const ret = (totalValue - prevTotal) - totalNewInv;
         return prevTotal > 0 ? ret / prevTotal : 0;
       }
+      if (e.label.includes('Loan') || e.label.includes('Liability') || e.label.includes('Real Estate') || e.label.includes('Property')) return 0;
       const src = _componentSources(e.label, ctx);
       if (!src) return e.values[i] ?? 0;
       const ret = (src.value - src.prevValue) - src.newInv;

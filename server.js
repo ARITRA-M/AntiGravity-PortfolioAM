@@ -598,8 +598,10 @@ app.post('/api/git-pull', (req, res) => {
     const repoDir = __dirname;
     const execOpts = { cwd: repoDir, encoding: 'utf-8', timeout: 30000 };
     
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', execOpts).trim();
+    
     // We do a git fetch and git pull to sync local files with the remote
-    const output = execSync('git pull', execOpts).trim();
+    const output = execSync(`git pull origin ${branch}`, execOpts).trim();
     console.log(`✅ git pull successful: ${output.split('\n').pop() || 'ok'}`);
     
     res.json({ success: true, message: 'Successfully pulled latest changes', details: output });

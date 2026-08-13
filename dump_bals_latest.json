@@ -1,0 +1,56 @@
+[
+  {
+    "id": "t_mr1ekk1d_x6yas",
+    "date": "2026-07-01",
+    "component": "PF",
+    "value": 4890918,
+    "contribution": 47506,
+    "interest": 0,
+    "note": ""
+  },
+  {
+    "id": "t_mr7cwui9_baed4",
+    "date": "2026-04-04",
+    "component": "PPF",
+    "value": 3581302,
+    "contribution": 10722,
+    "interest": 0,
+    "note": ""
+  },
+  {
+    "id": "t_msb8yjjf_8wtjp",
+    "date": "2026-08-02",
+    "component": "NPS-E",
+    "value": 1274173,
+    "contribution": 7500,
+    "interest": 0,
+    "note": "month-close checklist"
+  },
+  {
+    "id": "t_msb8yjjf_oor09",
+    "date": "2026-08-02",
+    "component": "NPS-C",
+    "value": 218845,
+    "contribution": 1000,
+    "interest": 0,
+    "note": "month-close checklist"
+  },
+  {
+    "id": "t_msb8yjjg_9z7we",
+    "date": "2026-08-02",
+    "component": "NPS-G",
+    "value": 387965,
+    "contribution": 1500,
+    "interest": 0,
+    "note": "month-close checklist"
+  },
+  {
+    "id": "t_msb8yjjg_6zhrm",
+    "date": "2026-08-02",
+    "component": "PF",
+    "value": 4938424,
+    "contribution": 47506,
+    "interest": 0,
+    "note": "month-close checklist"
+  }
+]

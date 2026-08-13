@@ -1082,19 +1082,7 @@ async function loadData() {
     try { await fetchCommittedLedger(); } catch (e) { console.warn('fetchCommittedLedger failed:', e); }
     if (typeof integrateLedger === 'function') integrateLedger();
 
-    // Auto-recover missing Home Loan transaction if dirty localStorage wiped it
-    if (typeof balances !== 'undefined' && !balances.some(b => b.component === 'LOAN-HOME' && b.date >= '2026-08-01')) {
-      balances.push({
-        id: 't_custom_hlprepay',
-        date: '2026-08-05',
-        component: 'LOAN-HOME',
-        value: -10690000,
-        contribution: 1000000,
-        interest: 0,
-        note: 'Prepayment auto-recovered'
-      });
-      if (typeof saveLedger === 'function') saveLedger();
-    }
+
 
     // Recompute net worth from the re-derived live holdings + frozenBase baseline so
     // the displayed total reflects the current ledger rather than a possibly-stale
@@ -1357,13 +1345,8 @@ function _liveOpaqueLakhs(comp) {
   const _fbBaseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : '';
   const bal = (typeof latestBalanceFor === 'function') ? latestBalanceFor(comp, _todayStr) : null;
   if (bal && (!_fbBaseDate || bal.date > _fbBaseDate)) {
-    let val = bal.value / 100000;
-    // Force Home Loan prepayment if missing from local state
-    if (comp === 'LOAN-HOME' && val === -116.9) val = -106.9;
-    return val;
+    return bal.value / 100000;
   }
-  // Force Home Loan prepayment if missing from local state
-  if (comp === 'LOAN-HOME' && baseVal === -116.9) return -106.9;
   return baseVal;
 }
 
@@ -3583,6 +3566,7 @@ function _getDynamicHomeLoanSchedule() {
   const schedule = [];
   let cumDisbursedSelf = 0;
   let cumTotalEmi = 0;
+  let cumTotalInterest = 0;
 
   dates.forEach((d, i) => {
     cumDisbursedSelf += ni['Real Estate (Property)'].values[i] || 0;
@@ -3602,10 +3586,11 @@ function _getDynamicHomeLoanSchedule() {
         .filter(b => b.component === 'LOAN-HOME' && b.date > '2026-07-31' && b.date <= d)
         .reduce((s, b) => s + (b.interest || 0), 0) / 100000;
     }
-    const interestPaid = histInt + ledgerSum;
+    const currentMonthInterest = histInt + ledgerSum;
+    cumTotalInterest += currentMonthInterest;
     
     const totalEmi = cumTotalEmi;
-    const repaymentSelf = totalEmi - interestPaid;
+    const repaymentSelf = totalEmi - cumTotalInterest;
     
     const disbursedBank = loanVal + repaymentSelf;
     const equity = propVal - loanVal;
@@ -3613,7 +3598,7 @@ function _getDynamicHomeLoanSchedule() {
     const dObj = new Date(d);
     const period = dObj.toLocaleString('en-US', { month: 'short' }) + ' ' + dObj.getFullYear();
     
-    schedule.push({ period, propVal, disbursedBank, disbursedSelf, repaymentSelf, loanVal, equity, interestPaid });
+    schedule.push({ period, propVal, disbursedBank, disbursedSelf, repaymentSelf, loanVal, equity, interestPaid: currentMonthInterest });
   });
   
   const livePropVal = _liveOpaqueLakhs('RE-PROP') || 130.64;
@@ -3642,24 +3627,29 @@ function _getDynamicHomeLoanSchedule() {
   const liveDisbursedSelf = baseReNi + pendingReNi;
   const liveTotalEmi = baseLoanNi + pendingLoanNi;
   
-  let histIntLive = typeof getHistoricalLoanHomeInterest === 'function' ? getHistoricalLoanHomeInterest('9999') : 0;
+  let histIntLive = 0;
+  const today = new Date();
+  const currentMonthStr = today.toLocaleString('en-US', { month: 'short' }) + ' ' + today.getFullYear();
+  let poppedRow = null;
+  if (schedule.length > 0 && schedule[schedule.length - 1].period === currentMonthStr) {
+    poppedRow = schedule.pop();
+  } else {
+    histIntLive = typeof getHistoricalLoanHomeInterest === 'function' ? getHistoricalLoanHomeInterest('9999') : 0;
+  }
+  
   let ledgerSumLive = 0;
   if (typeof balances !== 'undefined' && balances) {
     ledgerSumLive = balances
-      .filter(b => b.component === 'LOAN-HOME' && b.date > '2026-07-31')
+      .filter(b => b.component === 'LOAN-HOME' && b.date > lastDMonthEnd)
       .reduce((s, b) => s + (b.interest || 0), 0) / 100000;
   }
-  const liveInterestPaid = histIntLive + ledgerSumLive;
   
-  const liveRepaymentSelf = liveTotalEmi - liveInterestPaid;
+  const currentLiveInterest = poppedRow ? (poppedRow.interestPaid + ledgerSumLive) : (histIntLive + ledgerSumLive);
+  const liveCumTotalInterest = poppedRow ? (cumTotalInterest + ledgerSumLive) : (cumTotalInterest + currentLiveInterest);
+  
+  const liveRepaymentSelf = liveTotalEmi - liveCumTotalInterest;
   const liveDisbursedBank = liveLoanVal + liveRepaymentSelf;
   const liveEquity = livePropVal - liveLoanVal;
-  
-  const today = new Date();
-  const currentMonthStr = today.toLocaleString('en-US', { month: 'short' }) + ' ' + today.getFullYear();
-  if (schedule.length > 0 && schedule[schedule.length - 1].period === currentMonthStr) {
-    schedule.pop();
-  }
   
   schedule.push({
     period: 'Current',
@@ -3669,7 +3659,7 @@ function _getDynamicHomeLoanSchedule() {
     repaymentSelf: liveRepaymentSelf,
     loanVal: liveLoanVal,
     equity: liveEquity,
-    interestPaid: liveInterestPaid
+    interestPaid: currentLiveInterest
   });
   
   return schedule;
@@ -7038,7 +7028,34 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     if (!vals) return;
     vals.forEach((v, i) => {
       if (!v) return;
-      if (ledgerEraStart && dates[i] >= ledgerEraStart) return; // covered by individual ledger rows below
+      const isHardcodedRE = key === 'Real Estate (Property)' && dates[i] <= '2026-07-31';
+      const isHardcodedLoan = key === 'Home Loan (Liability)' && dates[i] <= '2026-07-31';
+      if (ledgerEraStart && dates[i] >= ledgerEraStart && !isHardcodedRE && !isHardcodedLoan) return; // covered by individual ledger rows below
+      if (isHardcodedLoan) {
+        const histInt = (typeof getHistoricalLoanHomeInterest === 'function') ? getHistoricalLoanHomeInterest(dates[i].substring(0,7)) : 0;
+        const interestAmt = histInt * 100000;
+        const totalEmi = Math.abs(v) * 100000;
+        const principalAmt = totalEmi - interestAmt;
+        
+        if (principalAmt >= 0.01) { // Floating point safety
+          trades.push({
+            date: dates[i], instrument: meta.label + ' — Principal',
+            type: v >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
+            quantity: null, price: null, total: principalAmt,
+            category: meta.category, assetCategory: meta.assetCategory, closed: true,
+          });
+        }
+        if (interestAmt >= 0.01) {
+          trades.push({
+            date: dates[i], instrument: meta.label + ' — Interest',
+            type: 'INTEREST',
+            quantity: null, price: null, total: interestAmt,
+            category: meta.category, assetCategory: meta.assetCategory, closed: true,
+          });
+        }
+        return;
+      }
+
       trades.push({
         date: dates[i], instrument: meta.label,
         type: v >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
@@ -7080,13 +7097,22 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     const lbl = b.component.replace('-', ' ');
     if (b.contribution) {
       trades.push({
-        date: b.date, instrument: lbl,
+        date: b.date, instrument: lbl + (b.component === 'LOAN-HOME' ? ' — Principal' : ''),
         type: b.contribution >= 0 ? 'CONTRIBUTION' : 'WITHDRAWAL',
         quantity: null, price: null, total: Math.abs(b.contribution),
         category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
       });
-    } else {
-      // Balance entries with zero contribution (pure value update) still need a
+    }
+    if (b.interest) {
+      trades.push({
+        date: b.date, instrument: lbl + ' — Interest',
+        type: 'INTEREST',
+        quantity: null, price: null, total: Math.abs(b.interest),
+        category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
+      });
+    }
+    if (!b.contribution && !b.interest) {
+      // Balance entries with zero contribution and zero interest still need a
       // row so they're visible/editable — shown as an UPDATE with no amount.
       trades.push({
         date: b.date, instrument: lbl, type: 'UPDATE',
@@ -7121,8 +7147,10 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     if (!vals) return;
     vals.forEach((v, i) => {
       if (!v) return; // only periods with a nonzero return
+      const isLiability = meta.assetCategory === 'Home Loan' || meta.label.includes('Loan');
+      const suffix = isLiability ? 'Monthly Interest' : 'Monthly Return';
       trades.push({
-        date: dates[i], instrument: `${meta.label} — Monthly Return`,
+        date: dates[i], instrument: `${meta.label} — ${suffix}`,
         type: 'RETURN', quantity: null, price: null, total: Math.abs(v) * 100000,
         category: meta.category, assetCategory: meta.assetCategory, isLoss: v < 0,
       });
