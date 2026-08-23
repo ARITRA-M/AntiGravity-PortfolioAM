@@ -4,7 +4,7 @@ const tabIds = ['overview', 'stocks', 'mfs', 'growth', 'fixed-income', 'monthly'
 // App version for cache busting — auto-derived from today's date so JSON files
 // are never served stale after a deploy. The server.js commit script no longer
 // needs to touch this constant.
-const APP_VERSION = localDateStr();
+const APP_VERSION = localDateStr() + '.2';
 
 // Global state
 let portfolioSummary = null;
@@ -484,7 +484,7 @@ async function loadPerfChart(kind) {
 
 const SECTOR_MAP = {
   AJANTPHARM: 'Pharmaceuticals', CIPLA: 'Pharmaceuticals', DRREDDY: 'Pharmaceuticals', ERIS: 'Pharmaceuticals',
-  JBCHEPHARM: 'Pharmaceuticals', LALPATHLAB: 'Healthcare & Diagnostics', MANKIND: 'Pharmaceuticals',
+  JBCHEPHARM: 'Pharmaceuticals', TORNTPHARM: 'Pharmaceuticals', LALPATHLAB: 'Healthcare & Diagnostics', MANKIND: 'Pharmaceuticals',
   SUNPHARMA: 'Pharmaceuticals', SYNGENE: 'Biotechnology', ZYDUSLIFE: 'Pharmaceuticals',
   APOLLOTYRE: 'Automobile & Ancillaries', 'BAJAJ-AUTO': 'Automobile & Ancillaries',
   BALKRISIND: 'Automobile & Ancillaries', EICHERMOT: 'Automobile & Ancillaries',
@@ -550,6 +550,7 @@ const SECTOR_MAP = {
 const MARKET_CAP_MAP = {
   // Large Cap
   CIPLA: 'Large Cap', DRREDDY: 'Large Cap', MANKIND: 'Large Cap', SUNPHARMA: 'Large Cap',
+  TORNTPHARM: 'Large Cap',
   ZYDUSLIFE: 'Large Cap', 'BAJAJ-AUTO': 'Large Cap', EICHERMOT: 'Large Cap',
   HEROMOTOCO: 'Large Cap', 'M&M': 'Large Cap', MOTHERSON: 'Large Cap', TVSMOTOR: 'Large Cap',
   AXISBANK: 'Large Cap', BAJFINANCE: 'Large Cap', BANKBARODA: 'Large Cap',
@@ -760,16 +761,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // ── localStorage persistence helpers ────────────────────────────────────
 const LS_PREFIX = 'ag_portfolio_';
-// breakup_summary is intentionally excluded — it is always fetched fresh from the server
-// to prevent baseline corruption from in-memory live-price mutations being persisted.
-const LS_KEYS = ['portfolio_summary', 'latest_equity', 'latest_mf', 'historical_holdings'];
+// breakup_summary and historical_holdings are intentionally excluded — they are always fetched fresh from the server
+// to prevent baseline/history corruption from in-memory mutations or stale snapshots being persisted.
+const LS_KEYS = ['portfolio_summary', 'latest_equity', 'latest_mf'];
 
-function saveToLocalStorage(summary, _breakup, equity, mf, hist) {
+function saveToLocalStorage(summary, _breakup, equity, mf, _hist) {
   try {
     localStorage.setItem(LS_PREFIX + 'portfolio_summary', JSON.stringify(summary));
     localStorage.setItem(LS_PREFIX + 'latest_equity', JSON.stringify(equity));
     localStorage.setItem(LS_PREFIX + 'latest_mf', JSON.stringify(mf));
-    localStorage.setItem(LS_PREFIX + 'historical_holdings', JSON.stringify(hist));
+    localStorage.removeItem(LS_PREFIX + 'historical_holdings');
     localStorage.setItem(LS_PREFIX + 'version', APP_VERSION);
     // A fresh upload invalidates any prior refresh report — drop it so a later
     // reload doesn't apply stale live deltas onto the new upload's baseline.
@@ -782,23 +783,12 @@ function saveToLocalStorage(summary, _breakup, equity, mf, hist) {
 
 // Called after a live price refresh — persists the refreshed prices so they
 // survive a page reload.
-//
-// IMPORTANT: this writes a COMPLETE, loadable set (version + all LS_KEYS) so
-// loadFromLocalStorage() will actually return it on reload — even when using
-// bundled data with no manual upload (the upload path was previously the only
-// thing that set `version`, which is why refreshed prices used to vanish).
-//
-// It deliberately does NOT persist breakup_summary. That file stays
-// server-fetched and pristine so the `uploadedSnapshot` baseline can never
-// drift — the root cause of the old "portfolio value decremented on every
-// refresh" bug. On reload, live totals are recomputed from that clean
-// baseline plus the per-instrument deltas instead.
 function saveRefreshedPrices(equity, mf) {
   try {
     localStorage.setItem(LS_PREFIX + 'latest_equity', JSON.stringify(equity));
     localStorage.setItem(LS_PREFIX + 'latest_mf', JSON.stringify(mf));
     localStorage.setItem(LS_PREFIX + 'portfolio_summary', JSON.stringify(portfolioSummary));
-    localStorage.setItem(LS_PREFIX + 'historical_holdings', JSON.stringify(historicalHoldings));
+    localStorage.removeItem(LS_PREFIX + 'historical_holdings');
     localStorage.setItem(LS_PREFIX + 'version', APP_VERSION);
     if (window.lastRefreshReport) {
       localStorage.setItem(LS_PREFIX + 'refresh_report', JSON.stringify(window.lastRefreshReport));
@@ -812,7 +802,18 @@ function saveRefreshedPrices(equity, mf) {
 function loadFromLocalStorage() {
   try {
     const version = localStorage.getItem(LS_PREFIX + 'version');
-    if (!version) return null;
+    if (!version || version !== APP_VERSION) {
+      if (version) {
+        console.log(`Version mismatch (stored: ${version}, current: ${APP_VERSION}) — purging stale localStorage cache`);
+      }
+      for (const key of LS_KEYS) {
+        localStorage.removeItem(LS_PREFIX + key);
+      }
+      localStorage.removeItem(LS_PREFIX + 'historical_holdings');
+      localStorage.removeItem(LS_PREFIX + 'version');
+      localStorage.removeItem(LS_PREFIX + 'refresh_report');
+      return null;
+    }
     const data = {};
     for (const key of LS_KEYS) {
       const raw = localStorage.getItem(LS_PREFIX + key);
@@ -823,8 +824,7 @@ function loadFromLocalStorage() {
     return {
       portfolioSummary: data['portfolio_summary'],
       latestEquity: data['latest_equity'],
-      latestMf: data['latest_mf'],
-      historicalHoldings: data['historical_holdings']
+      latestMf: data['latest_mf']
     };
   } catch (e) {
     console.warn('Failed to load portfolio data from localStorage:', e);
@@ -963,17 +963,21 @@ async function loadData() {
       portfolioSummary = cached.portfolioSummary;
       latestEquity = cached.latestEquity;
       latestMf = cached.latestMf;
-      historicalHoldings = stitchHistoryFragments(cached.historicalHoldings);
 
-      // Always fetch breakup_summary fresh from server — never cache it — to prevent
-      // baseline drift from in-memory live-price mutations being persisted across reloads.
+      // Always fetch breakup_summary and historical_holdings fresh from server — never cache them — to prevent
+      // baseline drift and stale historical snapshots from in-memory mutations being persisted across reloads.
       const _cb = Date.now();
       try {
-        const bsResp = await fetch(`data/breakup_summary.json?${_cb}`, { credentials: 'same-origin' });
+        const [bsResp, hhResp] = await Promise.all([
+          fetch(`data/breakup_summary.json?${_cb}`, { credentials: 'same-origin' }),
+          fetch(`data/historical_holdings.json?${_cb}`, { credentials: 'same-origin' })
+        ]);
         breakupSummary = await parsePortfolioJson(bsResp);
+        if (hhResp.ok) {
+          historicalHoldings = stitchHistoryFragments(await parsePortfolioJson(hhResp));
+        }
       } catch (e) {
-        console.warn('Could not fetch fresh breakup_summary, falling back:', e);
-        // Last resort: if server unavailable, derive a minimal snapshot from per-instrument data
+        console.warn('Could not fetch fresh breakup_summary/historical_holdings, falling back:', e);
         breakupSummary = null;
       }
 
@@ -4914,19 +4918,19 @@ function _renderInlineTransactions(history, tbody, pricePrecision, instrument) {
     let runningQty = deltaRows.length ? deltaRows[deltaRows.length - 1].qty : 0;
     
     instrumentTxns.forEach(t => {
-      // t.type is 'buy' or 'sell' (or 'split'), t.qty is the amount
-      const isBuyOrSplit = (t.type === 'buy' || t.type === 'split' || t.type === 'Buy' || t.type === 'Split');
+      // t.type is 'buy' or 'sell' (or 'split' / 'bonus'), t.qty is the amount
+      const isBuyOrSplit = (t.type === 'buy' || t.type === 'split' || t.type === 'bonus' || t.type === 'Buy' || t.type === 'Split' || t.type === 'Bonus');
       const dQty = isBuyOrSplit ? t.qty : -t.qty;
       runningQty += dQty;
       // Convert single transaction into deltaRow format
-      // Note: action must be Title Case ('Buy' or 'Sell') for the rendering logic below
-      const actionTitle = isBuyOrSplit ? 'Buy' : 'Sell';
+      // Note: action must be Title Case ('Buy', 'Sell', 'Bonus', 'Split') for the rendering logic below
+      const actionTitle = (t.type === 'bonus' || t.type === 'Bonus') ? 'Bonus' : (t.type === 'split' || t.type === 'Split') ? 'Split' : isBuyOrSplit ? 'Buy' : 'Sell';
       deltaRows.push({
         date: t.date,
         dQty: dQty,
         qty: runningQty,
         price: t.price,
-        dInv: isBuyOrSplit ? (t.qty * t.price) : -(t.qty * t.price),
+        dInv: isBuyOrSplit ? (t.amount != null ? t.amount : t.qty * t.price) : -(t.amount != null ? t.amount : t.qty * t.price),
         action: actionTitle
       });
     });
@@ -4935,7 +4939,7 @@ function _renderInlineTransactions(history, tbody, pricePrecision, instrument) {
   // Sort by date to ensure proper ordering
   deltaRows.sort((a, b) => new Date(a.date) - new Date(b.date));
   tbody.innerHTML = deltaRows.map(r => {
-    const isBuy = r.action === 'Buy';
+    const isBuy = r.action === 'Buy' || r.action === 'Bonus' || r.action === 'Split';
     const isSell = r.action === 'Sell';
     const aStyle = isBuy ? 'background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)' : 'background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)';
     // Δ Invested only shows the COST BASIS removed on a sale, not what the

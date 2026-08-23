@@ -120,8 +120,7 @@ function loadLedger() {
             return match !== undefined && JSON.stringify(match) === JSON.stringify(item);
           });
         };
-        const fbUnchanged = JSON.stringify(localFb) === JSON.stringify(committed.frozenBase || null);
-        if (noOrphans(localTxns, committed.transactions) && noOrphans(localBals, committed.balances) && fbUnchanged) {
+        if (noOrphans(localTxns, committed.transactions) && noOrphans(localBals, committed.balances)) {
           clearLedgerDirty();
         }
       } catch (_) { /* comparison failed — leave the flag as-is, protecting whatever's local */ }

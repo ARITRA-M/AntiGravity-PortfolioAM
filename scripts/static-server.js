@@ -98,6 +98,32 @@ function handleCommitData(req, res) {
   });
 }
 
+// Handle pulling latest changes from GitHub (for local syncing).
+function handleGitPull(req, res) {
+  try {
+    const execOpts = { cwd: ROOT, encoding: 'utf-8', timeout: 30000 };
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', execOpts).trim();
+
+    execSync('git fetch origin', execOpts);
+    let output;
+    try {
+      output = execSync(`git pull origin ${branch}`, execOpts).trim();
+    } catch (pullErr) {
+      execSync('git checkout -- data/', execOpts);
+      output = execSync(`git pull origin ${branch}`, execOpts).trim();
+    }
+
+    console.log(`✅ git pull successful: ${output.split('\n').pop() || 'ok'}`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, message: 'Successfully pulled latest changes', details: output }));
+  } catch (e) {
+    const errMsg = (e && (e.stderr || e.message)) || 'Unknown error';
+    console.error('Git pull failed:', errMsg);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Git pull failed: ' + errMsg }));
+  }
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -117,9 +143,11 @@ const MIME = {
 };
 
 const server = http.createServer((req, res) => {
-  // Commit endpoint — the only API the static server exposes (localhost only).
-  if (req.method === 'POST' && req.url.split('?')[0] === '/api/commit-data') {
-    return handleCommitData(req, res);
+  // Commit & git-pull endpoints (localhost only).
+  if (req.method === 'POST') {
+    const route = req.url.split('?')[0];
+    if (route === '/api/commit-data') return handleCommitData(req, res);
+    if (route === '/api/git-pull') return handleGitPull(req, res);
   }
 
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
