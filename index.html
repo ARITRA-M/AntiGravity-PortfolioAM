@@ -1186,9 +1186,18 @@
         <!-- Add Transaction (stocks / MFs) -->
         <div class="chart-card manage-card">
           <div class="chart-header"><h3>➕ Add Transaction</h3></div>
-          <p class="manage-hint">Buy / sell for stocks &amp; mutual funds. New instruments are created automatically.</p>
+          <p class="manage-hint">Add transactions for existing holdings or introduce new mutual funds &amp; stocks to your portfolio.</p>
+          
+          <!-- Mode Toggle: Existing Holding vs New Scrip -->
+          <div class="manage-mode-toggle" role="radiogroup" aria-label="Transaction Target">
+            <button type="button" class="manage-mode-btn active" id="txn-mode-existing" onclick="setTxnMode('existing')">💼 Existing Holding</button>
+            <button type="button" class="manage-mode-btn" id="txn-mode-new" onclick="setTxnMode('new')">✨ New Scrip / Instrument</button>
+          </div>
+          <input type="hidden" id="txn-mode" value="existing">
+
           <form id="txn-form" class="manage-form" onsubmit="return handleTxnSubmit(event)">
             <input type="hidden" id="txn-edit-id" value="">
+            
             <div class="manage-row">
               <label>Asset class
                 <select id="txn-assetClass" onchange="onTxnAssetClassChange()">
@@ -1196,7 +1205,7 @@
                   <option value="mf">Mutual Fund</option>
                 </select>
               </label>
-              <label>Type
+              <label id="txn-type-label">Type
                 <select id="txn-type" onchange="onTxnTypeChange()">
                   <option value="buy">Buy</option>
                   <option value="sell">Sell</option>
@@ -1205,6 +1214,7 @@
                 </select>
               </label>
             </div>
+
             <p id="txn-corporate-hint" class="manage-hint" style="display:none;margin:0.25rem 0 0.5rem;">
               Enter the <strong>additional shares</strong> received (e.g. for a 1:1 bonus on 100 shares, enter 100). Price = 0, Amount = 0.
             </p>
@@ -1212,15 +1222,115 @@
               <input type="checkbox" id="txn-exit-all" onchange="onTxnExitAllChange()">
               Exit full position (sell entire holding — quantity is filled in automatically)
             </label>
-            <div class="manage-row">
-              <label>Instrument
-                <input id="txn-instrument" list="txn-instrument-list" autocomplete="off" placeholder="e.g. SIEMENS" oninput="onTxnInstrumentChange()" required>
-                <datalist id="txn-instrument-list"></datalist>
-              </label>
-              <label id="txn-category-wrap" style="display:none;">MF category (auto)
-                <input id="txn-category" readonly placeholder="derived from scheme" style="opacity:0.7;cursor:not-allowed;">
-              </label>
+
+            <!-- Branch A: Existing Holding Instrument Selection -->
+            <div id="txn-existing-wrap">
+              <div class="manage-row">
+                <label>Instrument
+                  <input id="txn-instrument" list="txn-instrument-list" autocomplete="off" placeholder="e.g. SIEMENS" oninput="onTxnInstrumentChange()">
+                  <datalist id="txn-instrument-list"></datalist>
+                </label>
+                <label id="txn-category-wrap" style="display:none;">MF category (auto)
+                  <input id="txn-category" readonly placeholder="derived from scheme" style="opacity:0.7;cursor:not-allowed;">
+                </label>
+              </div>
             </div>
+
+            <!-- Branch B1: New Mutual Fund Search & Category Setup -->
+            <div id="txn-new-mf-wrap" style="display:none;">
+              <div class="manage-search-wrap">
+                <label>Search Mutual Fund Scheme (via mfapi.in)
+                  <div class="manage-input-with-btn">
+                    <input id="txn-mf-search" autocomplete="off" placeholder="Type scheme name (e.g. Nippon Small Cap, Parag Parikh, UTI Nifty 50...)" oninput="onMfSearchInput(event)">
+                    <button type="button" class="ghost-btn fetch-price-btn" onclick="triggerMfSearch()" title="Search mfapi.in">🔍 Search</button>
+                  </div>
+                </label>
+                <div id="txn-mf-search-results" class="mf-search-dropdown" style="display:none;"></div>
+              </div>
+              <div id="txn-mf-selected-card" style="display:none; margin-top:0.4rem;"></div>
+              <div class="manage-row" style="margin-top:0.5rem;">
+                <label>MF Category
+                  <select id="txn-new-mf-category" onchange="onNewMfCategoryChange()">
+                    <option value="Equity: Flexi Cap">Equity: Flexi Cap</option>
+                    <option value="Equity: Large Cap">Equity: Large Cap</option>
+                    <option value="Equity: Mid Cap">Equity: Mid Cap</option>
+                    <option value="Equity: Small Cap">Equity: Small Cap</option>
+                    <option value="Equity: Large &amp; Mid Cap">Equity: Large &amp; Mid Cap</option>
+                    <option value="Equity: Multi Cap">Equity: Multi Cap</option>
+                    <option value="Equity: Focused">Equity: Focused</option>
+                    <option value="Equity: ELSS (Tax Saving)">Equity: ELSS (Tax Saving)</option>
+                    <option value="Equity: Index Funds">Equity: Index Funds</option>
+                    <option value="Equity: Sectoral/Thematic">Equity: Sectoral/Thematic</option>
+                    <option value="Equity: International / FoF">Equity: International / FoF</option>
+                    <option value="Debt: Liquid">Debt: Liquid</option>
+                    <option value="Debt: Overnight">Debt: Overnight</option>
+                    <option value="Debt: Short Duration">Debt: Short Duration</option>
+                    <option value="Debt: Corporate Bond">Debt: Corporate Bond</option>
+                    <option value="Debt: Banking &amp; PSU">Debt: Banking &amp; PSU</option>
+                    <option value="Hybrid: Aggressive / Balanced">Hybrid: Aggressive / Balanced</option>
+                    <option value="Hybrid: Arbitrage">Hybrid: Arbitrage</option>
+                    <option value="Hybrid: Multi Asset">Hybrid: Multi Asset</option>
+                    <option value="Gold / Commodity">Gold / Commodity</option>
+                    <option value="Other">Other</option>
+                    <option value="__custom__">✏️ Custom Category...</option>
+                  </select>
+                </label>
+                <label id="txn-new-mf-custom-category-wrap" style="display:none;">Custom Category Name
+                  <input id="txn-new-mf-custom-category" placeholder="e.g. Equity: Thematic EV">
+                </label>
+              </div>
+            </div>
+
+            <!-- Branch B2: New Stock Ticker, Sector & Market Cap Setup -->
+            <div id="txn-new-stock-wrap" style="display:none;">
+              <div class="manage-row">
+                <label>NSE Ticker Symbol
+                  <div class="manage-input-with-btn">
+                    <input id="txn-new-stock-ticker" autocomplete="off" placeholder="e.g. ZOMATO, SWIGGY, HAL" style="text-transform:uppercase;" oninput="onNewStockTickerInput(event)">
+                    <button type="button" class="ghost-btn fetch-price-btn" id="txn-verify-stock-btn" onclick="verifyNewStockTicker()" title="Verify ticker and fetch live price from Yahoo Finance">⟳ Verify / Price</button>
+                  </div>
+                </label>
+              </div>
+              <div class="manage-row" style="margin-top:0.4rem;">
+                <label>Sector
+                  <select id="txn-new-stock-sector" onchange="onNewStockSectorChange()">
+                    <option value="IT &amp; Software Services">IT &amp; Software Services</option>
+                    <option value="Banking &amp; Financial Services">Banking &amp; Financial Services</option>
+                    <option value="Pharmaceuticals">Pharmaceuticals</option>
+                    <option value="Automobile &amp; Ancillaries">Automobile &amp; Ancillaries</option>
+                    <option value="Consumer Goods &amp; FMCG">Consumer Goods &amp; FMCG</option>
+                    <option value="Energy &amp; Mining">Energy &amp; Mining</option>
+                    <option value="Real Estate &amp; Construction">Real Estate &amp; Construction</option>
+                    <option value="Metals &amp; Mining">Metals &amp; Mining</option>
+                    <option value="Engineering &amp; Construction">Engineering &amp; Construction</option>
+                    <option value="Telecommunication Services">Telecommunication Services</option>
+                    <option value="Insurance">Insurance</option>
+                    <option value="Chemicals &amp; Adhesives">Chemicals &amp; Adhesives</option>
+                    <option value="Industrial Engineering">Industrial Engineering</option>
+                    <option value="Healthcare &amp; Diagnostics">Healthcare &amp; Diagnostics</option>
+                    <option value="Gold Commodity (ETF)">Gold Commodity (ETF)</option>
+                    <option value="Sovereign Gold Bonds">Sovereign Gold Bonds</option>
+                    <option value="Government Bonds">Government Bonds</option>
+                    <option value="Corporate Bonds">Corporate Bonds</option>
+                    <option value="Real Estate (REIT)">Real Estate (REIT)</option>
+                    <option value="Other Equities">Other Equities</option>
+                    <option value="__custom__">✏️ Custom Sector...</option>
+                  </select>
+                </label>
+                <label id="txn-new-stock-custom-sector-wrap" style="display:none;">Custom Sector Name
+                  <input id="txn-new-stock-custom-sector" placeholder="e.g. Defence &amp; Aerospace">
+                </label>
+                <label>Market Cap
+                  <select id="txn-new-stock-market-cap">
+                    <option value="Large Cap">Large Cap</option>
+                    <option value="Mid Cap">Mid Cap</option>
+                    <option value="Small Cap">Small Cap</option>
+                    <option value="Other/ETF">Other / ETF / REIT / Bond</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
             <div class="manage-row">
               <label>Date <input type="date" id="txn-date" required></label>
               <label>Quantity <input type="number" step="any" id="txn-qty" oninput="onTxnAmountInputs()" required></label>

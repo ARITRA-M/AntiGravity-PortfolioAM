@@ -441,9 +441,11 @@ function applyStockTxn(eq, t, qty, price, amount) {
     return;
   } else { // buy
     if (!h) {
+      const canon = canonicalInstrument(t.instrument, 'stock');
+      const sec = t.sector || (typeof dynamicStockSectors !== 'undefined' && (dynamicStockSectors[canon] || dynamicStockSectors[t.instrument])) || (typeof SECTOR_MAP !== 'undefined' && (SECTOR_MAP[canon] || SECTOR_MAP[t.instrument])) || 'Other Equities';
       h = {
         instrument: t.instrument,
-        sector: (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[t.instrument]) || 'Other Equities',
+        sector: sec,
         qty: 0, avg_cost: price, ltp: price, invested: 0, realized_pnl: 0,
       };
       eq.set(t.instrument, h);
@@ -469,8 +471,9 @@ function applyMfTxn(mf, t, qty, price, amount) {
     if (h.qty <= 1e-9) { h.qty = 0; }
   } else {
     if (!h) {
+      const cat = t.category || (typeof dynamicMfCategories !== 'undefined' && dynamicMfCategories[t.instrument]) || 'Other';
       h = {
-        scheme: t.instrument, scheme_type: t.category || 'Other',
+        scheme: t.instrument, scheme_type: cat,
         qty: 0, avg_nav: price, price: price, invested: 0, realized_pnl: 0,
       };
       mf.set(t.instrument, h);
@@ -634,8 +637,9 @@ function rebuildHoldingHistoryFromLedger() {
       const qty = Number(t.qty) || 0, price = Number(t.price) || 0;
       const amount = t.amount != null ? Number(t.amount) : qty * price;
       if (t.assetClass === 'mf') {
+        const cat = t.category || (typeof dynamicMfCategories !== 'undefined' && dynamicMfCategories[t.instrument]) || 'Other';
         const st = mfState[t.instrument] || (mfState[t.instrument] =
-          { qty: 0, invested: 0, avg_nav: price, scheme_type: t.category || 'Other' });
+          { qty: 0, invested: 0, avg_nav: price, scheme_type: cat });
         if (t.type === 'sell') {
           const s = Math.min(qty, st.qty); st.invested -= st.avg_nav * s; st.qty -= s;
           cfMf[t.instrument] = (cfMf[t.instrument] || 0) + price * s; // proceeds in
@@ -647,8 +651,9 @@ function rebuildHoldingHistoryFromLedger() {
       } else {
         // Canonicalize so history is keyed under the same name as the frozenBase holding.
         const canon = canonicalInstrument(t.instrument, 'stock');
+        const sec = t.sector || (typeof dynamicStockSectors !== 'undefined' && (dynamicStockSectors[canon] || dynamicStockSectors[t.instrument])) || (typeof SECTOR_MAP !== 'undefined' && (SECTOR_MAP[canon] || SECTOR_MAP[t.instrument])) || 'Other Equities';
         const st = stockState[canon] || (stockState[canon] =
-          { qty: 0, invested: 0, avg_cost: price, sector: (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[canon]) || 'Other Equities' });
+          { qty: 0, invested: 0, avg_cost: price, sector: sec });
         if (t.type === 'split' || t.type === 'bonus') {
           st.qty += qty; st.avg_cost = st.qty > 0 ? st.invested / st.qty : 0;
           affectedStocks.add(canon); // no cash flow for corporate actions
@@ -706,14 +711,8 @@ function addTransaction(txn) {
     price: Number(txn.price),
     amount: txn.amount != null ? Number(txn.amount) : Number(txn.qty) * Number(txn.price),
     category: txn.category || null,    // for brand-new MFs
+    sector: txn.sector || null,        // for brand-new Stocks
     note: txn.note || '',
-    // `folded: false` marks this as NOT yet baked into a frozen-base snapshot —
-    // explicit, so it always replays regardless of its date. Without this, a
-    // transaction dated on/before the current frozen base (e.g. logged late, or
-    // backdated) would be silently excluded by deriveHoldings' date filter,
-    // since that filter otherwise assumes "date ≤ base date" means "already in
-    // the snapshot" — true only for transactions that existed BEFORE the close
-    // ran. closeMonth() flips this to `true` for every transaction it folds in.
     folded: false,
   };
   transactions.push(t);

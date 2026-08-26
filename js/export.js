@@ -100,6 +100,10 @@ function buildBackupObject() {
     latest_equity: latestEquity || [],
     latest_mf: latestMf || [],
     historical_holdings: historicalHoldings || null,
+    dynamic_mf_schemes: (typeof dynamicMfSchemeCodes !== 'undefined' && dynamicMfSchemeCodes) || {},
+    dynamic_mf_categories: (typeof dynamicMfCategories !== 'undefined' && dynamicMfCategories) || {},
+    dynamic_stock_sectors: (typeof dynamicStockSectors !== 'undefined' && dynamicStockSectors) || {},
+    dynamic_market_caps: (typeof dynamicMarketCaps !== 'undefined' && dynamicMarketCaps) || {},
   };
 }
 

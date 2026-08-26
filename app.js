@@ -1147,8 +1147,36 @@ const MF_SCHEME_CODES = {
   "Nippon India Nifty IT Index Fund Direct - Growth": 152392
 };
 
-// Cache for dynamically discovered MF scheme codes (persists across refreshes)
+// Dynamic maps for user-added scrips and custom classifications
 let dynamicMfSchemeCodes = {};
+let dynamicMfCategories = {};
+let dynamicStockSectors = {};
+let dynamicMarketCaps = {};
+
+function loadDynamicMetadata() {
+  try {
+    const p = typeof LS_PREFIX !== 'undefined' ? LS_PREFIX : 'ag_portfolio_';
+    dynamicMfSchemeCodes = JSON.parse(localStorage.getItem(p + 'dynamic_mf_schemes') || '{}');
+    dynamicMfCategories = JSON.parse(localStorage.getItem(p + 'dynamic_mf_categories') || '{}');
+    dynamicStockSectors = JSON.parse(localStorage.getItem(p + 'dynamic_stock_sectors') || '{}');
+    dynamicMarketCaps = JSON.parse(localStorage.getItem(p + 'dynamic_market_caps') || '{}');
+  } catch (e) {
+    console.warn('Failed to load dynamic metadata from localStorage:', e);
+  }
+}
+
+function saveDynamicMetadata() {
+  try {
+    const p = typeof LS_PREFIX !== 'undefined' ? LS_PREFIX : 'ag_portfolio_';
+    localStorage.setItem(p + 'dynamic_mf_schemes', JSON.stringify(dynamicMfSchemeCodes));
+    localStorage.setItem(p + 'dynamic_mf_categories', JSON.stringify(dynamicMfCategories));
+    localStorage.setItem(p + 'dynamic_stock_sectors', JSON.stringify(dynamicStockSectors));
+    localStorage.setItem(p + 'dynamic_market_caps', JSON.stringify(dynamicMarketCaps));
+  } catch (e) {
+    console.warn('Failed to save dynamic metadata to localStorage:', e);
+  }
+}
+loadDynamicMetadata();
 
 function recomputePortfolioFromLiveData() {
   if (!uploadedSnapshot) initializeLiveBaseline();
@@ -7532,6 +7560,64 @@ if (typeof window !== 'undefined') {
   window.openXRaySliceModal = openXRaySliceModal;
   window.closeXRaySliceModal = closeXRaySliceModal;
   window.handleXRaySliceModalBackdropClick = handleXRaySliceModalBackdropClick;
+  window.setTxnMode = setTxnMode;
+  window.onMfSearchInput = onMfSearchInput;
+  window.triggerMfSearch = triggerMfSearch;
+  window.selectMfScheme = selectMfScheme;
+  window.clearSelectedMfScheme = clearSelectedMfScheme;
+  window.onNewMfCategoryChange = onNewMfCategoryChange;
+  window.onNewStockTickerInput = onNewStockTickerInput;
+  window.verifyNewStockTicker = verifyNewStockTicker;
+  window.onNewStockSectorChange = onNewStockSectorChange;
+  window.loadDynamicMetadata = loadDynamicMetadata;
+  window.saveDynamicMetadata = saveDynamicMetadata;
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (e) => {
+    const wrap = document.querySelector('.manage-search-wrap');
+    const results = document.getElementById('txn-mf-search-results');
+    if (results && results.style.display !== 'none' && wrap && !wrap.contains(e.target)) {
+      results.style.display = 'none';
+    }
+  });
+}
+
+// ── Manage Portfolio: Mode & Form State ─────────────────────────────────────
+let _currentTxnMode = 'existing';
+let _selectedNewMfScheme = null; // { schemeCode, schemeName }
+let _mfSearchTimeout = null;
+
+function setTxnMode(mode) {
+  _currentTxnMode = mode;
+  const modeInput = document.getElementById('txn-mode');
+  if (modeInput) modeInput.value = mode;
+
+  const btnExist = document.getElementById('txn-mode-existing');
+  const btnNew = document.getElementById('txn-mode-new');
+  if (btnExist) btnExist.classList.toggle('active', mode === 'existing');
+  if (btnNew) btnNew.classList.toggle('active', mode === 'new');
+
+  const existWrap = document.getElementById('txn-existing-wrap');
+  const newMfWrap = document.getElementById('txn-new-mf-wrap');
+  const newStockWrap = document.getElementById('txn-new-stock-wrap');
+  const cls = document.getElementById('txn-assetClass')?.value || 'stock';
+
+  if (mode === 'existing') {
+    if (existWrap) existWrap.style.display = '';
+    if (newMfWrap) newMfWrap.style.display = 'none';
+    if (newStockWrap) newStockWrap.style.display = 'none';
+    populateInstrumentDatalist();
+    onTxnInstrumentChange();
+  } else {
+    if (existWrap) existWrap.style.display = 'none';
+    if (newMfWrap) newMfWrap.style.display = cls === 'mf' ? '' : 'none';
+    if (newStockWrap) newStockWrap.style.display = cls === 'stock' ? '' : 'none';
+  }
+
+  const statusEl = document.getElementById('txn-price-status');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'manage-hint'; }
+  onTxnTypeChange();
 }
 
 // Populate the instrument autocomplete from current holdings for the chosen class.
@@ -7554,8 +7640,6 @@ function onTxnTypeChange() {
     document.getElementById('txn-price').value = '0';
     document.getElementById('txn-amount').value = '0';
   }
-  // Corporate actions carry no price (shares granted for free) — fetching a
-  // market quote for them would be meaningless.
   const fetchBtn = document.getElementById('txn-fetch-price-btn');
   if (fetchBtn) fetchBtn.style.display = isCorporateAction ? 'none' : '';
   const exitWrap = document.getElementById('txn-exit-wrap');
@@ -7568,14 +7652,272 @@ function onTxnTypeChange() {
   }
 }
 
-// Fetch the most recent market price (stock) or NAV (mutual fund) for
-// whatever instrument is currently typed into the Add Transaction form —
-// works for both an existing holding and a brand-new instrument, since it
-// looks the price up directly rather than reading a cached holding. The
-// fetched value only PRE-FILLS the price field; it stays fully editable so
-// the user can still record their actual buy/sell price if it differed.
+// ── Mutual Fund Live Search & Selection (mfapi.in) ──────────────────────────
+function onMfSearchInput(e) {
+  const query = (e.target.value || '').trim();
+  clearTimeout(_mfSearchTimeout);
+  if (query.length < 2) {
+    const resultsEl = document.getElementById('txn-mf-search-results');
+    if (resultsEl) resultsEl.style.display = 'none';
+    return;
+  }
+  _mfSearchTimeout = setTimeout(() => {
+    executeMfSearch(query);
+  }, 300);
+}
+
+function triggerMfSearch() {
+  const query = (document.getElementById('txn-mf-search')?.value || '').trim();
+  if (!query) return;
+  executeMfSearch(query);
+}
+
+async function executeMfSearch(query) {
+  const resultsEl = document.getElementById('txn-mf-search-results');
+  if (!resultsEl) return;
+  resultsEl.innerHTML = '<div class="mf-search-loading">Searching mutual funds…</div>';
+  resultsEl.style.display = 'block';
+
+  try {
+    const cleanQuery = query
+      .replace(/Direct\s*-?\s*Growth$/i, '')
+      .replace(/Fund\s*Direct\s*-?\s*Growth$/i, '')
+      .replace(/\s*-\s*/g, ' ')
+      .trim();
+    const resp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(cleanQuery || query)}`);
+    const data = await resp.json();
+    const list = Array.isArray(data) ? data : (data.results || []);
+    if (!list.length) {
+      resultsEl.innerHTML = '<div class="mf-search-empty">No matching schemes found. Try a shorter keyword.</div>';
+      return;
+    }
+
+    const sorted = [...list].sort((a, b) => {
+      const aName = (a.schemeName || '').toLowerCase();
+      const bName = (b.schemeName || '').toLowerCase();
+      const aDg = aName.includes('direct') && aName.includes('growth') ? 1 : 0;
+      const bDg = bName.includes('direct') && bName.includes('growth') ? 1 : 0;
+      if (aDg !== bDg) return bDg - aDg;
+      return aName.localeCompare(bName);
+    });
+
+    resultsEl.innerHTML = sorted.slice(0, 30).map(r => {
+      const isDirectGrowth = (r.schemeName || '').toLowerCase().includes('direct') && (r.schemeName || '').toLowerCase().includes('growth');
+      return `
+        <div class="mf-search-item" onclick="selectMfScheme(${r.schemeCode}, ${escapeAttr(JSON.stringify(r.schemeName))})">
+          <div class="mf-search-info">
+            <div class="mf-search-name">${escapeHtml(r.schemeName)}</div>
+            <div class="mf-search-meta">
+              <span class="mf-search-code">Code: ${r.schemeCode}</span>
+              ${isDirectGrowth ? '<span class="mf-search-badge">Direct Growth</span>' : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    resultsEl.innerHTML = `<div class="mf-search-empty">⚠️ ${escapeHtml(err.message || 'Search failed')}</div>`;
+  }
+}
+
+async function selectMfScheme(schemeCode, schemeName) {
+  _selectedNewMfScheme = { schemeCode, schemeName };
+  dynamicMfSchemeCodes[schemeName] = schemeCode;
+  saveDynamicMetadata();
+
+  const resultsEl = document.getElementById('txn-mf-search-results');
+  if (resultsEl) resultsEl.style.display = 'none';
+
+  const searchInput = document.getElementById('txn-mf-search');
+  if (searchInput) searchInput.value = schemeName;
+
+  const cardEl = document.getElementById('txn-mf-selected-card');
+  if (cardEl) {
+    cardEl.style.display = 'flex';
+    cardEl.className = 'mf-selected-card';
+    cardEl.innerHTML = `
+      <div>
+        <div class="mf-selected-text">✓ ${escapeHtml(schemeName)}</div>
+        <div class="mf-selected-sub">Scheme Code: ${schemeCode}</div>
+      </div>
+      <button type="button" class="ghost-btn" style="padding:2px 8px;font-size:0.75rem;" onclick="clearSelectedMfScheme()">Change</button>
+    `;
+  }
+
+  const statusEl = document.getElementById('txn-price-status');
+  if (statusEl) { statusEl.textContent = 'Fetching scheme NAV & category…'; statusEl.className = 'manage-hint'; }
+
+  try {
+    const resp = await fetchWithFallback(`/api/live-mf-nav/${schemeCode}`);
+    let data;
+    if (window.__staticMode) {
+      const raw = await resp.json();
+      if (raw?.data?.length > 0) {
+        data = {
+          nav: parseFloat(raw.data[0].nav),
+          navDate: raw.data[0].date || '',
+          meta: raw.meta || {}
+        };
+      }
+    } else {
+      data = await resp.json();
+    }
+
+    if (data?.nav && data.nav > 0) {
+      document.getElementById('txn-price').value = +data.nav.toFixed(4);
+      document.getElementById('txn-amount').dataset.touched = '';
+      onTxnAmountInputs();
+      if (statusEl) {
+        statusEl.textContent = `Fetched NAV: ₹${data.nav.toLocaleString('en-IN', { maximumFractionDigits: 4 })}` +
+          (data.navDate ? ` (as of ${data.navDate})` : '') + ' — edit if needed.';
+        statusEl.className = 'manage-hint trend-up';
+      }
+    }
+
+    const rawCat = (data?.meta?.scheme_category || schemeName || '').toLowerCase();
+    let cat = 'Equity: Flexi Cap';
+    if (rawCat.includes('small cap') || rawCat.includes('smallcap')) cat = 'Equity: Small Cap';
+    else if (rawCat.includes('mid cap') || rawCat.includes('midcap')) cat = 'Equity: Mid Cap';
+    else if (rawCat.includes('large & mid') || rawCat.includes('large and mid')) cat = 'Equity: Large & Mid Cap';
+    else if (rawCat.includes('large cap') || rawCat.includes('largecap') || rawCat.includes('bluechip') || rawCat.includes('frontline')) cat = 'Equity: Large Cap';
+    else if (rawCat.includes('flexi cap') || rawCat.includes('flexicap')) cat = 'Equity: Flexi Cap';
+    else if (rawCat.includes('multi cap') || rawCat.includes('multicap')) cat = 'Equity: Multi Cap';
+    else if (rawCat.includes('focused')) cat = 'Equity: Focused';
+    else if (rawCat.includes('elss') || rawCat.includes('tax')) cat = 'Equity: ELSS (Tax Saving)';
+    else if (rawCat.includes('index') || rawCat.includes('nifty') || rawCat.includes('sensex')) cat = 'Equity: Index Funds';
+    else if (rawCat.includes('sectoral') || rawCat.includes('thematic') || rawCat.includes('technology') || rawCat.includes('pharma') || rawCat.includes('banking') || rawCat.includes('infrastructure')) cat = 'Equity: Sectoral/Thematic';
+    else if (rawCat.includes('overseas') || rawCat.includes('global') || rawCat.includes('international') || rawCat.includes('us ') || rawCat.includes('nasdaq') || rawCat.includes('china')) cat = 'Equity: International / FoF';
+    else if (rawCat.includes('liquid')) cat = 'Debt: Liquid';
+    else if (rawCat.includes('overnight')) cat = 'Debt: Overnight';
+    else if (rawCat.includes('short duration') || rawCat.includes('low duration') || rawCat.includes('money market')) cat = 'Debt: Short Duration';
+    else if (rawCat.includes('corporate bond')) cat = 'Debt: Corporate Bond';
+    else if (rawCat.includes('banking and psu') || rawCat.includes('banking & psu')) cat = 'Debt: Banking & PSU';
+    else if (rawCat.includes('arbitrage')) cat = 'Hybrid: Arbitrage';
+    else if (rawCat.includes('balanced') || rawCat.includes('aggressive') || rawCat.includes('dynamic asset')) cat = 'Hybrid: Aggressive / Balanced';
+    else if (rawCat.includes('multi asset')) cat = 'Hybrid: Multi Asset';
+    else if (rawCat.includes('gold') || rawCat.includes('silver') || rawCat.includes('commodity')) cat = 'Gold / Commodity';
+
+    const catSelect = document.getElementById('txn-new-mf-category');
+    if (catSelect) {
+      catSelect.value = cat;
+      onNewMfCategoryChange();
+    }
+  } catch (_) {}
+}
+
+function clearSelectedMfScheme() {
+  _selectedNewMfScheme = null;
+  const cardEl = document.getElementById('txn-mf-selected-card');
+  if (cardEl) { cardEl.style.display = 'none'; cardEl.innerHTML = ''; }
+  const searchInput = document.getElementById('txn-mf-search');
+  if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+}
+
+function onNewMfCategoryChange() {
+  const sel = document.getElementById('txn-new-mf-category');
+  const customWrap = document.getElementById('txn-new-mf-custom-category-wrap');
+  if (customWrap && sel) {
+    const isCustom = sel.value === '__custom__';
+    customWrap.style.display = isCustom ? '' : 'none';
+    if (isCustom) document.getElementById('txn-new-mf-custom-category')?.focus();
+  }
+}
+
+// ── Stock Ticker Verification & Sector/Cap Setup ─────────────────────────────
+function onNewStockTickerInput(e) {
+  const ticker = (e.target.value || '').trim().toUpperCase();
+  e.target.value = ticker;
+  if (!ticker) return;
+
+  const knownSector = dynamicStockSectors[ticker] || (typeof SECTOR_MAP !== 'undefined' && SECTOR_MAP[ticker]);
+  if (knownSector) {
+    const sectorSel = document.getElementById('txn-new-stock-sector');
+    if (sectorSel) {
+      const opt = [...sectorSel.options].find(o => o.value === knownSector);
+      if (opt) {
+        sectorSel.value = knownSector;
+      } else {
+        sectorSel.value = '__custom__';
+        const customInput = document.getElementById('txn-new-stock-custom-sector');
+        if (customInput) customInput.value = knownSector;
+      }
+      onNewStockSectorChange();
+    }
+  }
+
+  const knownCap = dynamicMarketCaps[ticker] || (typeof MARKET_CAP_MAP !== 'undefined' && MARKET_CAP_MAP[ticker]);
+  if (knownCap) {
+    const capSel = document.getElementById('txn-new-stock-market-cap');
+    if (capSel && [...capSel.options].some(o => o.value === knownCap)) {
+      capSel.value = knownCap;
+    }
+  }
+}
+
+async function verifyNewStockTicker() {
+  const ticker = (document.getElementById('txn-new-stock-ticker')?.value || '').trim().toUpperCase();
+  const btn = document.getElementById('txn-verify-stock-btn');
+  const statusEl = document.getElementById('txn-price-status');
+  if (!ticker) {
+    if (statusEl) { statusEl.textContent = 'Enter an NSE ticker symbol first.'; statusEl.className = 'manage-hint trend-down'; }
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (statusEl) { statusEl.textContent = `Verifying ${ticker} on Yahoo Finance…`; statusEl.className = 'manage-hint'; }
+
+  try {
+    const { price, asOf } = await fetchStockQuote(ticker, 'yahoo');
+    if (!price || price <= 0) throw new Error('No live quote found for this ticker.');
+    document.getElementById('txn-price').value = +price.toFixed(2);
+    document.getElementById('txn-amount').dataset.touched = '';
+    onTxnAmountInputs();
+    if (statusEl) {
+      statusEl.textContent = `✓ Live Price: ₹${price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` +
+        (asOf ? ` (${new Date(asOf).toLocaleDateString('en-IN')})` : '') + ' — edit if needed.';
+      statusEl.className = 'manage-hint trend-up';
+    }
+    onNewStockTickerInput({ target: { value: ticker } });
+  } catch (err) {
+    if (statusEl) {
+      statusEl.textContent = `⚠️ Could not verify '${ticker}': ${err.message || 'Ticker not found'}. You can still enter price manually.`;
+      statusEl.className = 'manage-hint trend-down';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⟳ Verify / Price'; }
+  }
+}
+
+function onNewStockSectorChange() {
+  const sel = document.getElementById('txn-new-stock-sector');
+  const customWrap = document.getElementById('txn-new-stock-custom-sector-wrap');
+  if (customWrap && sel) {
+    const isCustom = sel.value === '__custom__';
+    customWrap.style.display = isCustom ? '' : 'none';
+    if (isCustom) document.getElementById('txn-new-stock-custom-sector')?.focus();
+  }
+}
+
+// Fetch the most recent market price / NAV for either existing holding or new scrip.
 async function fetchTxnLatestPrice() {
+  const mode = _currentTxnMode || 'existing';
   const cls = document.getElementById('txn-assetClass').value;
+
+  if (mode === 'new') {
+    if (cls === 'stock') {
+      return verifyNewStockTicker();
+    }
+    if (_selectedNewMfScheme?.schemeCode) {
+      return selectMfScheme(_selectedNewMfScheme.schemeCode, _selectedNewMfScheme.schemeName);
+    }
+    const mfSearchQuery = (document.getElementById('txn-mf-search')?.value || '').trim();
+    if (mfSearchQuery) {
+      return executeMfSearch(mfSearchQuery);
+    }
+    const statusEl = document.getElementById('txn-price-status');
+    if (statusEl) { statusEl.textContent = 'Search and select a mutual fund scheme first.'; statusEl.className = 'manage-hint trend-down'; }
+    return;
+  }
+
   const name = (document.getElementById('txn-instrument').value || '').trim();
   const btn = document.getElementById('txn-fetch-price-btn');
   const statusEl = document.getElementById('txn-price-status');
@@ -7599,12 +7941,14 @@ async function fetchTxnLatestPrice() {
           .trim();
         const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(searchQuery)}`);
         const searchData = await searchResp.json();
-        if (searchData.results?.length > 0) {
-          const directGrowth = searchData.results.find(r =>
+        const list = Array.isArray(searchData) ? searchData : (searchData.results || []);
+        if (list.length > 0) {
+          const directGrowth = list.find(r =>
             r.schemeName.toLowerCase().includes('direct') && r.schemeName.toLowerCase().includes('growth'));
-          const bestMatch = directGrowth || searchData.results[0];
+          const bestMatch = directGrowth || list[0];
           schemeCode = bestMatch.schemeCode;
           dynamicMfSchemeCodes[name] = schemeCode;
+          saveDynamicMetadata();
         }
       }
       if (!schemeCode) throw new Error('Could not find this scheme — check the name or enter the price manually.');
@@ -7620,9 +7964,6 @@ async function fetchTxnLatestPrice() {
       const canon = (typeof canonicalInstrument === 'function') ? canonicalInstrument(name, 'stock') : name;
       if (isStableDebt(canon)) throw new Error('No live price source for this instrument — enter it manually.');
       if (canon.startsWith('SGB')) {
-        // SGB tranches don't trade on Yahoo — their own Groww quote first,
-        // falling back to the GOLDBEES×100 gold-per-gram proxy (same
-        // hierarchy the bulk price refresh uses).
         try {
           const url = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/NSE/segment/CASH/${encodeURIComponent(canon)}/latest`;
           const resp = await fetchViaCorsProxy(url, {}, 8000);
@@ -7630,7 +7971,7 @@ async function fetchTxnLatestPrice() {
             const q = await resp.json();
             if (q?.ltp > 0) price = q.ltp;
           }
-        } catch (_) { /* fall through to the proxy below */ }
+        } catch (_) {}
         if (price == null) {
           const { price: fp } = await fetchStockQuote('GOLDBEES', 'yahoo');
           if (fp > 0) price = fp * 100;
@@ -7642,7 +7983,7 @@ async function fetchTxnLatestPrice() {
     }
     if (!price || price <= 0) throw new Error('Price not available right now — try again or enter it manually.');
     document.getElementById('txn-price').value = +price.toFixed(4);
-    document.getElementById('txn-amount').dataset.touched = ''; // let it recompute from the new price
+    document.getElementById('txn-amount').dataset.touched = '';
     onTxnAmountInputs();
     if (statusEl) {
       statusEl.textContent = `Fetched ₹${price.toLocaleString('en-IN', { maximumFractionDigits: 4 })}` +
@@ -7657,8 +7998,6 @@ async function fetchTxnLatestPrice() {
 }
 
 // Current held quantity for the instrument currently typed into the form
-// (matched against latestEquity/latestMf, the same live holdings the rest of
-// the app reads) — used to auto-fill "Exit full position".
 function _currentHeldQty() {
   const cls = document.getElementById('txn-assetClass').value;
   const name = (document.getElementById('txn-instrument').value || '').trim();
@@ -7684,10 +8023,6 @@ function onTxnExitAllChange() {
   if (checked) _fillExitQty();
 }
 
-// Re-fills the locked qty field with the current holding whenever the exit
-// checkbox is on and the instrument/asset-class changes — so switching the
-// instrument while "exit full position" is checked doesn't leave a stale qty
-// from the previously-typed instrument.
 function _fillExitQty() {
   if (!document.getElementById('txn-exit-all')?.checked) return;
   const qty = _currentHeldQty();
@@ -7702,19 +8037,41 @@ function _fillExitQty() {
 
 function onTxnAssetClassChange() {
   const cls = document.getElementById('txn-assetClass').value;
-  document.getElementById('txn-category-wrap').style.display = cls === 'mf' ? '' : 'none';
-  populateInstrumentDatalist();
-  onTxnInstrumentChange();
+  const mode = _currentTxnMode || 'existing';
+
+  const typeSelect = document.getElementById('txn-type');
+  if (typeSelect) {
+    const splitOpt = typeSelect.querySelector('option[value="split"]');
+    const bonusOpt = typeSelect.querySelector('option[value="bonus"]');
+    if (splitOpt) splitOpt.style.display = cls === 'stock' ? '' : 'none';
+    if (bonusOpt) bonusOpt.style.display = cls === 'stock' ? '' : 'none';
+    if (cls === 'mf' && (typeSelect.value === 'split' || typeSelect.value === 'bonus')) {
+      typeSelect.value = 'buy';
+    }
+  }
+
+  const catWrap = document.getElementById('txn-category-wrap');
+  if (catWrap) catWrap.style.display = (cls === 'mf' && mode === 'existing') ? '' : 'none';
+
+  const existWrap = document.getElementById('txn-existing-wrap');
+  const newMfWrap = document.getElementById('txn-new-mf-wrap');
+  const newStockWrap = document.getElementById('txn-new-stock-wrap');
+
+  if (mode === 'existing') {
+    if (existWrap) existWrap.style.display = '';
+    if (newMfWrap) newMfWrap.style.display = 'none';
+    if (newStockWrap) newStockWrap.style.display = 'none';
+    populateInstrumentDatalist();
+    onTxnInstrumentChange();
+  } else {
+    if (existWrap) existWrap.style.display = 'none';
+    if (newMfWrap) newMfWrap.style.display = cls === 'mf' ? '' : 'none';
+    if (newStockWrap) newStockWrap.style.display = cls === 'stock' ? '' : 'none';
+  }
   _fillExitQty();
 }
 
-// Auto-derive the MF category from the matched scheme (read-only display) — the
-// user never types it. For an existing scheme it comes from the holding's
-// scheme_type; for a brand-new scheme it's left blank and resolved later from
-// the MF price source.
 function onTxnInstrumentChange() {
-  // A fetched-price status message refers to whatever instrument was typed
-  // when the fetch ran — clear it as soon as the user edits the field again.
   const statusEl = document.getElementById('txn-price-status');
   if (statusEl) { statusEl.textContent = ''; statusEl.className = 'manage-hint'; }
   const cls = document.getElementById('txn-assetClass').value;
@@ -7723,7 +8080,7 @@ function onTxnInstrumentChange() {
   if (cls !== 'mf') { catEl.value = ''; return; }
   const name = (document.getElementById('txn-instrument').value || '').trim().toLowerCase();
   const match = (latestMf || []).find(f => f.scheme.toLowerCase() === name);
-  catEl.value = match ? (match.scheme_type || '') : '';
+  catEl.value = match ? (match.scheme_type || '') : (dynamicMfCategories[name] || '');
   _fillExitQty();
 }
 
@@ -7740,21 +8097,56 @@ function handleTxnSubmit(e) {
   e.preventDefault();
   if (typeof addTransaction !== 'function') { alert('Ledger module not loaded.'); return false; }
   const editId = document.getElementById('txn-edit-id').value;
+  const mode = _currentTxnMode || 'existing';
+  const assetClass = document.getElementById('txn-assetClass').value;
   const exitAll = document.getElementById('txn-exit-all')?.checked;
+
+  let instrument = '';
+  let category = null;
+  let sector = null;
+
+  if (mode === 'new') {
+    if (assetClass === 'mf') {
+      instrument = _selectedNewMfScheme ? _selectedNewMfScheme.schemeName : (document.getElementById('txn-mf-search')?.value || '').trim();
+      if (!instrument) {
+        alert('Please search and select a mutual fund scheme.');
+        return false;
+      }
+      const catVal = document.getElementById('txn-new-mf-category')?.value;
+      category = (catVal === '__custom__' ? (document.getElementById('txn-new-mf-custom-category')?.value || '').trim() : catVal) || 'Other';
+      dynamicMfCategories[instrument] = category;
+      saveDynamicMetadata();
+    } else {
+      instrument = (document.getElementById('txn-new-stock-ticker')?.value || '').trim().toUpperCase();
+      if (!instrument) {
+        alert('Please enter a stock ticker symbol.');
+        return false;
+      }
+      const secVal = document.getElementById('txn-new-stock-sector')?.value;
+      sector = (secVal === '__custom__' ? (document.getElementById('txn-new-stock-custom-sector')?.value || '').trim() : secVal) || 'Other Equities';
+      const capVal = document.getElementById('txn-new-stock-market-cap')?.value || 'Other/ETF';
+      dynamicStockSectors[instrument] = sector;
+      dynamicMarketCaps[instrument] = capVal;
+      saveDynamicMetadata();
+    }
+  } else {
+    instrument = document.getElementById('txn-instrument').value.trim();
+    category = document.getElementById('txn-category').value.trim() || null;
+  }
+
   const payload = {
-    assetClass: document.getElementById('txn-assetClass').value,
+    assetClass,
     type: document.getElementById('txn-type').value,
-    instrument: document.getElementById('txn-instrument').value.trim(),
-    category: document.getElementById('txn-category').value.trim() || null,
+    instrument,
+    category,
+    sector,
     date: document.getElementById('txn-date').value,
     qty: parseFloat(document.getElementById('txn-qty').value),
     price: parseFloat(document.getElementById('txn-price').value),
     amount: document.getElementById('txn-amount').value ? parseFloat(document.getElementById('txn-amount').value) : null,
     note: document.getElementById('txn-note').value.trim(),
   };
-  // "Exit full position" re-reads the CURRENT holding qty at submit time
-  // rather than trusting the (possibly stale, if prices refreshed since the
-  // checkbox was ticked) value already sitting in the field.
+
   if (exitAll && payload.type === 'sell') {
     const heldQty = _currentHeldQty();
     if (heldQty == null || heldQty <= 0) {
@@ -7765,7 +8157,7 @@ function handleTxnSubmit(e) {
   }
   const isCorporateAction = payload.type === 'split' || payload.type === 'bonus';
   if (!payload.instrument || !isFinite(payload.qty) || (!isCorporateAction && !isFinite(payload.price))) {
-    alert('Instrument and quantity are required.'); return false;
+    alert('Instrument, valid quantity, and price are required.'); return false;
   }
   if (isCorporateAction) { payload.price = 0; payload.amount = 0; }
   if (editId) updateTransaction(editId, payload);
@@ -7784,8 +8176,14 @@ function resetTxnForm() {
   document.getElementById('txn-cancel-btn').style.display = 'none';
   document.getElementById('txn-date').value = localDateStr();
   _setTxnQtyLocked(false);
+  clearSelectedMfScheme();
+  const customMfWrap = document.getElementById('txn-new-mf-custom-category-wrap');
+  if (customMfWrap) customMfWrap.style.display = 'none';
+  const customStockWrap = document.getElementById('txn-new-stock-custom-sector-wrap');
+  if (customStockWrap) customStockWrap.style.display = 'none';
   const statusEl = document.getElementById('txn-price-status');
   if (statusEl) { statusEl.textContent = ''; statusEl.className = 'manage-hint'; }
+  setTxnMode('existing');
   onTxnAssetClassChange();
   onTxnTypeChange();
 }
@@ -7793,12 +8191,10 @@ function resetTxnForm() {
 function editTxn(id) {
   const t = (transactions || []).find(x => x.id === id);
   if (!t) return;
-  switchTab('manage'); // editing may be triggered from the Transaction Log (Periodic Performance tab)
+  switchTab('manage');
   document.getElementById('txn-edit-id').value = t.id;
   document.getElementById('txn-assetClass').value = t.assetClass;
   document.getElementById('txn-type').value = t.type;
-  document.getElementById('txn-instrument').value = t.instrument;
-  document.getElementById('txn-category').value = t.category || '';
   document.getElementById('txn-date').value = t.date;
   document.getElementById('txn-qty').value = t.qty;
   document.getElementById('txn-price').value = t.price;
@@ -7807,14 +8203,17 @@ function editTxn(id) {
   document.getElementById('txn-note').value = t.note || '';
   document.getElementById('txn-submit-btn').textContent = 'Update Transaction';
   document.getElementById('txn-cancel-btn').style.display = '';
-  // Editing shows the transaction's OWN recorded qty — never re-derive it from
-  // current holdings, so "exit all" starts unchecked and unlocked.
+
   const exitCb = document.getElementById('txn-exit-all');
   if (exitCb) exitCb.checked = false;
   _setTxnQtyLocked(false);
+
+  setTxnMode('existing');
+  document.getElementById('txn-instrument').value = t.instrument;
+  document.getElementById('txn-category').value = t.category || '';
   onTxnAssetClassChange();
   onTxnTypeChange();
-  document.getElementById('txn-qty').value = t.qty; // onTxnAssetClassChange may have re-triggered _fillExitQty; restore the exact stored qty
+  document.getElementById('txn-qty').value = t.qty;
   document.getElementById('txn-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
@@ -8078,7 +8477,11 @@ async function handleImportBackup(e) {
     if (typeof stitchHistoryFragments === 'function') historicalHoldings = stitchHistoryFragments(historicalHoldings);
     transactions = data.transactions || [];
     balances = data.balances || [];
-    frozenBase = data.frozen_base || null;
+    if (data.dynamic_mf_schemes) dynamicMfSchemeCodes = { ...dynamicMfSchemeCodes, ...data.dynamic_mf_schemes };
+    if (data.dynamic_mf_categories) dynamicMfCategories = { ...dynamicMfCategories, ...data.dynamic_mf_categories };
+    if (data.dynamic_stock_sectors) dynamicStockSectors = { ...dynamicStockSectors, ...data.dynamic_stock_sectors };
+    if (data.dynamic_market_caps) dynamicMarketCaps = { ...dynamicMarketCaps, ...data.dynamic_market_caps };
+    saveDynamicMetadata();
     saveLedger();
     saveBreakupOverride();
     initializeLiveBaseline();
