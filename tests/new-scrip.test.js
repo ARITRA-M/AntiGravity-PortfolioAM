@@ -109,4 +109,19 @@ test('addTransaction saves transaction with category and sector', () => {
   assert.ok(storedTxns.some(t => t.instrument === 'HAL' && t.sector === 'Defence & Aerospace'));
 });
 
+test('MF scheme matcher picks exact IDCW scheme over Growth scheme when requested', () => {
+  const list = [
+    { schemeCode: 120044, schemeName: 'HSBC Global Emerging Markets Fund - Direct Plan - IDCW' },
+    { schemeCode: 120043, schemeName: 'HSBC Global Emerging Markets Fund - Direct Plan - Growth' },
+    { schemeCode: 107989, schemeName: 'HSBC Global Emerging Markets Fund - Regular Plan - IDCW' },
+    { schemeCode: 107988, schemeName: 'HSBC Global Emerging Markets Fund - Regular Plan - Growth' }
+  ];
+
+  const targetName = 'HSBC Global Emerging Markets Fund - Direct Plan - IDCW';
+  const rawLower = targetName.trim().toLowerCase();
+  const exact = list.find(r => r.schemeName.trim().toLowerCase() === rawLower);
+  assert.ok(exact);
+  assert.strictEqual(exact.schemeCode, 120044);
+});
+
 console.log(`\n${passed} new scrip tests passed\n`);

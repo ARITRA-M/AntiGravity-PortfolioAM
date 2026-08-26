@@ -564,29 +564,64 @@ async function refreshPrices(stocksOnly = false) {
     // 2. Refresh one MF NAV (mfapi.in — a different backend from the stock
     // proxy, so MF refresh can run concurrently with the stock batches).
     async function refreshOneMf(fund) {
-      let schemeCode = MF_SCHEME_CODES[fund.scheme];
+      let schemeCode = (typeof MF_SCHEME_CODES !== 'undefined' ? MF_SCHEME_CODES[fund.scheme] : undefined);
 
       if (schemeCode === null) { mfFail++; mfDetails.push({ scheme: fund.scheme, status: 'fail', nav: null, prevNav: null, error: 'Explicitly excluded' }); updateProgress(fund.scheme); return; }
-      if (!schemeCode) schemeCode = dynamicMfSchemeCodes[fund.scheme];
+      if (!schemeCode && typeof dynamicMfSchemeCodes !== 'undefined') {
+        schemeCode = dynamicMfSchemeCodes[fund.scheme];
+      }
+      if (!schemeCode && typeof window !== 'undefined' && window.dynamicMfSchemeCodes) {
+        schemeCode = window.dynamicMfSchemeCodes[fund.scheme];
+      }
+      if (!schemeCode) {
+        try {
+          const p = (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_';
+          const saved = JSON.parse(localStorage.getItem(p + 'dynamic_mf_schemes') || '{}');
+          schemeCode = saved[fund.scheme];
+        } catch (_) {}
+      }
 
       // Dynamic lookup if still not found
       if (!schemeCode) {
         try {
-          const searchQuery = fund.scheme
-            .replace(/Direct\s*-?\s*Growth$/i, '')
-            .replace(/Fund\s*Direct\s*-?\s*Growth$/i, '')
+          const rawName = fund.scheme;
+          const cleanQuery = rawName
             .replace(/\s*-\s*/g, ' ')
+            .replace(/\b(Direct\s*Plan|Regular\s*Plan|Direct|Regular|Growth|IDCW|Dividend|Plan|Fund)\b/gi, '')
+            .replace(/\s+/g, ' ')
             .trim();
-          const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(searchQuery)}`);
+          const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(cleanQuery || rawName)}`);
           const searchData = await searchResp.json();
-          if (searchData.results?.length > 0) {
-            const directGrowth = searchData.results.find(r =>
-              r.schemeName.toLowerCase().includes('direct') &&
-              r.schemeName.toLowerCase().includes('growth')
-            );
-            const bestMatch = directGrowth || searchData.results[0];
-            schemeCode = bestMatch.schemeCode;
-            dynamicMfSchemeCodes[fund.scheme] = schemeCode;
+          const list = Array.isArray(searchData) ? searchData : (searchData.results || []);
+          if (list.length > 0) {
+            const rawLower = rawName.trim().toLowerCase();
+            const exact = list.find(r => r.schemeName.trim().toLowerCase() === rawLower);
+            const wantDirect = rawLower.includes('direct');
+            const wantGrowth = rawLower.includes('growth');
+            const wantIdcw = rawLower.includes('idcw') || rawLower.includes('dividend');
+            const bestMatch = exact || list.find(r => {
+              const n = r.schemeName.toLowerCase();
+              if (wantDirect && !n.includes('direct')) return false;
+              if (!wantDirect && n.includes('direct')) return false;
+              if (wantGrowth && !n.includes('growth')) return false;
+              if (wantIdcw && !(n.includes('idcw') || n.includes('dividend'))) return false;
+              return true;
+            }) || list[0];
+
+            if (bestMatch) {
+              schemeCode = bestMatch.schemeCode;
+              if (typeof dynamicMfSchemeCodes !== 'undefined') dynamicMfSchemeCodes[fund.scheme] = schemeCode;
+              if (typeof window !== 'undefined' && window.dynamicMfSchemeCodes) window.dynamicMfSchemeCodes[fund.scheme] = schemeCode;
+              if (typeof saveDynamicMetadata === 'function') saveDynamicMetadata();
+              else {
+                try {
+                  const p = (typeof LS_PREFIX !== 'undefined') ? LS_PREFIX : 'ag_portfolio_';
+                  const cur = JSON.parse(localStorage.getItem(p + 'dynamic_mf_schemes') || '{}');
+                  cur[fund.scheme] = schemeCode;
+                  localStorage.setItem(p + 'dynamic_mf_schemes', JSON.stringify(cur));
+                } catch (_) {}
+              }
+            }
           }
         } catch (_) { /* ignore */ }
       }

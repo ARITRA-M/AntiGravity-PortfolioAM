@@ -812,19 +812,34 @@ function latestBalanceFor(component, asOfDate) {
 // XIRR via Newton–Raphson with a bisection fallback. `flows` is a list of
 // { date:'YYYY-MM-DD', amount } where contributions are negative (cash out of
 // pocket) and the terminal portfolio value is positive. Returns a decimal rate
+// XIRR via Newton–Raphson with a bisection fallback. `flows` is a list of
+// { date:'YYYY-MM-DD', amount } where contributions are negative (cash out of
+// pocket) and the terminal portfolio value is positive. Returns a decimal rate
 // (0.14 = 14%) or null if it can't converge / has no sign change.
 function computeXirr(flows, guess) {
   if (!flows || flows.length < 2) return null;
-  const t0 = new Date(flows[0].date).getTime();
-  const yrs = f => (new Date(f.date).getTime() - t0) / (365.25 * 86400 * 1000);
-  const npv = r => flows.reduce((s, f) => s + f.amount / Math.pow(1 + r, yrs(f)), 0);
-  const dnpv = r => flows.reduce((s, f) => {
-    const y = yrs(f);
+  const hasNeg = flows.some(f => f.amount < 0);
+  const hasPos = flows.some(f => f.amount > 0);
+  if (!hasNeg || !hasPos) return null;
+
+  const times = flows.map(f => (f.date instanceof Date ? f.date.getTime() : new Date(f.date).getTime()));
+  if (times.some(isNaN)) return null;
+
+  const t0 = Math.min(...times);
+  const tMax = Math.max(...times);
+  // If all cash flows occur on the same day (less than 1 day elapsed),
+  // rate of return cannot be annualized. Return null.
+  if ((tMax - t0) / (86400 * 1000) < 1) return null;
+
+  const yrs = (f, idx) => (times[idx] - t0) / (365.25 * 86400 * 1000);
+  const npv = r => flows.reduce((s, f, i) => s + f.amount / Math.pow(1 + r, yrs(f, i)), 0);
+  const dnpv = r => flows.reduce((s, f, i) => {
+    const y = yrs(f, i);
     return s - (y * f.amount) / Math.pow(1 + r, y + 1);
   }, 0);
 
   // Newton–Raphson
-  let r = (guess == null ? 0.1 : guess);
+  let r = (guess == null || !isFinite(guess) ? 0.1 : guess);
   for (let i = 0; i < 100; i++) {
     const v = npv(r), d = dnpv(r);
     if (Math.abs(v) < 1e-7) return r;

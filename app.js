@@ -1795,8 +1795,15 @@ function updateKpis() {
       if (!history) continue;
       let prevInv = 0;
       for (const row of history) {
-        const delta = (row.invested || 0) - prevInv;
-        if (Math.abs(delta) > 1) { allCf.push(-delta); allDt.push(new Date(row.date)); }
+        if (typeof row.cf === 'number') {
+          if (Math.abs(row.cf) > 1) {
+            allCf.push(row.cf);
+            allDt.push(new Date(row.date));
+          }
+        } else {
+          const delta = (row.invested || 0) - prevInv;
+          if (Math.abs(delta) > 1) { allCf.push(-delta); allDt.push(new Date(row.date)); }
+        }
         prevInv = row.invested || 0;
       }
       const last = history[history.length - 1];
@@ -5359,18 +5366,28 @@ function _rerenderBenchmarkCharts() {
   try { renderXirrComparisonTable(); } catch (_) {}
 }
 
-// ── XIRR via Newton-Raphson ─────────────────────────────────────────────────
+// ── XIRR via Newton-Raphson + Bisection Fallback ────────────────────────────
 // cashflows: array of ₹ amounts (negative = money out / investment,
 //            positive = money in / liquidation value at end)
-// dates: array of Date objects matching cashflows
+// dates: array of Date objects (or date strings) matching cashflows
 function computeXIRR(cashflows, dates, guess = 0.1) {
-  if (cashflows.length < 2) return null;
+  if (!cashflows || !dates || cashflows.length < 2 || dates.length !== cashflows.length) return null;
   const hasNeg = cashflows.some(c => c < 0);
   const hasPos = cashflows.some(c => c > 0);
   if (!hasNeg || !hasPos) return null;
 
-  const t0 = dates[0].getTime();
-  const yearFrac = i => (dates[i].getTime() - t0) / (365.25 * 86400 * 1000);
+  const times = dates.map(d => (d instanceof Date ? d.getTime() : new Date(d).getTime()));
+  if (times.some(isNaN)) return null;
+
+  const t0 = Math.min(...times);
+  const tMax = Math.max(...times);
+  // Total elapsed time span in days
+  const totalDays = (tMax - t0) / (86400 * 1000);
+  // If all cash flows occur on the same day (less than 1 full day elapsed),
+  // rate of return cannot be annualized (or is 0% on 0 time). Return null (rendered as '—').
+  if (totalDays < 1) return null;
+
+  const yearFrac = i => (times[i] - t0) / (365.25 * 86400 * 1000);
 
   const npv = r => cashflows.reduce((s, cf, i) => s + cf / Math.pow(1 + r, yearFrac(i)), 0);
   const dnpv = r => cashflows.reduce((s, cf, i) => {
@@ -5378,17 +5395,33 @@ function computeXIRR(cashflows, dates, guess = 0.1) {
     return s - (t * cf) / Math.pow(1 + r, t + 1);
   }, 0);
 
-  let r = guess;
+  // 1. Newton-Raphson iteration
+  let r = (guess == null || !Number.isFinite(guess)) ? 0.1 : guess;
   for (let iter = 0; iter < 100; iter++) {
     const f = npv(r);
-    if (!Number.isFinite(f) || Math.abs(f) < 1e-6) return r;
+    if (Math.abs(f) < 1e-7) return r;
     const df = dnpv(r);
     if (!Number.isFinite(df) || df === 0) break;
     const next = r - f / df;
+    if (!Number.isFinite(next)) break;
     if (Math.abs(next - r) < 1e-9) return next;
-    r = next < -0.99 ? -0.99 : next; // keep above -100%
+    r = next <= -0.9999 ? -0.9999 : next;
   }
-  return Number.isFinite(r) ? r : null;
+
+  // 2. Bisection fallback over [-0.9999, 10.0] (-99.99% to +1000%)
+  let lo = -0.9999, hi = 10.0;
+  let flo = npv(lo), fhi = npv(hi);
+  if (Number.isFinite(flo) && Number.isFinite(fhi) && flo * fhi <= 0) {
+    for (let i = 0; i < 200; i++) {
+      const mid = (lo + hi) / 2;
+      const fm = npv(mid);
+      if (Math.abs(fm) < 1e-7) return mid;
+      if (flo * fm < 0) { hi = mid; fhi = fm; } else { lo = mid; flo = fm; }
+    }
+    return (lo + hi) / 2;
+  }
+
+  return null;
 }
 
 // Per-holding money-weighted XIRR from its month-by-month history.
@@ -7934,18 +7967,28 @@ async function fetchTxnLatestPrice() {
       if (schemeCode === null) throw new Error('Price lookups are disabled for this scheme — enter it manually.');
       if (!schemeCode) schemeCode = dynamicMfSchemeCodes[name];
       if (!schemeCode) {
-        const searchQuery = name
-          .replace(/Direct\s*-?\s*Growth$/i, '')
-          .replace(/Fund\s*Direct\s*-?\s*Growth$/i, '')
+        const cleanQuery = name
           .replace(/\s*-\s*/g, ' ')
+          .replace(/\b(Direct\s*Plan|Regular\s*Plan|Direct|Regular|Growth|IDCW|Dividend|Plan|Fund)\b/gi, '')
+          .replace(/\s+/g, ' ')
           .trim();
-        const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(searchQuery)}`);
+        const searchResp = await fetchWithFallback(`/api/search-mf-scheme?q=${encodeURIComponent(cleanQuery || name)}`);
         const searchData = await searchResp.json();
         const list = Array.isArray(searchData) ? searchData : (searchData.results || []);
         if (list.length > 0) {
-          const directGrowth = list.find(r =>
-            r.schemeName.toLowerCase().includes('direct') && r.schemeName.toLowerCase().includes('growth'));
-          const bestMatch = directGrowth || list[0];
+          const rawLower = name.trim().toLowerCase();
+          const exact = list.find(r => r.schemeName.trim().toLowerCase() === rawLower);
+          const wantDirect = rawLower.includes('direct');
+          const wantGrowth = rawLower.includes('growth');
+          const wantIdcw = rawLower.includes('idcw') || rawLower.includes('dividend');
+          const bestMatch = exact || list.find(r => {
+            const n = r.schemeName.toLowerCase();
+            if (wantDirect && !n.includes('direct')) return false;
+            if (!wantDirect && n.includes('direct')) return false;
+            if (wantGrowth && !n.includes('growth')) return false;
+            if (wantIdcw && !(n.includes('idcw') || n.includes('dividend'))) return false;
+            return true;
+          }) || list[0];
           schemeCode = bestMatch.schemeCode;
           dynamicMfSchemeCodes[name] = schemeCode;
           saveDynamicMetadata();

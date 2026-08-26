@@ -77,4 +77,11 @@ test('multiple contributions: NPV at returned rate ≈ 0', () => {
   close(npv, 0, 0.01);
 });
 
+test('same-day flows (0 days elapsed / bought today) return null instead of default guess', () => {
+  assert.strictEqual(computeXirr([
+    { date: '2026-08-26', amount: -5000 },
+    { date: '2026-08-26', amount: 5000 }
+  ]), null);
+});
+
 console.log(`\n${passed} computeXirr tests passed`);
