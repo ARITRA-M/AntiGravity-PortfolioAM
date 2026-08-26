@@ -550,29 +550,40 @@ app.post('/api/commit-data', (req, res) => {
 
     // 4. Git operations
     const repoDir = __dirname;
-    const execOpts = { cwd: repoDir, encoding: 'utf-8', timeout: 30000 };
+    const execOpts = { cwd: repoDir, encoding: 'utf-8', timeout: 45000, maxBuffer: 10 * 1024 * 1024 };
 
-    // 4a. git add .
-    execSync('git add .', execOpts);
-    results.push('git add .');
+    // 4a. git add -A
+    execSync('git add -A', execOpts);
+    results.push('git add -A');
 
-    // 4b. git commit
-    execSync(`git commit -m "${commitMsg}"`, execOpts);
-    results.push(`git commit: "${commitMsg}"`);
+    // 4b. git commit (only if there are staged changes to prevent crashing on clean working tree)
+    const stagedFiles = execSync('git diff --cached --name-only', execOpts).trim();
+    if (stagedFiles) {
+      execSync(`git commit -m "${commitMsg}"`, execOpts);
+      results.push(`git commit: "${commitMsg}"`);
+    } else {
+      results.push('git commit: working tree already clean (no new staged changes)');
+    }
 
-    // 4c. git push — push the CURRENT branch (not a hardcoded 'main'). Previously
-    // this always did `git push origin main`, so when committing on any other
-    // branch the new commit landed on that branch while a stale `main` was pushed,
-    // leaving the live site permanently out of sync.
+    // 4c. Current branch
     const branch = execSync('git rev-parse --abbrev-ref HEAD', execOpts).trim();
-    const pushOutput = execSync(`git push origin ${branch}`, execOpts).trim();
+
+    // 4d. Rebase on remote before push in case Cloudflare Worker or remote has new commits
+    try {
+      execSync(`git pull --rebase origin ${branch}`, execOpts);
+      results.push(`git pull --rebase: synced with origin/${branch}`);
+    } catch (pullErr) {
+      console.warn('git pull --rebase note:', (pullErr.stderr || pullErr.message || '').toString().trim());
+      try { execSync('git rebase --abort', execOpts); } catch (_) {}
+    }
+
+    // 4e. git push current branch
+    const pushOutput = execSync(`git push origin ${branch}`, execOpts).toString().trim();
     results.push(`git push: ${branch} (${pushOutput.split('\n').pop() || 'ok'})`);
 
-    // 4d. GitHub Pages deploys from `main` (static.yml: on push to main). If we
+    // 4f. GitHub Pages deploys from `main` (static.yml: on push to main). If we
     // committed on a different branch, fast-forward `main` to this commit so the
-    // live site actually updates. This is a fast-forward because main tracks the
-    // working branch tip via this same path; a non-FF push errors loudly instead
-    // of silently leaving the site stale.
+    // live site actually updates.
     if (branch !== 'main') {
       try {
         execSync(`git push origin ${branch}:main`, execOpts);
@@ -584,9 +595,9 @@ app.post('/api/commit-data', (req, res) => {
     }
 
     console.log(`✅ ${results.join(' | ')}`);
-    res.json({ success: true, message: `✅ Committed & pushed! Mobile will sync within 10 min.`, details: results });
+    res.json({ success: true, message: `✅ Committed & pushed! GitHub Pages will update shortly.`, details: results });
   } catch (e) {
-    const errMsg = e.stderr || e.message || 'Unknown error';
+    const errMsg = (e && (e.stderr ? e.stderr.toString() : (e.stdout ? e.stdout.toString() : e.message))) || 'Unknown error';
     console.error('Commit failed:', errMsg);
     res.status(500).json({ error: 'Commit failed: ' + errMsg });
   }

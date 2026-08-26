@@ -722,7 +722,7 @@ function stitchHistoryFragments(hh) {
 window.addEventListener('DOMContentLoaded', () => {
   // Show the Commit button on localhost — it now persists ledger edits / closed
   // periods (the Excel-upload flow that used to reveal it has been removed).
-  const _isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1');
+  const _isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1') || location.hostname === '0.0.0.0' || location.hostname.endsWith('.local');
   const _commitBtn = document.getElementById('commit-btn');
   const _hasWorker = typeof WORKER_PROXY_URL !== 'undefined' && WORKER_PROXY_URL;
   // Show on local runs OR on GitHub Pages if the Cloudflare Worker proxy is configured
@@ -841,7 +841,7 @@ async function commitData() {
     return;
   }
   // On non-localhost (PWA), try using the CF worker for direct GitHub commit
-  const isLocal = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1');
+  const isLocal = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1') || window.location.hostname === '0.0.0.0' || window.location.hostname.endsWith('.local');
   const commitUrl = isLocal ? '/api/commit-data' : (typeof WORKER_PROXY_URL !== 'undefined' && WORKER_PROXY_URL ? (WORKER_PROXY_URL.endsWith('/') ? WORKER_PROXY_URL.slice(0, -1) : WORKER_PROXY_URL) + '/api/commit-data' : null);
   
   if (!commitUrl) {
@@ -8100,7 +8100,7 @@ async function handleImportBackup(e) {
 async function forceResyncFromCloud() {
   if (!confirm('This will discard any local, uncommitted changes on THIS DEVICE and reload the latest data committed to the cloud. Continue?')) return;
   
-  const isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1');
+  const isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1') || location.hostname === '0.0.0.0' || location.hostname.endsWith('.local');
   if (isLocal) {
     const status = document.getElementById('upload-status');
     if (status) status.textContent = '📥 Pulling latest data from GitHub...';

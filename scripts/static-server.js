@@ -65,17 +65,39 @@ function handleCommitData(req, res) {
       }
 
       // 4. Git add / commit / push (current branch, whatever it is)
-      const execOpts = { cwd: ROOT, encoding: 'utf-8', timeout: 30000 };
-      execSync('git add .', execOpts);
-      execSync(`git commit -m "Update portfolio data ${todayStr}"`, execOpts);
+      const execOpts = { cwd: ROOT, encoding: 'utf-8', timeout: 45000, maxBuffer: 10 * 1024 * 1024 };
+
+      // 4a. git add -A
+      execSync('git add -A', execOpts);
+      results.push('git add -A');
+
+      // 4b. git commit (only if there are staged changes)
+      const stagedFiles = execSync('git diff --cached --name-only', execOpts).trim();
+      if (stagedFiles) {
+        execSync(`git commit -m "Update portfolio data ${todayStr}"`, execOpts);
+        results.push(`git commit: "Update portfolio data ${todayStr}"`);
+      } else {
+        results.push('git commit: working tree already clean (no new staged changes)');
+      }
+
+      // 4c. Current branch
       const branch = execSync('git rev-parse --abbrev-ref HEAD', execOpts).trim();
-      const pushOut = execSync(`git push origin ${branch}`, execOpts).trim();
+
+      // 4d. Rebase on remote before push in case Cloudflare Worker or remote has new commits
+      try {
+        execSync(`git pull --rebase origin ${branch}`, execOpts);
+        results.push(`git pull --rebase: synced with origin/${branch}`);
+      } catch (pullErr) {
+        console.warn('git pull --rebase note:', (pullErr.stderr || pullErr.message || '').toString().trim());
+        try { execSync('git rebase --abort', execOpts); } catch (_) {}
+      }
+
+      // 4e. git push current branch
+      const pushOut = execSync(`git push origin ${branch}`, execOpts).toString().trim();
       results.push(`git push (${branch}): ${pushOut.split('\n').pop() || 'ok'}`);
 
-      // 4b. GitHub Pages deploys from `main`. If committing on another branch,
-      // fast-forward `main` to this commit so the live site actually updates —
-      // otherwise the push above lands only on the feature branch and the cloud
-      // stays stale. Errors loudly instead of silently leaving the site behind.
+      // 4f. GitHub Pages deploys from `main`. If committing on another branch,
+      // fast-forward `main` to this commit so the live site actually updates.
       if (branch !== 'main') {
         try {
           execSync(`git push origin ${branch}:main`, execOpts);
@@ -88,9 +110,9 @@ function handleCommitData(req, res) {
 
       console.log(`✅ ${results.join(' | ')}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, message: '✅ Committed & pushed! Mobile will sync within 10 min.', details: results }));
+      res.end(JSON.stringify({ success: true, message: '✅ Committed & pushed! GitHub Pages will update shortly.', details: results }));
     } catch (e) {
-      const errMsg = (e && (e.stderr || e.message)) || 'Unknown error';
+      const errMsg = (e && (e.stderr ? e.stderr.toString() : (e.stdout ? e.stdout.toString() : e.message))) || 'Unknown error';
       console.error('Commit failed:', errMsg);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Commit failed: ' + errMsg }));
