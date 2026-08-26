@@ -4886,15 +4886,11 @@ function _renderInlineTransactions(history, tbody, pricePrecision, instrument) {
   const deltaRows = [];
   
   // The ledger is the source of truth for anything it covers.
-  const _ledgerDates = [
-    ...(typeof transactions !== 'undefined' ? transactions.map(t => t.date) : []),
-    ...(typeof balances !== 'undefined' ? balances.map(b => b.date) : []),
-  ];
-  const ledgerEraStart = _ledgerDates.length ? _ledgerDates.reduce((a, b) => a < b ? a : b) : null;
+  const eraStart = (typeof _ledgerEraStart === 'function') ? _ledgerEraStart() : (frozenBase?.eraStart || '2026-05-01');
   
   for (let i = 0; i < history.length; i++) {
     const h = history[i];
-    if (ledgerEraStart && h.date >= ledgerEraStart) continue; // Skip snapshot diffs from ledger era
+    if (eraStart && h.date > eraStart) continue; // Skip snapshot diffs from ledger era
     
     if (i === 0) {
       if (h.qty > 0) {
@@ -6027,15 +6023,11 @@ function _buildPeriodBuckets(gran) {
   return buckets;
 }
 
-// The last (current, still-open) bucket sources newInv/deltaNW purely from
-// breakupSummary — which only reflects whatever was folded in at the LAST Close
-// Period. A close dated e.g. "2026-07-01" bakes in everything since the PREVIOUS
-// close (i.e. all of June, however it happens to be dated), then that single data
-// point gets bucketed as "2026-07" — so the "current month" bucket shows last
-// month's closed activity, not this month's, and never reflects transactions
-// entered since that close (dated after it) at all. Recompute the current bucket
-// directly from the live ledger + live net worth, calendar-aligned to today,
-// instead of trusting the breakup aggregate for the still-open period.
+// The current (in-progress) bucket has its closing net worth updated from the
+// live portfolio summary (reflecting live market prices). Base newInv is already
+// built from breakupSummary (which includes all tradeable/non-tradeable assets,
+// PF, NPS, real estate, and loan amortisation). Any live post-close transactions
+// or balance updates not yet folded into a breakup column are added on top.
 function _patchCurrentBucketFromLedger(buckets, gran, bucketOf) {
   if (!buckets.length) return;
   const today = new Date();
@@ -6043,42 +6035,34 @@ function _patchCurrentBucketFromLedger(buckets, gran, bucketOf) {
   const last = buckets[buckets.length - 1];
   if (bucketOf(todayStr) !== last.label) return; // last bucket isn't "now" — leave it alone
 
-  const y = today.getFullYear(), m = today.getMonth();
-  const periodStart = gran === 'Q' ? new Date(y, Math.floor(m / 3) * 3, 1)
-    : gran === 'H' ? new Date(y, m < 6 ? 0 : 6, 1)
-    : gran === 'Y' ? new Date(y, 0, 1)
-    : new Date(y, m, 1); // 'M' and default
-  const periodStartStr = localDateStr(periodStart);
-
-  let liveNewInvRupees = 0;
-  (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
-    if (t.date < periodStartStr || t.date > todayStr) return;
-    liveNewInvRupees += t.type === 'sell' ? -t.amount : t.amount;
-  });
-  (typeof balances !== 'undefined' ? balances : []).forEach(b => {
-    if (b.date < periodStartStr || b.date > todayStr) return;
-    liveNewInvRupees += b.contribution || 0;
-  });
-  const newInv = liveNewInvRupees / 100000; // rupees → lakhs, matching breakupSummary units
-
-  // Opening NW = last CLOSED net worth strictly before this calendar period started.
   const dates = breakupSummary.dates;
-  const nwVals = breakupSummary.net_worth['Total'].values;
-  let openNW = null;
-  for (let i = dates.length - 1; i >= 0; i--) {
-    if (dates[i] < periodStartStr) { openNW = nwVals[i]; break; }
+  const lastColDate = dates.length ? dates[dates.length - 1] : '';
+  const lastWinEnd = lastColDate ? (typeof _endOfMonthStr === 'function' ? _endOfMonthStr(lastColDate) : '') : '';
+
+  let unbucketedRupees = 0;
+  if (lastWinEnd) {
+    (typeof transactions !== 'undefined' ? transactions : []).forEach(t => {
+      if (t.date > lastWinEnd && t.date <= todayStr) {
+        unbucketedRupees += t.type === 'sell' ? -t.amount : t.amount;
+      }
+    });
+    (typeof balances !== 'undefined' ? balances : []).forEach(b => {
+      if (b.date > lastWinEnd && b.date <= todayStr) {
+        unbucketedRupees += b.contribution || 0;
+      }
+    });
   }
-  if (openNW == null) openNW = last.openNW; // no earlier close found — fall back
+
+  const newInv = last.newInv + (unbucketedRupees / 100000);
   const closeNW = (typeof portfolioSummary !== 'undefined' && portfolioSummary?.total_net_worth_lakhs != null)
     ? portfolioSummary.total_net_worth_lakhs : last.closeNW;
 
-  last.openNW = openNW;
   last.closeNW = closeNW;
-  last.deltaNW = closeNW - openNW;
+  last.deltaNW = closeNW - last.openNW;
   last.newInv = newInv;
   last.mktRet = last.deltaNW - newInv;
-  last.deltaNWPct = openNW ? (last.deltaNW / openNW) * 100 : 0;
-  last.mktRetPct = openNW ? (last.mktRet / openNW) * 100 : 0;
+  last.deltaNWPct = last.openNW ? (last.deltaNW / last.openNW) * 100 : 0;
+  last.mktRetPct = last.openNW ? (last.mktRet / last.openNW) * 100 : 0;
   last.isPartial = true;
 }
 
@@ -6783,9 +6767,9 @@ function _applyMoversMode(mode) {
   };
 
   document.getElementById('monthly-gainers-list').innerHTML =
-    winners.slice(0, 5).map(d => makeRow(d, true)).join('') || empty;
+    winners.slice(0, 6).map(d => makeRow(d, true)).join('') || empty;
   document.getElementById('monthly-losers-list').innerHTML =
-    losers.slice(0, 5).map(d => makeRow(d, false)).join('') || empty;
+    losers.slice(0, 6).map(d => makeRow(d, false)).join('') || empty;
 
   const wh = document.getElementById('movers-winners-heading');
   const lh = document.getElementById('movers-losers-heading');
@@ -6941,14 +6925,10 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
   // The ledger (transactions[]/balances[]) is the source of truth for anything
   // it covers — so historical snapshot-diffing is only used for the PURE
   // pre-ledger era (Excel-imported months with no corresponding ledger entry).
-  // Anything from the ledger's earliest entry onward is shown as an individual,
+  // Anything after the immutable Excel era (eraStart) is shown as an individual,
   // editable row further below instead of a coarser per-period aggregate — this
   // is what lets the log double as the (now-merged) Ledger view.
-  const _ledgerDates = [
-    ...(typeof transactions !== 'undefined' ? transactions.map(t => t.date) : []),
-    ...(typeof balances !== 'undefined' ? balances.map(b => b.date) : []),
-  ];
-  const ledgerEraStart = _ledgerDates.length ? _ledgerDates.reduce((a, b) => a < b ? a : b) : null;
+  const eraStart = (typeof _ledgerEraStart === 'function') ? _ledgerEraStart() : (frozenBase?.eraStart || '2026-05-01');
 
   // Historical (pre-ledger) stock/MF buys & sells, derived from monthly snapshot deltas.
   const stockHistory = historicalHoldings.stocks;
@@ -6960,7 +6940,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     for (let i = 1; i < history.length; i++) {
       const prev = history[i - 1];
       const curr = history[i];
-      if (ledgerEraStart && curr.date >= ledgerEraStart) continue; // covered by individual ledger rows below
+      if (eraStart && curr.date > eraStart) continue; // covered by individual ledger rows below
       if (curr.invested > prev.invested) {
         const qty = curr.qty - prev.qty;
         if (qty > 0) {
@@ -6989,7 +6969,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     for (let i = 1; i < history.length; i++) {
       const prev = history[i - 1];
       const curr = history[i];
-      if (ledgerEraStart && curr.date >= ledgerEraStart) continue;
+      if (eraStart && curr.date > eraStart) continue;
       if (curr.invested > prev.invested) {
         const qty = curr.qty - prev.qty;
         if (qty > 0) {
@@ -7034,7 +7014,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
       if (!v) return;
       const isHardcodedRE = key === 'Real Estate (Property)' && dates[i] <= '2026-07-31';
       const isHardcodedLoan = key === 'Home Loan (Liability)' && dates[i] <= '2026-07-31';
-      if (ledgerEraStart && dates[i] >= ledgerEraStart && !isHardcodedRE && !isHardcodedLoan) return; // covered by individual ledger rows below
+      if (eraStart && dates[i] > eraStart && !isHardcodedRE && !isHardcodedLoan) return; // covered by individual ledger rows below
       if (isHardcodedLoan) {
         const histInt = (typeof getHistoricalLoanHomeInterest === 'function') ? getHistoricalLoanHomeInterest(dates[i].substring(0,7)) : 0;
         const interestAmt = histInt * 100000;
