@@ -1186,39 +1186,14 @@ function recomputePortfolioFromLiveData() {
   latestEquity.forEach(s => { s.thisMonthGain = (s.ltp   - (s.basePrice ?? 0)) * s.qty; });
   latestMf.forEach(f =>    { f.thisMonthGain = (f.price - (f.basePrice ?? 0)) * f.qty; });
 
-  // Net worth = Σ(qty × ltp) across ALL current holdings + a fixed reconciliation gap.
-  // Gap = breakup-summary baseline − Σ(frozenQty × frozenPrice): a historical constant
-  // that keeps the running total anchored to the uploaded breakup sheet while letting
-  // individual row sums add up correctly to the displayed total. With no transactions
-  // this is identical to the old baseline + price-gain formula.
+  // Net worth = Σ(qty × ltp) across ALL current holdings.
+  // Reconciliation gaps have been removed to perfectly match real-time demat values.
   const nonGoldEquity = latestEquity.filter(s => !isGoldHolding(s));
   const goldEquity    = latestEquity.filter(isGoldHolding);
 
-  let liveStockLakhs, liveMfLakhs, liveGoldLakhs;
-  if (typeof frozenBase !== 'undefined' && frozenBase) {
-    // basePrice is the freeze-date price; fall back to old ltp/price field for
-    // existing saved frozenBase data that predates the rename.
-    const frozenEquity = frozenBase.equity || [];
-    const frozenStockVal = frozenEquity.filter(h => !isGoldHolding(h)).reduce((s, h) => s + h.qty * (h.basePrice ?? h.ltp ?? 0), 0);
-    const frozenMfVal   = (frozenBase.mf || []).reduce((s, h) => s + h.qty * (h.basePrice ?? h.price ?? 0), 0);
-    const stockReconcGap = uploadedSnapshot.stockLakhs - frozenStockVal / 100000;
-    const mfReconcGap    = uploadedSnapshot.mfLakhs   - frozenMfVal   / 100000;
-    liveStockLakhs = nonGoldEquity.reduce((s, h) => s + h.qty * h.ltp, 0) / 100000 + stockReconcGap;
-    // Gold carries NO reconciliation gap: every gold asset (SGB tranches +
-    // GOLDBEES) is fully tracked and now priced at its own real market quote,
-    // so the bucket is exactly Σ qty×ltp. The old gap existed only because the
-    // GOLDBEES×100 proxy understated SGBs vs the Excel-era valuations — keeping
-    // it after switching to real quotes would double-count the correction.
-    liveGoldLakhs  = goldEquity.reduce(   (s, h) => s + h.qty * h.ltp, 0) / 100000;
-    liveMfLakhs    = latestMf.reduce(   (s, h) => s + h.qty * h.price,  0) / 100000 + mfReconcGap;
-  } else {
-    const exactStockGain = nonGoldEquity.reduce((sum, s) => sum + s.thisMonthGain, 0);
-    const exactGoldGain  = goldEquity.reduce(   (sum, s) => sum + s.thisMonthGain, 0);
-    const exactMfGain    = latestMf.reduce(   (sum, f) => sum + f.thisMonthGain, 0);
-    liveStockLakhs = uploadedSnapshot.stockLakhs + exactStockGain / 100000;
-    liveGoldLakhs  = (uploadedSnapshot.goldLakhs ?? 0) + exactGoldGain / 100000;
-    liveMfLakhs    = uploadedSnapshot.mfLakhs    + exactMfGain    / 100000;
-  }
+  let liveStockLakhs = nonGoldEquity.reduce((s, h) => s + h.qty * h.ltp, 0) / 100000;
+  let liveGoldLakhs  = goldEquity.reduce((s, h) => s + h.qty * h.ltp, 0) / 100000;
+  let liveMfLakhs    = latestMf.reduce((s, h) => s + h.qty * h.price, 0) / 100000;
   // Live-override opaque (non-tradeable, non-gold) components from balance entries
   // recorded after the frozen base but not yet folded in via Close Period — so a
   // new PF/NPS/PPF/Bonds/Cash/Crypto entry shows up immediately instead of waiting
@@ -3887,20 +3862,21 @@ function initFixedIncomeTab() {
     return 0;
   };
 
-  // Helper: get total invested (sum of new_investment values, which are actual monthly amounts in lakhs)
-  const getTotalInvested = (key) => {
-    const vals = breakupSummary.new_investment?.[key]?.values || [];
-    // Sum all monthly investment amounts to get total invested
-    return vals.reduce((sum, v) => sum + v, 0);
+  // Helper: get total invested (initial valuation at inception + sum of new_investment values)
+  const getTotalInvested = (nwKey, newInvKey) => {
+    const initialVal = nw[nwKey]?.values?.[0] || 0;
+    const invVals = breakupSummary.new_investment?.[newInvKey]?.values || [];
+    const newInvSum = invVals.reduce((sum, v) => sum + (Number(v) || 0), 0);
+    return initialVal + newInvSum;
   };
 
   // Helper: get total returns (nwKey for net_worth, newInvKey for new_investment)
   const getTotalReturns = (nwKey, newInvKey) => {
     const vals = nw[nwKey]?.values || [];
-    const invVals = breakupSummary.new_investment?.[newInvKey]?.values || [];
     if (vals.length > 0) {
-      const totalInvested = invVals.reduce((sum, v) => sum + v, 0);
-      return vals[vals.length - 1] - totalInvested;
+      const currentVal = vals[vals.length - 1] || 0;
+      const totalInvested = getTotalInvested(nwKey, newInvKey);
+      return currentVal - totalInvested;
     }
     return 0;
   };
@@ -4055,7 +4031,7 @@ function initFixedIncomeTab() {
     const prevVal = nw[item.nwKey]?.values?.length >= 2 ? nw[item.nwKey].values[nw[item.nwKey].values.length - 2] : currentVal;
     const monthChange = currentVal - prevVal;
     const monthChangePct = prevVal > 0 ? (monthChange / prevVal) * 100 : 0;
-    const totalInvested = getTotalInvested(item.newInvKey);
+    const totalInvested = getTotalInvested(item.nwKey, item.newInvKey);
     const totalReturns = getTotalReturns(item.nwKey, item.newInvKey);
 
     return `
@@ -4259,9 +4235,13 @@ function initNpsTab() {
   });
 
   // 3. NPS Investment Summary Table (showing invested & returns per component)
-  const npsInvE = npsNewInvE.reduce((s, v) => s + v, 0);
-  const npsInvC = npsNewInvC.reduce((s, v) => s + v, 0);
-  const npsInvG = npsNewInvG.reduce((s, v) => s + v, 0);
+  const npsInitialE = npsEVals[0] || 0;
+  const npsInitialC = npsCVals[0] || 0;
+  const npsInitialG = npsGVals[0] || 0;
+
+  const npsInvE = npsInitialE + npsNewInvE.reduce((s, v) => s + (Number(v) || 0), 0);
+  const npsInvC = npsInitialC + npsNewInvC.reduce((s, v) => s + (Number(v) || 0), 0);
+  const npsInvG = npsInitialG + npsNewInvG.reduce((s, v) => s + (Number(v) || 0), 0);
   const npsTotalInv = npsInvE + npsInvC + npsInvG;
   const npsReturnsE = npsEVal - npsInvE;
   const npsReturnsC = npsCVal - npsInvC;
