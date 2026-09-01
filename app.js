@@ -7136,15 +7136,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
         category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
       });
     }
-    if (!b.contribution && !b.interest) {
-      // Balance entries with zero contribution and zero interest still need a
-      // row so they're visible/editable — shown as an UPDATE with no amount.
-      trades.push({
-        date: b.date, instrument: lbl, type: 'UPDATE',
-        quantity: null, price: null, total: 0,
-        category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
-      });
-    }
+
   });
 
   // Monthly Return row per component, per CLOSED period — pure market/interest growth
