@@ -120,6 +120,14 @@ header {
   transform: translateY(-1px);
 }
 
+.btn-success {
+  background: rgba(16, 185, 129, 0.25) !important;
+  color: #10b981 !important;
+  border-color: #10b981 !important;
+  transform: scale(0.97) !important;
+  transition: all 0.2s ease-out !important;
+}
+
 .commit-btn {
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
   border: 1px solid rgba(139, 92, 246, 0.45);

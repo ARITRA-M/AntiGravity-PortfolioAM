@@ -3596,8 +3596,10 @@ function _getDynamicHomeLoanSchedule() {
     let histInt = typeof getHistoricalLoanHomeInterest === 'function' ? getHistoricalLoanHomeInterest(d.substring(0,7)) : 0;
     let ledgerSum = 0;
     if (d > '2026-07-31' && typeof balances !== 'undefined' && balances) {
+      const prevD = i > 0 ? dates[i - 1] : '2026-07-31';
+      const startD = prevD < '2026-07-31' ? '2026-07-31' : prevD;
       ledgerSum = balances
-        .filter(b => b.component === 'LOAN-HOME' && b.date > '2026-07-31' && b.date <= d)
+        .filter(b => b.component === 'LOAN-HOME' && b.date > startD && b.date <= d)
         .reduce((s, b) => s + (b.interest || 0), 0) / 100000;
     }
     const currentMonthInterest = histInt + ledgerSum;
@@ -8108,6 +8110,18 @@ function onTxnAmountInputs() {
   }
 }
 
+function showButtonSuccess(btnId, defaultText) {
+  const btn = document.getElementById(btnId) || document.querySelector(btnId);
+  if (!btn) return;
+  const oldHtml = btn.innerHTML;
+  btn.innerHTML = defaultText || '✓ Success!';
+  btn.classList.add('btn-success');
+  setTimeout(() => {
+    btn.innerHTML = oldHtml;
+    btn.classList.remove('btn-success');
+  }, 1200);
+}
+
 function handleTxnSubmit(e) {
   e.preventDefault();
   if (typeof addTransaction !== 'function') { alert('Ledger module not loaded.'); return false; }
@@ -8179,6 +8193,7 @@ function handleTxnSubmit(e) {
   else addTransaction(payload);
   resetTxnForm();
   refreshAfterLedgerChange();
+  showButtonSuccess('txn-submit-btn', editId ? '✓ Updated!' : '✓ Added!');
   return false;
 }
 
@@ -8364,6 +8379,7 @@ function handleBalSubmit(e) {
   else addBalance(payload);
   resetBalForm();
   refreshAfterLedgerChange();
+  showButtonSuccess('bal-submit-btn', editId ? '✓ Updated!' : '✓ Saved!');
   return false;
 }
 
@@ -8472,6 +8488,7 @@ function handleCloseMonth() {
       `Net worth: <b>${formatLakhs(res.totalValue)}</b> · Change: <b>${formatLakhs(res.netChange)}</b> · ` +
       `New investment: <b>${formatLakhs(res.newInvestment)}</b> · Portfolio XIRR: <b>${xirr}</b><br>` +
       `<span style="color:var(--text-muted)">Click 🚀 Commit (top bar) to save permanently.</span>`;
+    showButtonSuccess('close-period-btn', '✓ Closed!');
   } catch (err) {
     preview.innerHTML = `<span class="trend-down">⚠️ ${escapeHtml(err.message)}</span>`;
   }
