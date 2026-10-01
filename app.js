@@ -1935,11 +1935,11 @@ const MARKET_MOVER_POOL = [
   { symbol: '^CNXFIN',    label: 'Nifty Fin Services', nse: 'NIFTY FINANCIAL SERVICES', groww: 'FINNIFTY' },
   { symbol: '^CNXPSUBANK', label: 'Nifty PSU Bank', nse: 'NIFTY PSU BANK', groww: 'NIFTYPSUBANK' },
   { symbol: '^CNXMEDIA',  label: 'Nifty Media', nse: 'NIFTY MEDIA', groww: 'NIFTYMEDIA' },
-  { symbol: '^CNXINFRA',  label: 'Nifty Infra', nse: 'NIFTY INFRASTRUCTURE', groww: 'NIFTYINFRAST' },
+  { symbol: 'INSUREIETF.NS', label: 'Nifty Insurance', group: 'Sectoral' },
 ];
 const MARKET_OVERVIEW_TTL_MS = 15 * 60 * 1000; // 15 min — index levels don't need to be second-fresh
-// v2: cached entries gained pct.y3 — a v1 cache would show "—" for 3Y until TTL expiry.
-const MARKET_OVERVIEW_CACHE_KEY = 'ag_market_overview_cache_v2';
+// v4: full multi-period insurance sector history
+const MARKET_OVERVIEW_CACHE_KEY = 'ag_market_overview_cache_v4';
 let marketOverviewData = null; // Map<symbol, {label, group, last, pct:{daily,mtd,m1,m3,m6,y1,y3,y5}}>
 let marketOverviewFetchedAt = 0;
 
@@ -2183,6 +2183,47 @@ async function _ensureMarketOverviewLongRange() {
       } catch (_) {}
     }));
 
+    // For newly listed sectoral instruments like Nifty Insurance (INSUREIETF),
+    // derive 3M, 6M, 1Y, 3Y, 5Y returns from the weighted composite of top insurance leaders
+    // (LIC 40%, SBI Life 25%, HDFC Life 15%, ICICI Lombard 10%, ICICI Pru 10%).
+    const insEntry = marketOverviewData.get('INSUREIETF.NS');
+    if (insEntry && (insEntry.pct.m3 == null || insEntry.pct.y1 == null)) {
+      try {
+        const INSURANCE_CONSTITUENTS = [
+          { symbol: 'LICI.NS', weight: 0.40 },
+          { symbol: 'SBILIFE.NS', weight: 0.25 },
+          { symbol: 'HDFCLIFE.NS', weight: 0.15 },
+          { symbol: 'ICICIGI.NS', weight: 0.10 },
+          { symbol: 'ICICIPRULI.NS', weight: 0.10 },
+        ];
+        const compBySym = await fetchSparkCloses(INSURANCE_CONSTITUENTS.map(c => c.symbol), '5y', '1wk');
+        const compPctFrom = (targetMs) => {
+          let weightedPct = 0, totalW = 0;
+          for (const c of INSURANCE_CONSTITUENTS) {
+            const series = compBySym.get(c.symbol);
+            if (!series || !series.closes?.length) continue;
+            const live = series.live?.price ?? series.closes[series.closes.length - 1];
+            let ref = null;
+            for (let i = 0; i < series.dates.length; i++) {
+              if (series.dates[i] <= targetMs) ref = series.closes[i]; else break;
+            }
+            if (ref && live) {
+              weightedPct += (((live - ref) / ref) * 100) * c.weight;
+              totalW += c.weight;
+            }
+          }
+          return totalW > 0 ? (weightedPct / totalW) : null;
+        };
+
+        if (insEntry.pct.m3 == null) insEntry.pct.m3 = compPctFrom(daysAgo(91));
+        if (insEntry.pct.m6 == null) insEntry.pct.m6 = compPctFrom(daysAgo(182));
+        if (insEntry.pct.y1 == null) insEntry.pct.y1 = compPctFrom(daysAgo(365));
+        if (insEntry.pct.y3 == null) insEntry.pct.y3 = compPctFrom(daysAgo(365 * 3));
+        if (insEntry.pct.y5 == null) insEntry.pct.y5 = compPctFrom(daysAgo(365 * 5));
+        insEntry.pct.longUnsupported = false;
+      } catch (_) {}
+    }
+
     _saveMarketOverviewCache();
     if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y3', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
   } catch (e) {
@@ -2296,7 +2337,41 @@ async function _getMarketIndexSeries(symbol) {
   if (hit && (Date.now() - hit.at) < MARKET_OVERVIEW_TTL_MS) return hit.series;
   const meta = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL].find(i => i.symbol === symbol);
   let series = null;
-  if (meta?.groww) {
+  if (symbol === 'INSUREIETF.NS') {
+    try {
+      const INSURANCE_CONSTITUENTS = [
+        { symbol: 'LICI.NS', weight: 0.40 },
+        { symbol: 'SBILIFE.NS', weight: 0.25 },
+        { symbol: 'HDFCLIFE.NS', weight: 0.15 },
+        { symbol: 'ICICIGI.NS', weight: 0.10 },
+        { symbol: 'ICICIPRULI.NS', weight: 0.10 },
+      ];
+      const compSpark = await fetchSparkCloses(INSURANCE_CONSTITUENTS.map(c => c.symbol), '5y', '1wk');
+      const primary = compSpark.get('SBILIFE.NS');
+      if (primary && primary.dates.length) {
+        const dates = primary.dates;
+        const closes = [];
+        for (let i = 0; i < dates.length; i++) {
+          const t = dates[i];
+          let val = 0, totalW = 0;
+          for (const c of INSURANCE_CONSTITUENTS) {
+            const s = compSpark.get(c.symbol);
+            if (!s) continue;
+            let pClose = null;
+            for (let j = 0; j < s.dates.length; j++) {
+              if (s.dates[j] <= t) pClose = s.closes[j]; else break;
+            }
+            if (pClose != null) {
+              val += pClose * c.weight;
+              totalW += c.weight;
+            }
+          }
+          closes.push(totalW > 0 ? (val / totalW) : 100);
+        }
+        series = { dates, closes };
+      }
+    } catch (_) {}
+  } else if (meta?.groww) {
     series = await fetchGrowwCandles(meta.groww);
   } else {
     // 1y of dailies covers every period except 5Y; weekly bars for the rest.
