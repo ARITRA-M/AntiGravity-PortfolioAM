@@ -126,9 +126,33 @@ function saveNiftySnapshot(data) {
 // the last saved snapshot (KPI values only) when offline.
 async function fetchNiftySeries() {
   let live = null;
+  let nseGotData = false;
+
+  // 1. Try NSE official API first — authoritative, includes real-time last & accurate previousClose.
+  try {
+    const nseRes = await fetchViaCorsProxy('https://www.nseindia.com/api/allIndices', {}, 5000);
+    if (nseRes.ok) {
+      const nseJson = await nseRes.json();
+      const n50 = (nseJson?.data || []).find(d => d?.index === 'NIFTY 50');
+      if (n50 && n50.percentChange != null) {
+        _niftyDailyPctReal = n50.percentChange;
+        live = n50.last;
+        nseGotData = true;
+
+        // If today is the 1st of the month, or first trading day of the month:
+        const now = new Date();
+        if (now.getDate() === 1 || now.getDate() <= 3) {
+          _niftyMonthlyPctReal = n50.percentChange;
+          window._isFirstTradingDayOfMonth = true;
+        }
+      }
+    }
+  } catch (_) { /* NSE fallback to Yahoo below */ }
+
+  // 2. Fetch the 1-month daily series from Yahoo for the performance charts
   try {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=1mo&interval=1d';
-    const res = await fetchViaCorsProxy(url, {}, 12000);
+    const res = await fetchViaCorsProxy(url, {}, 8000);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     const r = raw?.chart?.result?.[0];
@@ -136,52 +160,39 @@ async function fetchNiftySeries() {
     const closes = r?.indicators?.quote?.[0]?.close;
     if (!ts || !closes) throw new Error('Incomplete data');
 
-    // Keep only valid (timestamp, close) pairs, ascending by time.
     const pts = ts.map((t, i) => ({ t: t * 1000, c: closes[i] })).filter(p => p.c != null);
     if (pts.length < 2) throw new Error('Not enough Nifty data');
     _niftySeries = { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
-    live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
+    if (!live) live = r?.meta?.regularMarketPrice ?? pts[pts.length - 1].c;
 
-    // Series-based daily change — FALLBACK ONLY. The 1-month daily series can
-    // carry a NULL/missing close for a recent session (Yahoo publishes the index
-    // bar late), which gets filtered out and makes this skip a day (e.g. compare
-    // Tue vs Fri instead of Tue vs Mon). The authoritative value is computed from
-    // the range=1d meta below.
-    const lastBarIsToday = new Date(pts[pts.length - 1].t).toDateString() === new Date().toDateString();
-    const prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
-    const liveForDaily = lastBarIsToday ? live : pts[pts.length - 1].c;
-    _niftyDailyPctReal = ((liveForDaily - prevClose) / prevClose) * 100;
+    // Series-based fallback daily change if NSE was unavailable
+    if (!nseGotData) {
+      const lastBarIsToday = new Date(pts[pts.length - 1].t).toDateString() === new Date().toDateString();
+      const prevClose = lastBarIsToday ? pts[pts.length - 2].c : pts[pts.length - 1].c;
+      const liveForDaily = lastBarIsToday ? live : pts[pts.length - 1].c;
+      _niftyDailyPctReal = ((liveForDaily - prevClose) / prevClose) * 100;
+    }
 
     // Month-to-date: last close strictly before the 1st of the current month.
     const now = new Date();
     const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     let monthStartClose = null;
     for (const p of pts) if (p.t < monthStartMs) monthStartClose = p.c;
-    if (monthStartClose) _niftyMonthlyPctReal = ((live - monthStartClose) / monthStartClose) * 100;
+    if (monthStartClose) {
+      const seriesMtd = ((live - monthStartClose) / monthStartClose) * 100;
+      if (!window._isFirstTradingDayOfMonth || _niftyMonthlyPctReal == null) {
+        _niftyMonthlyPctReal = seriesMtd;
+      }
+    }
   } catch {
     const snap = loadNiftySnapshot();
     if (snap) {
-      if (snap.dailyChangePct != null) _niftyDailyPctReal = snap.dailyChangePct;
-      if (snap.monthlyChangePct != null) _niftyMonthlyPctReal = snap.monthlyChangePct;
-      if (snap.series) _niftySeries = snap.series;
+      if (snap.dailyChangePct != null && _niftyDailyPctReal == null) _niftyDailyPctReal = snap.dailyChangePct;
+      if (snap.monthlyChangePct != null && _niftyMonthlyPctReal == null) _niftyMonthlyPctReal = snap.monthlyChangePct;
+      if (snap.series && !_niftySeries) _niftySeries = snap.series;
     }
     return _niftySeries;
   }
-
-  // Authoritative daily change: the range=1d (default) chart meta exposes
-  // chartPreviousClose as the TRUE prior-session close — unlike the long-range
-  // series, which can be missing a recent bar. This is what fixes a daily change
-  // computed against the wrong session (e.g. showing +1.55% Tue-vs-Fri when the
-  // real move is +0.56% Tue-vs-Mon, because Yahoo's Monday index bar was null).
-  try {
-    const dres = await fetchViaCorsProxy('https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI', {}, 10000);
-    if (dres.ok) {
-      const dm = (await dres.json())?.chart?.result?.[0]?.meta;
-      if (dm && dm.regularMarketPrice > 0 && dm.chartPreviousClose > 0) {
-        _niftyDailyPctReal = ((dm.regularMarketPrice - dm.chartPreviousClose) / dm.chartPreviousClose) * 100;
-      }
-    }
-  } catch { /* keep the series-derived value */ }
 
   saveNiftySnapshot({
     dailyChangePct: _niftyDailyPctReal,
@@ -2027,12 +2038,7 @@ function _closeBefore(series, ms) {
 let marketOverviewLongFetchedAt = 0; // separate TTL for the (larger, rarer-needed) 5y series
 
 async function initMarketOverviewTab() {
-  // Reflect the restored period filter in the segmented control; kick off the
-  // long-range fetch right away if the remembered period needs it.
   _syncMarketPeriodSeg();
-  // No in-memory data yet (fresh page load)? Restore the last computed overview
-  // from localStorage and paint it immediately — the slow part of this tab was
-  // never the rendering, it's the three proxied network round-trips.
   if (!marketOverviewData && _restoreMarketOverviewCache()) renderMarketOverviewCards();
   const fresh = marketOverviewData && (Date.now() - marketOverviewFetchedAt) < MARKET_OVERVIEW_TTL_MS;
   if (fresh) { renderMarketOverviewCards(); _ensureMarketOverviewLongRange(); return; }
@@ -2040,94 +2046,64 @@ async function initMarketOverviewTab() {
   if (statusEl) statusEl.textContent = marketOverviewData ? 'Refreshing market data…' : 'Loading market data…';
   try {
     const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
-    const symbols = all.map(i => i.symbol);
-    // ONE batched request covers Daily + MTD for every index — the spark
-    // endpoint's own `meta` already carries a live price + true previous close,
-    // so no per-symbol follow-up call is needed (this used to fire 16 separate
-    // requests, the main reason the tab was slow on mobile networks).
-    // Two batched requests in parallel:
-    //  - 1mo/1d closes for MTD (and the long-range merge later)
-    //  - 1d/1d for the DAILY change: with range=1d, Yahoo's chartPreviousClose is
-    //    by definition the last close BEFORE today, i.e. the true previous trading
-    //    day — immune to the multi-day holes the 1mo close series has for NSE
-    //    sectoral indices (Realty/FMCG were missing a whole week of bars).
-    const [shortBySym, dailyBySym, nseBySym] = await Promise.all([
-      fetchSparkCloses(symbols, '1mo', '1d'),
-      fetchSparkCloses(symbols, '1d', '1d').catch(() => new Map()),
+    const globalSymbols = all.filter(i => !i.nse).map(i => i.symbol);
+
+    // Fetch NSE official indices (all Indian indices in 1 instant call) and global indices via Yahoo spark in parallel
+    const [nseBySym, global1mo, global1d] = await Promise.all([
       fetchNseIndices(),
+      fetchSparkCloses(globalSymbols, '1mo', '1d').catch(() => new Map()),
+      fetchSparkCloses(globalSymbols, '1d', '1d').catch(() => new Map()),
     ]);
+
     const now = new Date();
+    const isFirstTradingDay = window._isFirstTradingDayOfMonth === true || now.getDate() === 1;
     const monthStartMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const data = new Map();
+
     all.forEach(({ symbol, label, group, nse }) => {
-      const series = shortBySym.get(symbol);
-      const daily1d = dailyBySym.get(symbol)?.live; // { price, prevClose } — recency-guarded
+      let last = null, daily = null, mtd = null, m1 = null, y1 = null;
       const nseRec = nse ? nseBySym.get(nse) : null;
-      if ((!series || !series.closes.length) && !daily1d && !nseRec) return;
 
-      const arrLast = series?.closes?.length ? series.closes[series.closes.length - 1] : null;
-      const last = nseRec?.last ?? daily1d?.price ?? series?.live?.price ?? arrLast;
-
-      // Sanity check: if NSE's `last` and the Yahoo series's own last close disagree
-      // by more than ~2% they're almost certainly two different indices under the
-      // same label (this is exactly how "Nifty Pharma"/"Nifty Healthcare Index"
-      // got cross-wired into a nonsense -35% MTD) — don't mix the two series below.
-      const seriesUsable = !(nseRec?.last != null && arrLast != null && Math.abs(nseRec.last - arrLast) / arrLast > 0.02);
-
-      // DAILY: NSE's own feed always has an accurate previous-close for every
-      // index it covers — no gap-guard needed. Falls back to the 1d-range Yahoo
-      // quote, then to consecutive (gap-checked) bars of the 1mo series.
-      let daily = null;
-      if (nseRec?.percentChange != null) {
+      if (nseRec && nseRec.last > 0) {
+        last = nseRec.last;
         daily = nseRec.percentChange;
-      } else if (daily1d?.price > 0 && daily1d?.prevClose > 0) {
-        daily = ((daily1d.price - daily1d.prevClose) / daily1d.prevClose) * 100;
-      } else if (series && series.closes.length >= 2) {
-        const lastTs = series.dates[series.dates.length - 1];
-        const prevTs = series.dates[series.dates.length - 2];
-        const liveAheadOfArray = series.live?.price != null && Math.abs(series.live.price - arrLast) > 1e-6;
-        if (liveAheadOfArray && (Date.now() - lastTs) <= 4 * 86400000) {
-          daily = ((series.live.price - arrLast) / arrLast) * 100;
-        } else if (!liveAheadOfArray && (lastTs - prevTs) <= 4 * 86400000) {
+        mtd = isFirstTradingDay ? nseRec.percentChange : null;
+        m1 = nseRec.perChange30d;
+        y1 = nseRec.perChange365d;
+      } else {
+        const series = global1mo.get(symbol);
+        const daily1d = global1d.get(symbol)?.live;
+        const arrLast = series?.closes?.length ? series.closes[series.closes.length - 1] : null;
+        last = daily1d?.price ?? series?.live?.price ?? arrLast;
+
+        if (daily1d?.price > 0 && daily1d?.prevClose > 0) {
+          daily = ((daily1d.price - daily1d.prevClose) / daily1d.prevClose) * 100;
+        } else if (series && series.closes.length >= 2) {
           const prev = series.closes[series.closes.length - 2];
           daily = prev ? ((arrLast - prev) / prev) * 100 : null;
         }
-      }
 
-      // MTD: last close strictly before calendar month-start. This is the exact
-      // CALENDAR month-to-date figure — never a rolling-30-day stand-in (mixing
-      // the two is what made Nifty Realty read +7.38% when the true Jul-MTD was
-      // ~half that: its 1mo Yahoo series has a month-start hole, so the old code
-      // silently substituted NSE's rolling perChange30d). If the exact close
-      // isn't available, MTD is left blank here and the Groww repair pass fills
-      // it precisely; the rolling-30-day move now has its own explicit "1M" card.
-      let mtd = null;
-      if (series && last != null && seriesUsable) {
-        let refIdx = -1;
-        for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartMs) refIdx = i;
-        if (refIdx >= 0 && (monthStartMs - series.dates[refIdx]) <= 5 * 86400000) {
-          const ref = series.closes[refIdx];
-          if (ref) mtd = ((last - ref) / ref) * 100;
+        if (series && series.dates?.length && last != null) {
+          let ref = null;
+          for (let i = 0; i < series.dates.length; i++) if (series.dates[i] < monthStartMs) ref = series.closes[i];
+          if (isFirstTradingDay && daily1d?.prevClose > 0) {
+            mtd = ((last - daily1d.prevClose) / daily1d.prevClose) * 100;
+          } else if (ref) {
+            mtd = ((last - ref) / ref) * 100;
+          }
+          const ref30 = _closeBefore(series, Date.now() - 30 * 86400000);
+          if (ref30) m1 = ((last - ref30) / ref30) * 100;
         }
       }
 
-      // 1M: rolling ~30-day change. NSE's perChange30d is exactly this; else
-      // derive from the series close ~30 calendar days back.
-      let m1 = null;
-      if (nseRec?.perChange30d != null) {
-        m1 = nseRec.perChange30d;
-      } else if (series && last != null && seriesUsable) {
-        const ref30 = _closeBefore(series, Date.now() - 30 * 86400000);
-        if (ref30) m1 = ((last - ref30) / ref30) * 100;
-      }
-
       if (last == null) return;
-      data.set(symbol, { label, group, last, pct: { daily, mtd, m1 } });
+      data.set(symbol, { label, group, last, pct: { daily, mtd, m1, y1 } });
     });
+
     if (data.size) {
       marketOverviewData = data;
       marketOverviewFetchedAt = Date.now();
-      marketOverviewLongFetchedAt = 0; // force a fresh long-range merge for the new short data
+      marketOverviewLongFetchedAt = 0;
       _saveMarketOverviewCache();
     }
   } catch (e) {
@@ -2139,42 +2115,33 @@ async function initMarketOverviewTab() {
       : 'Could not load market data — check your connection and retry.';
   }
   renderMarketOverviewCards();
-  _ensureMarketOverviewLongRange(); // fetch 3M/6M/1Y/5Y data in the background, not blocking the initial paint
+  _ensureMarketOverviewLongRange();
 }
 
-// 3M/6M/1Y/5Y need a much longer series (5y/weekly) that most visits never look
-// at — fetched lazily, after the fast Daily/MTD view is already on screen, so a
-// slow mobile connection isn't stuck waiting on data most people won't select.
 async function _ensureMarketOverviewLongRange() {
   if (!marketOverviewData) return;
   if (marketOverviewLongFetchedAt && (Date.now() - marketOverviewLongFetchedAt) < MARKET_OVERVIEW_TTL_MS) return;
-  marketOverviewLongFetchedAt = Date.now(); // claim immediately so concurrent calls don't double-fetch
+  marketOverviewLongFetchedAt = Date.now();
   try {
     const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
     const longBySym = await fetchSparkCloses(all.map(i => i.symbol), '5y', '1wk');
     const now = new Date();
+    const isFirstTradingDay = window._isFirstTradingDayOfMonth === true || now.getDate() === 1;
     const daysAgo = (n) => now.getTime() - n * 86400000;
     all.forEach(({ symbol }) => {
       const entry = marketOverviewData.get(symbol);
       const longSeries = longBySym.get(symbol);
       if (!entry) return;
-      // Some indices (Nifty Smallcap 100 confirmed) have NO historical series in
-      // Yahoo at all — every range/interval returns a single "today" bar. That's
-      // a genuine data-source gap, not a transient fetch failure, so flag it
-      // distinctly: the card shows "n/a" with an explanatory tooltip instead of
-      // a bare dash that looks like it'll resolve on the next refresh.
       if (!longSeries || longSeries.closes.length < 2) { entry.pct.longUnsupported = true; return; }
       const last = entry.last;
       const pctFrom = (base) => (base ? ((last - base) / base) * 100 : null);
       if (entry.pct.m1 == null) entry.pct.m1 = pctFrom(_closeBefore(longSeries, daysAgo(30)));
       entry.pct.m3 = pctFrom(_closeBefore(longSeries, daysAgo(91)));
       entry.pct.m6 = pctFrom(_closeBefore(longSeries, daysAgo(182)));
-      entry.pct.y1 = pctFrom(_closeBefore(longSeries, daysAgo(365)));
+      if (entry.pct.y1 == null) entry.pct.y1 = pctFrom(_closeBefore(longSeries, daysAgo(365)));
       entry.pct.y3 = pctFrom(_closeBefore(longSeries, daysAgo(365 * 3)));
       entry.pct.y5 = pctFrom(_closeBefore(longSeries, daysAgo(365 * 5)));
-      if (entry.pct.mtd == null) {
-        // Same 5-day guard as the short-series MTD: a weekly bar too far before
-        // the month boundary would overstate the month's move.
+      if (entry.pct.mtd == null && !isFirstTradingDay) {
         const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
         let refIdx = -1;
         for (let i = 0; i < longSeries.dates.length; i++) if (longSeries.dates[i] < mStart) refIdx = i;
@@ -2183,11 +2150,7 @@ async function _ensureMarketOverviewLongRange() {
         }
       }
     });
-    // Repair pass: for any Nifty index whose figures are still missing or only
-    // approximate after the Yahoo merge (its series has holes, or — Smallcap
-    // 100 — no history at all), pull the COMPLETE daily series from Groww's
-    // charting API and compute everything exactly. Runs in parallel and only
-    // for the deficient indices, so the common case adds zero extra requests.
+
     const needsRepair = all.filter(({ symbol, groww }) => {
       if (!groww) return false;
       const e = marketOverviewData.get(symbol);
@@ -2201,30 +2164,26 @@ async function _ensureMarketOverviewLongRange() {
         const s = await fetchGrowwCandles(groww);
         if (!s.closes.length) return;
         const entry = marketOverviewData.get(symbol);
-        // Cross-source sanity: Groww's latest close must agree with the price we
-        // display (same guard that caught the Pharma/Healthcare mixup) — a >2%
-        // disagreement means a wrong scrip-code mapping, so keep hands off.
         const gLast = s.closes[s.closes.length - 1];
         if (Math.abs(gLast - entry.last) / entry.last > 0.02) return;
         const pctFrom = (base) => (base ? ((entry.last - base) / base) * 100 : null);
         const mStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        const mtdRef = _closeBefore(s, mStart);
-        if (mtdRef) entry.pct.mtd = pctFrom(mtdRef);
+        if (!isFirstTradingDay) {
+          const mtdRef = _closeBefore(s, mStart);
+          if (mtdRef) entry.pct.mtd = pctFrom(mtdRef);
+        }
         entry.pct.m1 = pctFrom(_closeBefore(s, daysAgo(30)))  ?? entry.pct.m1;
         entry.pct.m3 = pctFrom(_closeBefore(s, daysAgo(91)))  ?? entry.pct.m3;
         entry.pct.m6 = pctFrom(_closeBefore(s, daysAgo(182))) ?? entry.pct.m6;
         entry.pct.y1 = pctFrom(_closeBefore(s, daysAgo(365))) ?? entry.pct.y1;
         entry.pct.y3 = pctFrom(_closeBefore(s, daysAgo(365 * 3))) ?? entry.pct.y3;
         entry.pct.y5 = pctFrom(_closeBefore(s, daysAgo(365 * 5))) ?? entry.pct.y5;
-        // First close in the series stands in for 5Y when the index is younger
-        // (Groww's smallcap history starts Apr 2021).
         if (entry.pct.y5 == null && s.closes[0]) entry.pct.y5 = pctFrom(s.closes[0]);
         entry.pct.longUnsupported = false;
-      } catch (_) { /* keep whatever the Yahoo merge produced */ }
+      } catch (_) {}
     }));
 
-    _saveMarketOverviewCache(); // long-range figures are the expensive part — keep them across reloads
-    // Re-render if the user is currently looking at a period that just filled in.
+    _saveMarketOverviewCache();
     if (['mtd', 'm1', 'm3', 'm6', 'y1', 'y3', 'y5'].includes(marketOverviewMode)) renderMarketOverviewCards();
   } catch (e) {
     console.warn('[market-overview] long-range fetch failed:', e.message);
@@ -2928,7 +2887,21 @@ function renderMonthlyOverviewTable() {
   const _baseDate = (typeof frozenBase !== 'undefined' && frozenBase) ? frozenBase.baseDate : null;
   const _calMonth = currentCalendarMonthStr();
   const calReady = calendarMtdData && calendarMtdData.month === _calMonth;
+
+  // Heuristic: If Nifty 50 detected today is the first trading day of the month, 
+  // the MTD base price should identically equal the Daily "yesterdayClose" / "previousNav".
+  // This fixes discrepancies caused by Yahoo's 1mo series lagging a day behind.
+  const isFirstTradingDay = window._isFirstTradingDayOfMonth === true;
+
   const periodGain = (holding, type) => {
+    if (isFirstTradingDay && type === 'stock') {
+      const prevClose = holding.yesterdayClose;
+      if (prevClose > 0) {
+        const curPrice = holding.ltp;
+        return { gain: (curPrice - prevClose) * holding.qty, baseVal: prevClose * holding.qty };
+      }
+    }
+
     if (calReady) {
       const basePrice = type === 'stock'
         ? calendarMtdData.stockPriceByInstrument.get(holding.instrument)

@@ -79,7 +79,6 @@ function setCachedPrice(key, data) {
 // leave the app stuck on stale prices. The sticky index keeps a working proxy
 // once found, so the rotation cost is one failed request per session, not per stock.
 const CORS_PROXIES = [
-  (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
   (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
   (u) => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
 ];
@@ -104,17 +103,25 @@ function _proxyList() {
   return CORS_PROXIES;
 }
 
-// Sticky index of the last proxy that worked, so one outage costs a single
-// failed request per session instead of one per stock.
 let _workingProxyIdx = 0;
 
 async function fetchViaCorsProxy(targetUrl, options = {}, timeoutMs = 8000) {
+  // If worker proxy is configured, ALWAYS try it first because it is fast, dedicated, and handles NSE/Yahoo.
+  if (WORKER_PROXY_URL) {
+    const sep = WORKER_PROXY_URL.includes('?') ? '&' : '?';
+    const workerUrl = WORKER_PROXY_URL + sep + 'url=' + encodeURIComponent(targetUrl);
+    try {
+      const resp = await fetch(workerUrl, { ...options, signal: AbortSignal.timeout(Math.min(timeoutMs, 6000)) });
+      if (resp.ok) return resp;
+    } catch (_) { /* worker failed or timed out — fall through to secondary rotation */ }
+  }
+
   const proxies = _proxyList();
   let lastErr = null;
   for (let i = 0; i < proxies.length; i++) {
     const idx = (_workingProxyIdx + i) % proxies.length;
     try {
-      const resp = await fetch(proxies[idx](targetUrl), { ...options, signal: AbortSignal.timeout(timeoutMs) });
+      const resp = await fetch(proxies[idx](targetUrl), { ...options, signal: AbortSignal.timeout(Math.min(timeoutMs, 4000)) });
       if (resp.ok) {
         _workingProxyIdx = idx;
         return resp;
