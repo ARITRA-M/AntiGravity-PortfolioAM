@@ -1369,7 +1369,7 @@ function rebuildBreakupFromLedger() {
 
       let newInv = balances
         .filter(b => b.component === comp && colFor(b.date) === i)
-        .reduce((s, b) => s + (b.contribution || 0) + (comp === 'LOAN-HOME' ? (b.interest || 0) : 0), 0) / L;
+        .reduce((s, b) => s + (comp === 'LOAN-HOME' ? Math.max(0, b.contribution || 0) : (b.contribution || 0)) + (comp === 'LOAN-HOME' ? (b.interest || 0) : 0), 0) / L;
 
       if (dates[i] <= '2026-08-31' && comp === 'RE-PROP') {
         value = getHistoricalREPropValue(dates[i]);

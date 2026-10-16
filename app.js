@@ -3639,7 +3639,6 @@ function _getDynamicHomeLoanSchedule() {
     const propVal = nw['Real Estate (Property)'].values[i];
     const loanValRaw = nw['Home Loan (Liability)'].values[i];
     const loanVal = Math.abs(loanValRaw);
-    const disbursedSelf = cumDisbursedSelf;
     
     let histInt = typeof getHistoricalLoanHomeInterest === 'function' ? getHistoricalLoanHomeInterest(d.substring(0,7)) : 0;
     let ledgerSum = 0;
@@ -3656,8 +3655,9 @@ function _getDynamicHomeLoanSchedule() {
     const totalEmi = cumTotalEmi;
     const repaymentSelf = totalEmi - cumTotalInterest;
     
-    const disbursedBank = loanVal + repaymentSelf;
-    const equity = propVal - loanVal;
+    const disbursedBank = +(loanVal + repaymentSelf).toFixed(2);
+    const disbursedSelf = +Math.max(0, propVal - disbursedBank).toFixed(2);
+    const equity = +(propVal - loanVal).toFixed(2);
     
     const dObj = new Date(d);
     const period = dObj.toLocaleString('en-US', { month: 'short' }) + ' ' + dObj.getFullYear();
@@ -3672,24 +3672,19 @@ function _getDynamicHomeLoanSchedule() {
   const lastIdx = dates.length - 1;
   const lastD = dates[lastIdx];
   const lastDMonthEnd = (typeof _endOfMonthStr === 'function') ? _endOfMonthStr(lastD) : lastD;
-  const baseReNi = cumDisbursedSelf;
-  const baseLoanNi = cumTotalEmi;
+  const baseRepaymentSelf = Math.max(0, cumTotalEmi - cumTotalInterest);
   
-  let pendingReNi = 0, pendingLoanNi = 0, pendingInterest = 0;
+  let pendingLoanRepaid = 0, pendingInterest = 0;
   if (typeof balances !== 'undefined' && balances) {
     balances.forEach(b => {
-      if (b.date > lastDMonthEnd) {
-        if (b.component === 'RE-PROP') pendingReNi += (b.contribution || 0) / 100000;
-        if (b.component === 'LOAN-HOME') {
-          pendingLoanNi += (b.contribution || 0) / 100000;
-          pendingInterest += (b.interest || 0) / 100000;
-        }
+      if (b.date > lastDMonthEnd && b.component === 'LOAN-HOME') {
+        // Sanitize: any negative contribution was an attempted loan balance update, not negative repayment
+        const contrib = Math.max(0, b.contribution || 0);
+        pendingLoanRepaid += contrib / 100000;
+        pendingInterest += (b.interest || 0) / 100000;
       }
     });
   }
-  
-  const liveDisbursedSelf = baseReNi + pendingReNi;
-  const liveTotalEmi = baseLoanNi + pendingLoanNi;
   
   let histIntLive = 0;
   const today = new Date();
@@ -3709,11 +3704,10 @@ function _getDynamicHomeLoanSchedule() {
   }
   
   const currentLiveInterest = poppedRow ? (poppedRow.interestPaid + ledgerSumLive) : (histIntLive + ledgerSumLive);
-  const liveCumTotalInterest = poppedRow ? (cumTotalInterest + ledgerSumLive) : (cumTotalInterest + currentLiveInterest);
-  
-  const liveRepaymentSelf = liveTotalEmi - liveCumTotalInterest;
-  const liveDisbursedBank = liveLoanVal + liveRepaymentSelf;
-  const liveEquity = livePropVal - liveLoanVal;
+  const liveRepaymentSelf = +(poppedRow ? poppedRow.repaymentSelf : (baseRepaymentSelf + pendingLoanRepaid)).toFixed(2);
+  const liveDisbursedBank = +(liveLoanVal + liveRepaymentSelf).toFixed(2);
+  const liveDisbursedSelf = +Math.max(0, livePropVal - liveDisbursedBank).toFixed(2);
+  const liveEquity = +(livePropVal - liveLoanVal).toFixed(2);
   
   schedule.push({
     period: 'Current',
@@ -8321,32 +8315,177 @@ function priorBalanceValue(component, beforeDate, excludeId) {
 // auto-calc, since the statement already tells you the current value.
 const NPS_BAL_COMPONENTS = new Set(['NPS-E', 'NPS-C', 'NPS-G']);
 
-// Toggle the form between NPS mode (editable Current value, no interest/auto-calc)
-// and the standard mode (auto-computed Current value = previous + contribution + interest).
+// Toggle the form between NPS, Real Estate, Home Loan, and standard modes.
 function updateBalFormMode() {
   const comp = document.getElementById('bal-component').value;
   const isNps = NPS_BAL_COMPONENTS.has(comp);
   const isLoan = comp === 'LOAN-HOME';
   const isProp = comp === 'RE-PROP';
 
-  const contribWrap = document.getElementById('bal-contribution').parentElement;
+  const exitWrap = document.getElementById('bal-exit-all-wrap');
+  if (exitWrap) exitWrap.style.display = (isLoan || isProp) ? 'none' : '';
+
+  const reLoanRow = document.getElementById('bal-re-loan-row');
+  const disbWrap = document.getElementById('bal-disbursement-wrap');
+  const mileWrap = document.getElementById('bal-milestone-wrap');
+  const propBankWrap = document.getElementById('bal-prop-bank-wrap');
+
+  if (reLoanRow) reLoanRow.style.display = (isLoan || isProp) ? '' : 'none';
+  if (disbWrap) disbWrap.style.display = isLoan ? '' : 'none';
+  if (mileWrap) mileWrap.style.display = isProp ? '' : 'none';
+  if (propBankWrap) propBankWrap.style.display = isProp ? '' : 'none';
+
+  const contribLabel = document.getElementById('bal-contrib-label') || document.getElementById('bal-contribution')?.parentElement?.childNodes[0];
+  const interestWrap = document.getElementById('bal-interest-wrap');
+  const interestLabel = document.getElementById('bal-interest-label') || interestWrap?.childNodes[0];
+  const valInputWrap = document.getElementById('bal-value-input-wrap');
+  const valInputLabel = document.getElementById('bal-value-input-label');
+  const valComputedWrap = document.getElementById('bal-value-computed-wrap');
+  const prevWrap = document.getElementById('bal-prev-wrap');
+
   if (isLoan) {
-    contribWrap.childNodes[0].textContent = 'Principal repaid this period (₹) ';
-    document.getElementById('bal-interest-wrap').style.display = '';
-    document.getElementById('bal-interest-wrap').childNodes[0].textContent = 'Interest paid this period (₹) ';
+    if (contribLabel) contribLabel.textContent = 'Principal repaid from EMI (₹) ';
+    if (interestWrap) interestWrap.style.display = '';
+    if (interestLabel) interestLabel.textContent = 'Interest paid from EMI (₹) ';
+    if (valInputWrap) valInputWrap.style.display = '';
+    if (valInputLabel) valInputLabel.textContent = 'Outstanding Loan Principal (₹) ';
+    if (valComputedWrap) valComputedWrap.style.display = 'none';
+    if (prevWrap) prevWrap.style.display = '';
   } else if (isProp) {
-    contribWrap.childNodes[0].textContent = 'New Milestone Disbursed (₹) ';
-    document.getElementById('bal-interest-wrap').style.display = 'none';
+    if (contribLabel) contribLabel.textContent = 'Paid by Self / Out of Pocket (₹) ';
+    if (interestWrap) interestWrap.style.display = 'none';
+    if (valInputWrap) valInputWrap.style.display = '';
+    if (valInputLabel) valInputLabel.textContent = 'Gross Property Asset Value (₹) ';
+    if (valComputedWrap) valComputedWrap.style.display = 'none';
+    if (prevWrap) prevWrap.style.display = '';
+  } else if (isNps) {
+    if (contribLabel) contribLabel.textContent = 'Contributed this period (₹) ';
+    if (interestWrap) interestWrap.style.display = 'none';
+    if (valInputWrap) valInputWrap.style.display = '';
+    if (valInputLabel) valInputLabel.textContent = 'Current value (₹) ';
+    if (valComputedWrap) valComputedWrap.style.display = 'none';
+    if (prevWrap) prevWrap.style.display = 'none';
+    const sumBox = document.getElementById('bal-re-loan-summary');
+    if (sumBox) sumBox.style.display = 'none';
   } else {
-    contribWrap.childNodes[0].textContent = 'Contributed this period (₹) ';
-    document.getElementById('bal-interest-wrap').style.display = isNps ? 'none' : '';
-    document.getElementById('bal-interest-wrap').childNodes[0].textContent = 'Interest earned this period (₹) ';
+    if (contribLabel) contribLabel.textContent = 'Contributed this period (₹) ';
+    if (interestWrap) interestWrap.style.display = '';
+    if (interestLabel) interestLabel.textContent = 'Interest earned this period (₹) ';
+    if (valInputWrap) valInputWrap.style.display = 'none';
+    if (valComputedWrap) valComputedWrap.style.display = '';
+    if (prevWrap) prevWrap.style.display = '';
+    const sumBox = document.getElementById('bal-re-loan-summary');
+    if (sumBox) sumBox.style.display = 'none';
   }
 
-  document.getElementById('bal-prev-wrap').style.display = isNps ? 'none' : '';
-  document.getElementById('bal-value-computed-wrap').style.display = isNps ? 'none' : '';
-  document.getElementById('bal-value-input-wrap').style.display = isNps ? '' : 'none';
-  return isNps;
+  return { isNps, isLoan, isProp };
+}
+
+function onBalDisbursementInput() {
+  const component = document.getElementById('bal-component').value;
+  if (component !== 'LOAN-HOME') return;
+  const date = document.getElementById('bal-date').value;
+  const editId = document.getElementById('bal-edit-id').value;
+  const prevValue = priorBalanceValue(component, date, editId || null);
+  const disb = parseFloat(document.getElementById('bal-disbursement').value) || 0;
+  const repaid = parseFloat(document.getElementById('bal-contribution').value) || 0;
+  const newLoan = Math.abs(prevValue) + disb - repaid;
+  const valInput = document.getElementById('bal-value-input');
+  if (valInput) valInput.value = Math.round(newLoan);
+  document.getElementById('bal-value').value = (-newLoan).toFixed(2);
+  _updateBalReLoanSummary('LOAN-HOME', newLoan, disb, repaid, prevValue);
+}
+
+function onBalMilestoneInput() {
+  const component = document.getElementById('bal-component').value;
+  if (component !== 'RE-PROP') return;
+  const date = document.getElementById('bal-date').value;
+  const editId = document.getElementById('bal-edit-id').value;
+  const prevValue = priorBalanceValue(component, date, editId || null);
+  const milestone = parseFloat(document.getElementById('bal-milestone').value) || 0;
+  const newProp = prevValue + milestone;
+  const valInput = document.getElementById('bal-value-input');
+  if (valInput) valInput.value = Math.round(newProp);
+  document.getElementById('bal-value').value = newProp.toFixed(2);
+  const bank = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
+  const self = Math.max(0, milestone - bank);
+  const selfEl = document.getElementById('bal-contribution');
+  if (selfEl) selfEl.value = Math.round(self);
+  _updateBalReLoanSummary('RE-PROP', newProp, milestone, self, bank);
+}
+
+function onBalPropBankInput() {
+  const component = document.getElementById('bal-component').value;
+  if (component !== 'RE-PROP') return;
+  const date = document.getElementById('bal-date').value;
+  const editId = document.getElementById('bal-edit-id').value;
+  const prevValue = priorBalanceValue(component, date, editId || null);
+  const currentVal = parseFloat(document.getElementById('bal-value-input')?.value) || prevValue;
+  const milestone = parseFloat(document.getElementById('bal-milestone')?.value) || Math.max(0, currentVal - prevValue);
+  const bank = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
+  const self = Math.max(0, milestone - bank);
+  const selfEl = document.getElementById('bal-contribution');
+  if (selfEl) selfEl.value = Math.round(self);
+  _updateBalReLoanSummary('RE-PROP', currentVal, milestone, self, bank);
+}
+
+function onBalValueDirectInput() {
+  const mode = updateBalFormMode();
+  const date = document.getElementById('bal-date').value;
+  const editId = document.getElementById('bal-edit-id').value;
+  const valInput = document.getElementById('bal-value-input');
+  if (mode.isNps) {
+    const entered = parseFloat(valInput.value);
+    document.getElementById('bal-value').value = isFinite(entered) ? entered : '';
+  } else if (mode.isLoan) {
+    const prevValue = priorBalanceValue('LOAN-HOME', date, editId || null);
+    const entered = Math.abs(parseFloat(valInput.value) || 0);
+    document.getElementById('bal-value').value = (-entered).toFixed(2);
+    const delta = entered - Math.abs(prevValue);
+    const repaid = parseFloat(document.getElementById('bal-contribution')?.value) || 0;
+    const disbEl = document.getElementById('bal-disbursement');
+    if (delta > 0 && disbEl) disbEl.value = Math.round(delta + repaid);
+    _updateBalReLoanSummary('LOAN-HOME', entered, delta > 0 ? (delta + repaid) : 0, repaid, prevValue);
+  } else if (mode.isProp) {
+    const prevValue = priorBalanceValue('RE-PROP', date, editId || null);
+    const entered = Math.abs(parseFloat(valInput.value) || 0);
+    document.getElementById('bal-value').value = entered.toFixed(2);
+    const delta = entered - prevValue;
+    const mileEl = document.getElementById('bal-milestone');
+    const bankEl = document.getElementById('bal-prop-bank');
+    const selfEl = document.getElementById('bal-contribution');
+    if (delta > 0 && mileEl) mileEl.value = Math.round(delta);
+    const bank = parseFloat(bankEl?.value) || 0;
+    if (selfEl && bank === 0) selfEl.value = Math.round(Math.max(0, delta));
+    else if (selfEl) selfEl.value = Math.round(Math.max(0, delta - bank));
+    _updateBalReLoanSummary('RE-PROP', entered, delta > 0 ? delta : 0, parseFloat(selfEl?.value) || 0, bank);
+  }
+}
+
+function _updateBalReLoanSummary(comp, curVal, demandOrDisb, selfOrRepaid, bankOrPrev) {
+  const box = document.getElementById('bal-re-loan-summary');
+  if (!box) return;
+  if (comp === 'LOAN-HOME') {
+    box.style.display = '';
+    const curL = (curVal / 1e5).toFixed(2);
+    const disbL = (demandOrDisb / 1e5).toFixed(2);
+    const repL = (selfOrRepaid / 1e5).toFixed(2);
+    box.innerHTML = `🏦 <strong>Loan Liability:</strong> -₹${curL} L` +
+      (demandOrDisb > 0 ? ` · <strong>Bank Disbursed this tranche:</strong> ₹${disbL} L` : '') +
+      (selfOrRepaid > 0 ? ` · <strong>Principal Repaid:</strong> ₹${repL} L` : '') +
+      `<br><span style="font-size:0.75rem;opacity:0.9;">Total Disbursed Bank will update to reflect the full cumulative loan disbursement.</span>`;
+  } else if (comp === 'RE-PROP') {
+    box.style.display = '';
+    const propL = (curVal / 1e5).toFixed(2);
+    const demL = (demandOrDisb / 1e5).toFixed(2);
+    const selfL = (selfOrRepaid / 1e5).toFixed(2);
+    const bankL = (bankOrPrev / 1e5).toFixed(2);
+    box.innerHTML = `🏡 <strong>Gross Property:</strong> ₹${propL} L` +
+      (demandOrDisb > 0 ? ` · <strong>Demand:</strong> ₹${demL} L (Bank: ₹${bankL} L · Self: ₹${selfL} L)` : '') +
+      `<br><span style="font-size:0.75rem;opacity:0.9;">Only your Self payment (₹${selfL} L) counts as personal cash outflow/New Investment.</span>`;
+  } else {
+    box.style.display = 'none';
+  }
 }
 
 // Lock whichever field the current mode auto-derives while "exit full position"
@@ -8368,15 +8507,17 @@ function onBalExitAllChange() {
 }
 
 // Recompute the "Current value" field: auto-calculated (previous + contribution +
-// interest) for standard components, or read directly from the editable input for NPS.
-// When "exit full position" is checked, the whole balance is withdrawn instead —
-// the component's current value becomes ₹0 (accrued interest can still be logged
-// first; contribution auto-computes to exactly cancel it out).
+// interest) for standard components, or read directly from the editable input for NPS / Loan / Property.
 function updateBalComputedValue() {
-  const isNps = updateBalFormMode();
+  const mode = updateBalFormMode();
   const exitAll = !!document.getElementById('bal-exit-all')?.checked;
-  _applyBalExitLock(isNps, exitAll);
-  if (isNps) {
+  _applyBalExitLock(mode.isNps, exitAll);
+  const component = document.getElementById('bal-component').value;
+  const date = document.getElementById('bal-date').value;
+  const editId = document.getElementById('bal-edit-id').value;
+  const prevValue = priorBalanceValue(component, date, editId || null);
+
+  if (mode.isNps) {
     if (exitAll) {
       document.getElementById('bal-value-input').value = '0';
       document.getElementById('bal-value').value = '0';
@@ -8386,11 +8527,41 @@ function updateBalComputedValue() {
     document.getElementById('bal-value').value = isFinite(entered) ? entered : '';
     return;
   }
-  const component = document.getElementById('bal-component').value;
-  const date = document.getElementById('bal-date').value;
-  const editId = document.getElementById('bal-edit-id').value;
+
+  if (mode.isLoan) {
+    document.getElementById('bal-prev-value').textContent = `-₹${(Math.abs(prevValue) / 1e5).toFixed(2)} L (${formatINR(prevValue)})`;
+    const valInput = document.getElementById('bal-value-input');
+    const disb = parseFloat(document.getElementById('bal-disbursement')?.value) || 0;
+    const repaid = parseFloat(document.getElementById('bal-contribution')?.value) || 0;
+    let loanAbs = parseFloat(valInput?.value);
+    if (!Number.isFinite(loanAbs) || loanAbs === 0) {
+      loanAbs = Math.abs(prevValue) + disb - repaid;
+      if (valInput) valInput.value = Math.round(loanAbs);
+    } else {
+      loanAbs = Math.abs(loanAbs);
+    }
+    document.getElementById('bal-value').value = (-loanAbs).toFixed(2);
+    _updateBalReLoanSummary('LOAN-HOME', loanAbs, disb, repaid, prevValue);
+    return;
+  }
+
+  if (mode.isProp) {
+    document.getElementById('bal-prev-value').textContent = `₹${(prevValue / 1e5).toFixed(2)} L (${formatINR(prevValue)})`;
+    const valInput = document.getElementById('bal-value-input');
+    const milestone = parseFloat(document.getElementById('bal-milestone')?.value) || 0;
+    const self = parseFloat(document.getElementById('bal-contribution')?.value) || 0;
+    const bank = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
+    let propAbs = parseFloat(valInput?.value);
+    if (!Number.isFinite(propAbs) || propAbs === 0) {
+      propAbs = prevValue + milestone;
+      if (valInput) valInput.value = Math.round(propAbs);
+    }
+    document.getElementById('bal-value').value = propAbs.toFixed(2);
+    _updateBalReLoanSummary('RE-PROP', propAbs, milestone, self, bank);
+    return;
+  }
+
   const interest = parseFloat(document.getElementById('bal-interest').value) || 0;
-  const prevValue = priorBalanceValue(component, date, editId || null);
   const contribEl = document.getElementById('bal-contribution');
   let contribution;
   if (exitAll) {
@@ -8399,8 +8570,7 @@ function updateBalComputedValue() {
   } else {
     contribution = parseFloat(contribEl.value) || 0;
   }
-  const isLoan = component === 'LOAN-HOME';
-  const currentValue = prevValue + contribution + (isLoan ? 0 : interest);
+  const currentValue = prevValue + contribution + interest;
   document.getElementById('bal-prev-value').textContent = formatINR(prevValue);
   document.getElementById('bal-value-display').textContent = formatINR(currentValue);
   document.getElementById('bal-value').value = currentValue.toFixed(2);
@@ -8409,20 +8579,45 @@ function updateBalComputedValue() {
 function handleBalSubmit(e) {
   e.preventDefault();
   const editId = document.getElementById('bal-edit-id').value;
-  const isNps = NPS_BAL_COMPONENTS.has(document.getElementById('bal-component').value);
+  const comp = document.getElementById('bal-component').value;
+  const isNps = NPS_BAL_COMPONENTS.has(comp);
+  const isLoan = comp === 'LOAN-HOME';
+  const isProp = comp === 'RE-PROP';
   updateBalComputedValue();
+  
+  const rawVal = parseFloat(document.getElementById('bal-value').value);
+  if (!isFinite(rawVal)) { alert('Current value is required.'); return false; }
+
+  let val = rawVal;
+  let contrib = parseFloat(document.getElementById('bal-contribution').value) || 0;
+  let intVal = parseFloat(document.getElementById('bal-interest').value) || 0;
+
+  if (isLoan) {
+    val = -Math.abs(val);
+    contrib = Math.max(0, contrib);
+  } else if (isProp) {
+    val = Math.abs(val);
+    contrib = Math.max(0, contrib);
+    intVal = 0;
+  } else if (isNps) {
+    intVal = 0;
+  }
+
   const payload = {
-    component: document.getElementById('bal-component').value,
+    component: comp,
     date: document.getElementById('bal-date').value,
-    value: parseFloat(document.getElementById('bal-value').value),
-    contribution: parseFloat(document.getElementById('bal-contribution').value) || 0,
-    interest: (isNps && document.getElementById('bal-component').value !== 'LOAN-HOME') ? 0 : (parseFloat(document.getElementById('bal-interest').value) || 0),
+    value: val,
+    contribution: contrib,
+    interest: intVal,
     note: document.getElementById('bal-note').value.trim(),
   };
-  if (!isFinite(payload.value)) { alert('Current value is required.'); return false; }
-  if (payload.component === 'LOAN-HOME' && payload.value > 0) {
-    payload.value = -payload.value; // Automatically store Home Loan liability as negative
-  }
+
+  const disb = parseFloat(document.getElementById('bal-disbursement')?.value) || 0;
+  if (isLoan && disb > 0) payload.disbursement = disb;
+
+  const bankPart = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
+  if (isProp && bankPart > 0) payload.bankDisbursement = bankPart;
+
   if (editId) updateBalance(editId, payload);
   else addBalance(payload);
   resetBalForm();
@@ -8441,6 +8636,14 @@ function resetBalForm() {
   document.getElementById('bal-contribution').value = '0';
   document.getElementById('bal-interest').value = '0';
   document.getElementById('bal-value-input').value = '';
+  const disbEl = document.getElementById('bal-disbursement');
+  if (disbEl) disbEl.value = '0';
+  const mileEl = document.getElementById('bal-milestone');
+  if (mileEl) mileEl.value = '0';
+  const propBankEl = document.getElementById('bal-prop-bank');
+  if (propBankEl) propBankEl.value = '0';
+  const sumBox = document.getElementById('bal-re-loan-summary');
+  if (sumBox) sumBox.style.display = 'none';
   document.getElementById('bal-exit-all').checked = false;
   updateBalComputedValue();
 }
@@ -8452,13 +8655,15 @@ function editBal(id) {
   document.getElementById('bal-edit-id').value = b.id;
   document.getElementById('bal-component').value = b.component;
   document.getElementById('bal-date').value = b.date;
-  // Editing always shows the entry's OWN recorded numbers — exit-all starts
-  // unchecked/unlocked so a past withdrawal's real contribution/value isn't
-  // silently re-derived.
   document.getElementById('bal-exit-all').checked = false;
-  document.getElementById('bal-contribution').value = b.contribution;
+  document.getElementById('bal-contribution').value = Math.max(0, b.contribution || 0);
   document.getElementById('bal-interest').value = b.interest || 0;
   document.getElementById('bal-value-input').value = b.component === 'LOAN-HOME' ? Math.abs(b.value) : b.value;
+  document.getElementById('bal-value').value = b.value;
+  const disbEl = document.getElementById('bal-disbursement');
+  if (disbEl) disbEl.value = b.disbursement || (b.component === 'LOAN-HOME' && b.contribution < 0 ? Math.abs(b.contribution) : 0);
+  const bankEl = document.getElementById('bal-prop-bank');
+  if (bankEl) bankEl.value = b.bankDisbursement || 0;
   document.getElementById('bal-note').value = b.note || '';
   document.getElementById('bal-submit-btn').textContent = 'Update Balance';
   document.getElementById('bal-cancel-btn').style.display = '';
@@ -8583,6 +8788,13 @@ async function handleImportBackup(e) {
 async function forceResyncFromCloud() {
   if (!confirm('This will discard any local, uncommitted changes on THIS DEVICE and reload the latest data committed to the cloud. Continue?')) return;
   
+  const btn = document.getElementById('resync-cloud-btn');
+  if (btn) {
+    btn.classList.add('loading');
+    const lbl = btn.querySelector('.resync-label');
+    if (lbl) lbl.textContent = 'Syncing...';
+  }
+
   const isLocal = location.hostname.includes('localhost') || location.hostname.includes('127.0.0.1') || location.hostname === '0.0.0.0' || location.hostname.endsWith('.local');
   if (isLocal) {
     const status = document.getElementById('upload-status');
@@ -8610,6 +8822,11 @@ async function forceResyncFromCloud() {
     localStorage.removeItem(P + 'version');
   } catch (e) {
     console.warn('forceResyncFromCloud: cleanup failed', e);
+  }
+
+  if (btn) {
+    showButtonSuccess('resync-cloud-btn', '✓ Refreshed!');
+    await new Promise(r => setTimeout(r, 450));
   }
   location.reload();
 }
@@ -8674,7 +8891,8 @@ function _lastBalanceFor(component) {
 function onCloseChecklistContrib(el) {
   const row = el.closest('.close-check-row');
   const comp = row.dataset.component;
-  if (comp !== 'RE-PROP' && comp !== 'LOAN-HOME') return;
+  // For RE-PROP and LOAN-HOME, property asset value and loan balance are independent of contribution
+  if (comp === 'RE-PROP' || comp === 'LOAN-HOME') return;
   const orig = parseFloat(row.dataset.orig) || 0;
   const contrib = parseFloat(el.value) || 0;
   const valInput = row.querySelector('.close-check-value');
@@ -8696,11 +8914,11 @@ function startCloseChecklist() {
     if (c === 'RE-PROP') {
       displayName = '🏡 RE-PROP (Gross Property Asset Value)';
       hintValue = 'Total Asset Value ₹';
-      hintContrib = 'New Self Payment/Disbursement ₹';
+      hintContrib = 'Self Payment / Out of Pocket ₹';
     } else if (c === 'LOAN-HOME') {
       displayName = '🏦 LOAN-HOME (Home Loan Outstanding)';
       hintValue = 'Loan Balance ₹ (Negative)';
-      hintContrib = 'Total EMI Paid (Principal + Interest) ₹';
+      hintContrib = 'Principal Repaid ₹';
     }
 
     return `<div class="close-check-row" data-component="${c}" data-orig="${last.value}">
@@ -8711,7 +8929,8 @@ function startCloseChecklist() {
   }).join('');
   box.innerHTML = `
     <p class="manage-hint">Update each component's current value and any fresh contribution/cash outflow this month.
-    <br><b>For Home Loan (LOAN-HOME):</b> Enter your updated loan balance (in ₹ negative) under Value, and your <b>Total EMI Paid (Principal + Interest)</b> under Contribution — this automatically factors all interest costs into your overall Portfolio XIRR.</p>
+    <br><b>For Real Estate (RE-PROP):</b> Enter your updated total property value, and any milestone payment made by Self from your pocket under Contribution.
+    <br><b>For Home Loan (LOAN-HOME):</b> Enter your updated loan balance (in ₹ negative) under Value, and any <b>Principal Repaid</b> from your EMI under Contribution.</p>
     ${rows}
     <div class="manage-actions">
       <button type="button" class="upload-btn" onclick="saveCloseChecklist()">✓ Save entered updates</button>
@@ -8727,12 +8946,17 @@ function saveCloseChecklist() {
   const date = document.getElementById('close-date')?.value || localDateStr();
   let saved = 0;
   box.querySelectorAll('.close-check-row').forEach(row => {
-    const value = parseFloat(row.querySelector('.close-check-value').value);
-    const contrib = parseFloat(row.querySelector('.close-check-contrib').value) || 0;
+    let value = parseFloat(row.querySelector('.close-check-value').value);
+    let contrib = parseFloat(row.querySelector('.close-check-contrib').value) || 0;
     const orig = parseFloat(row.dataset.orig);
+    const comp = row.dataset.component;
+    if (comp === 'LOAN-HOME') {
+      if (value > 0) value = -value;
+      contrib = Math.max(0, contrib);
+    }
     const changed = Number.isFinite(value) && (Math.abs(value - orig) > 0.5 || contrib !== 0);
     if (!changed) return;
-    addBalance({ date, component: row.dataset.component, value, contribution: contrib, note: 'month-close checklist' });
+    addBalance({ date, component: comp, value, contribution: contrib, note: 'month-close checklist' });
     saved++;
     row.style.opacity = '0.45';
   });

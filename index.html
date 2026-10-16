@@ -1358,7 +1358,7 @@
         <!-- Update Balance (opaque components) -->
         <div class="chart-card manage-card">
           <div class="chart-header"><h3>🏦 Update Balance</h3></div>
-          <p class="manage-hint">NPS: enter the current value straight from your statement, plus what you contributed. PF/PPF/Bonds/Cash/Crypto: current value auto-calculates from previous value + contribution + interest. Gold is tracked automatically from your SGB/GOLDBEES holdings. Fully withdrawing one of these? Check "Exit full position" below instead of computing the numbers yourself.</p>
+          <p class="manage-hint">NPS: enter the current value straight from your statement, plus what you contributed. Real Estate &amp; Home Loan: enter updated property values or loan balances directly, or record installment demands and disbursements. PF/PPF/Bonds/Cash/Crypto: current value auto-calculates from previous value + contribution + interest. Gold is tracked automatically from your SGB/GOLDBEES holdings.</p>
           <form id="bal-form" class="manage-form" onsubmit="return handleBalSubmit(event)">
             <input type="hidden" id="bal-edit-id" value="">
             <input type="hidden" id="bal-value" value="0">
@@ -1379,19 +1379,31 @@
               </label>
               <label>Date <input type="date" id="bal-date" required onchange="updateBalComputedValue()"></label>
             </div>
-            <label class="manage-checkbox">
+            <label class="manage-checkbox" id="bal-exit-all-wrap">
               <input type="checkbox" id="bal-exit-all" onchange="onBalExitAllChange()">
               Exit full position (withdraw the entire balance — current value goes to ₹0)
             </label>
+            <div class="manage-row" id="bal-re-loan-row" style="display:none;">
+              <label id="bal-disbursement-wrap" style="display:none;">New Loan Disbursed by Bank (₹)
+                <input type="number" step="any" id="bal-disbursement" value="0" placeholder="0" oninput="onBalDisbursementInput()">
+              </label>
+              <label id="bal-milestone-wrap" style="display:none;">New Installment Demand Added (₹)
+                <input type="number" step="any" id="bal-milestone" value="0" placeholder="0" oninput="onBalMilestoneInput()">
+              </label>
+              <label id="bal-prop-bank-wrap" style="display:none;">Paid by Bank from Home Loan (₹)
+                <input type="number" step="any" id="bal-prop-bank" value="0" placeholder="0" oninput="onBalPropBankInput()">
+              </label>
+            </div>
             <div class="manage-row">
-              <label>Contributed this period (₹) <input type="number" step="any" id="bal-contribution" value="0" oninput="updateBalComputedValue()"></label>
-              <label id="bal-interest-wrap">Interest earned this period (₹) <input type="number" step="any" id="bal-interest" value="0" oninput="updateBalComputedValue()"></label>
+              <label id="bal-contrib-wrap"><span id="bal-contrib-label">Contributed this period (₹)</span> <input type="number" step="any" id="bal-contribution" value="0" oninput="updateBalComputedValue()"></label>
+              <label id="bal-interest-wrap"><span id="bal-interest-label">Interest earned this period (₹)</span> <input type="number" step="any" id="bal-interest" value="0" oninput="updateBalComputedValue()"></label>
             </div>
             <div class="manage-row">
               <label id="bal-prev-wrap">Previous value <span id="bal-prev-value" class="manage-computed">₹0</span></label>
               <label id="bal-value-computed-wrap">Current value (₹) <span id="bal-value-display" class="manage-computed" title="Auto-calculated: previous value + contribution + interest earned">₹0</span></label>
-              <label id="bal-value-input-wrap" style="display:none;">Current value (₹) <input type="number" step="any" id="bal-value-input" oninput="updateBalComputedValue()"></label>
+              <label id="bal-value-input-wrap" style="display:none;"><span id="bal-value-input-label">Current value (₹)</span> <input type="number" step="any" id="bal-value-input" oninput="onBalValueDirectInput()"></label>
             </div>
+            <div id="bal-re-loan-summary" class="bal-hint-box" style="display:none;"></div>
             <div class="manage-row">
               <label class="manage-full">Note <input id="bal-note" placeholder="optional"></label>
             </div>
@@ -1440,7 +1452,7 @@
           <div id="backup-status" class="manage-preview"></div>
           <p class="manage-hint" style="margin-top:0.5rem;">Looking for the transaction/balance list? It's now in <strong>Periodic Performance → Transaction Log</strong>, where every entry is editable with a Closed/Pending status.</p>
           <div class="manage-actions" style="margin-top:0.75rem;">
-            <button type="button" class="ghost-btn" onclick="forceResyncFromCloud()" title="Discard this device's local ledger cache and reload the committed data/*.json files">🔄 Refresh from Cloud</button>
+            <button type="button" class="ghost-btn" id="resync-cloud-btn" onclick="forceResyncFromCloud()" title="Discard this device's local ledger cache and reload the committed data/*.json files"><span class="resync-icon">🔄</span> <span class="resync-label">Refresh from Cloud</span></button>
           </div>
           <p class="manage-hint" style="margin-top:0.4rem;">Committed a transaction elsewhere and it's not showing here? This device may have a stale local cache blocking updates — use this to force it to re-adopt the latest committed data. <strong>Only do this if you have no unsaved edits on this device</strong> — anything not yet committed here will be lost.</p>
         </div>
