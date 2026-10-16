@@ -7164,6 +7164,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
     const folded = !!(_fbBaseDateForLog && b.date <= _fbBaseDateForLog);
     const { cat, ac } = _catAcFor(b.component);
     const lbl = b.component.replace('-', ' ');
+    let hasPushed = false;
     if (b.contribution) {
       trades.push({
         date: b.date, instrument: lbl + (b.component === 'LOAN-HOME' ? ' — Principal' : ''),
@@ -7171,6 +7172,7 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
         quantity: null, price: null, total: Math.abs(b.contribution),
         category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
       });
+      hasPushed = true;
     }
     if (b.interest) {
       trades.push({
@@ -7179,8 +7181,25 @@ function renderTradingActivityLog(count = 12, startIndex = 0, endIndex = null) {
         quantity: null, price: null, total: Math.abs(b.interest),
         category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
       });
+      hasPushed = true;
     }
-
+    if (b.disbursement) {
+      trades.push({
+        date: b.date, instrument: lbl + ' — Loan Disbursement',
+        type: 'UPDATE',
+        quantity: null, price: null, total: Math.abs(b.disbursement),
+        category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
+      });
+      hasPushed = true;
+    }
+    if (!hasPushed && b.value !== undefined) {
+      trades.push({
+        date: b.date, instrument: lbl + (b.component === 'LOAN-HOME' ? ' — Outstanding Balance' : ' — Valuation Update'),
+        type: 'UPDATE',
+        quantity: null, price: null, total: Math.abs(b.value),
+        category: cat, assetCategory: ac, closed: folded, id: b.id, kind: 'bal',
+      });
+    }
   });
 
   // Monthly Return row per component, per CLOSED period — pure market/interest growth
@@ -8620,6 +8639,25 @@ function handleBalSubmit(e) {
 
   if (editId) updateBalance(editId, payload);
   else addBalance(payload);
+
+  if (isProp && bankPart > 0) {
+    const loanDate = payload.date;
+    const existingLoan = (balances || []).find(b => b.component === 'LOAN-HOME' && b.date === loanDate);
+    const priorLoan = Math.abs(priorBalanceValue('LOAN-HOME', loanDate, existingLoan?.id || null));
+    const newLoanVal = -(priorLoan + bankPart);
+    const loanPayload = {
+      component: 'LOAN-HOME',
+      date: loanDate,
+      value: newLoanVal,
+      contribution: 0,
+      interest: 0,
+      disbursement: bankPart,
+      note: payload.note ? `${payload.note} (Bank Disbursement)` : `Bank loan disbursement for milestone (₹${(bankPart / 1e5).toFixed(2)} L)`
+    };
+    if (existingLoan) updateBalance(existingLoan.id, loanPayload);
+    else addBalance(loanPayload);
+  }
+
   resetBalForm();
   refreshAfterLedgerChange();
   showButtonSuccess('bal-submit-btn', editId ? '✓ Updated!' : '✓ Saved!');
@@ -8672,7 +8710,15 @@ function editBal(id) {
 }
 
 function removeBal(id) {
+  const b = (balances || []).find(x => x.id === id);
   if (!confirm('Delete this balance entry?')) return;
+  if (b && (b.component === 'RE-PROP' || b.component === 'LOAN-HOME')) {
+    const counterpartComp = b.component === 'RE-PROP' ? 'LOAN-HOME' : 'RE-PROP';
+    const counterpart = (balances || []).find(x => x.component === counterpartComp && x.date === b.date);
+    if (counterpart && confirm(`Also delete the matching ${counterpartComp === 'LOAN-HOME' ? 'Home Loan' : 'Real Estate'} entry from ${b.date} to keep property and loan in sync?`)) {
+      deleteBalance(counterpart.id);
+    }
+  }
   deleteBalance(id);
   refreshAfterLedgerChange();
 }

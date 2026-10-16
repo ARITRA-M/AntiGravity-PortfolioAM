@@ -1239,6 +1239,9 @@ function rebuildBreakupFromLedger() {
   // before '2026-08-01' is guaranteed to be a user error (e.g. entering June instead of August).
   if (typeof balances !== 'undefined' && balances) {
     let changed = false;
+    const beforeLen = balances.length;
+    balances = balances.filter(b => b.id !== 't_mv9nnpqb_7igm0' && b.id !== 't_mv9nq58y_cn5od');
+    if (balances.length !== beforeLen) changed = true;
     balances.forEach(b => {
       if ((b.component === 'RE-PROP' || b.component === 'LOAN-HOME') && b.date <= '2026-07-31') {
         b.date = '2026-08-01';
@@ -1322,6 +1325,16 @@ function rebuildBreakupFromLedger() {
   const snapKey = _ledgerPrefix() + 'ledger_col_snapshots';
   try { colSnaps = JSON.parse(localStorage.getItem(snapKey) || '{}'); } catch (_) { colSnaps = {}; }
   let snapsChanged = false;
+  if (colSnaps && colSnaps['2026-10-01']) {
+    if (colSnaps['2026-10-01']['Real Estate (Property)'] > 130.64) {
+      delete colSnaps['2026-10-01']['Real Estate (Property)'];
+      snapsChanged = true;
+    }
+    if (colSnaps['2026-10-01']['Home Loan (Liability)'] < -106.90) {
+      delete colSnaps['2026-10-01']['Home Loan (Liability)'];
+      snapsChanged = true;
+    }
+  }
 
   for (let i = firstLedgerIdx; i < dates.length; i++) {
     const txnsInCol = transactions.filter(t => colFor(t.date) === i);
@@ -1359,7 +1372,16 @@ function rebuildBreakupFromLedger() {
         snapsChanged = true;
       }
       const latest = latestBalanceFor(comp, winEnd[i]);
-      let value = latest ? latest.value / L : (snaps[key] ?? nw[key]?.values[i] ?? prevValue);
+      let value;
+      if (latest) {
+        value = latest.value / L;
+      } else if (comp === 'RE-PROP') {
+        value = prevValue || getHistoricalREPropValue(dates[i]);
+      } else if (comp === 'LOAN-HOME') {
+        value = prevValue || getHistoricalLoanHomeValue(dates[i]);
+      } else {
+        value = (snaps[key] ?? nw[key]?.values[i] ?? prevValue);
+      }
       // Auto-correct polluted August loan value from prior buggy session
       if (!latest && comp === 'LOAN-HOME' && Math.abs(value + 117.08) < 0.01) value = -116.90;
       if (!latest && (value === undefined || value === 0)) {
