@@ -3050,6 +3050,14 @@ p.manage-hint.trend-down { color: var(--accent-red); }
 .bal-hint-box strong {
   color: #38bdf8;
 }
+.bal-field-hint {
+  display: block;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
 .manage-preview {
   margin-top: 0.9rem;
   font-size: 0.82rem;

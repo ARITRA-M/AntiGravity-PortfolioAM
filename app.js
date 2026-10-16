@@ -8328,8 +8328,57 @@ function priorBalanceValue(component, beforeDate, excludeId) {
   return (v && v.length) ? v[v.length - 1] * 1e5 : 0;
 }
 
+// --- Indian Numbering & Currency Formatting Helpers for Balance Forms ---
+function parseIndianNumber(val) {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+  if (!val) return 0;
+  const cleaned = String(val).replace(/[^\d.-]/g, '');
+  const num = parseFloat(cleaned);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function formatIndianNumber(num) {
+  const n = parseIndianNumber(num);
+  if (n === 0) return '0';
+  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(n);
+}
+
+function formatIndianCurrency(num) {
+  const n = parseIndianNumber(num);
+  const isNeg = n < 0;
+  const absVal = Math.abs(n);
+  const lakhs = (absVal / 1e5).toFixed(2);
+  const formattedFull = new Intl.NumberFormat('en-IN', {
+    maximumFractionDigits: 0
+  }).format(absVal);
+  const sign = isNeg ? '-' : '';
+  return `${sign}₹${lakhs} L (${sign}₹${formattedFull})`;
+}
+
+function formatIndianInputBlur(inputEl) {
+  if (!inputEl) return;
+  const val = parseIndianNumber(inputEl.value);
+  if (val !== 0) {
+    inputEl.value = formatIndianNumber(val);
+  } else if (inputEl.value.trim() !== '') {
+    inputEl.value = '0';
+  }
+}
+
+function _updateInputHint(hintElId, val, allowZero = false) {
+  const hintEl = document.getElementById(hintElId);
+  if (!hintEl) return;
+  const n = parseIndianNumber(val);
+  if (n === 0 && !allowZero) {
+    hintEl.style.display = 'none';
+    hintEl.textContent = '';
+  } else {
+    hintEl.style.display = 'block';
+    hintEl.textContent = formatIndianCurrency(n);
+  }
+}
+
 // NPS components ask for Current value directly (from your statement) + Contribution —
-// no "interest" concept (NPS is market-linked, not a declared interest rate) and no
 // no "interest" concept (NPS is market-linked, not a declared interest rate) and no
 // auto-calc, since the statement already tells you the current value.
 const NPS_BAL_COMPONENTS = new Set(['NPS-E', 'NPS-C', 'NPS-G']);
@@ -8344,37 +8393,36 @@ function updateBalFormMode() {
   const exitWrap = document.getElementById('bal-exit-all-wrap');
   if (exitWrap) exitWrap.style.display = (isLoan || isProp) ? 'none' : '';
 
-  const reLoanRow = document.getElementById('bal-re-loan-row');
-  const disbWrap = document.getElementById('bal-disbursement-wrap');
-  const mileWrap = document.getElementById('bal-milestone-wrap');
-  const propBankWrap = document.getElementById('bal-prop-bank-wrap');
+  const propPaymentsRow = document.getElementById('bal-prop-payments-row');
+  const loanDisbRow = document.getElementById('bal-loan-disb-row');
+  const standardRow = document.getElementById('bal-standard-row');
+  const propDemandRow = document.getElementById('bal-prop-demand-row');
 
-  if (reLoanRow) reLoanRow.style.display = (isLoan || isProp) ? '' : 'none';
-  if (disbWrap) disbWrap.style.display = isLoan ? '' : 'none';
-  if (mileWrap) mileWrap.style.display = isProp ? '' : 'none';
-  if (propBankWrap) propBankWrap.style.display = isProp ? '' : 'none';
+  if (propPaymentsRow) propPaymentsRow.style.display = isProp ? '' : 'none';
+  if (propDemandRow) propDemandRow.style.display = isProp ? '' : 'none';
+  if (loanDisbRow) loanDisbRow.style.display = isLoan ? '' : 'none';
+  if (standardRow) standardRow.style.display = isProp ? 'none' : '';
 
-  const contribLabel = document.getElementById('bal-contrib-label') || document.getElementById('bal-contribution')?.parentElement?.childNodes[0];
+  const contribLabel = document.getElementById('bal-contrib-label');
   const interestWrap = document.getElementById('bal-interest-wrap');
-  const interestLabel = document.getElementById('bal-interest-label') || interestWrap?.childNodes[0];
+  const interestLabel = document.getElementById('bal-interest-label');
   const valInputWrap = document.getElementById('bal-value-input-wrap');
   const valInputLabel = document.getElementById('bal-value-input-label');
   const valComputedWrap = document.getElementById('bal-value-computed-wrap');
+  const valComputedLabel = document.getElementById('bal-value-computed-label');
   const prevWrap = document.getElementById('bal-prev-wrap');
 
-  if (isLoan) {
+  if (isProp) {
+    if (prevWrap) prevWrap.style.display = '';
+    if (valComputedWrap) valComputedWrap.style.display = '';
+    if (valComputedLabel) valComputedLabel.textContent = 'Gross Property Asset Value (₹) ';
+    if (valInputWrap) valInputWrap.style.display = 'none';
+  } else if (isLoan) {
     if (contribLabel) contribLabel.textContent = 'Principal repaid from EMI (₹) ';
     if (interestWrap) interestWrap.style.display = '';
     if (interestLabel) interestLabel.textContent = 'Interest paid from EMI (₹) ';
     if (valInputWrap) valInputWrap.style.display = '';
     if (valInputLabel) valInputLabel.textContent = 'Outstanding Loan Principal (₹) ';
-    if (valComputedWrap) valComputedWrap.style.display = 'none';
-    if (prevWrap) prevWrap.style.display = '';
-  } else if (isProp) {
-    if (contribLabel) contribLabel.textContent = 'Paid by Self / Out of Pocket (₹) ';
-    if (interestWrap) interestWrap.style.display = 'none';
-    if (valInputWrap) valInputWrap.style.display = '';
-    if (valInputLabel) valInputLabel.textContent = 'Gross Property Asset Value (₹) ';
     if (valComputedWrap) valComputedWrap.style.display = 'none';
     if (prevWrap) prevWrap.style.display = '';
   } else if (isNps) {
@@ -8392,6 +8440,7 @@ function updateBalFormMode() {
     if (interestLabel) interestLabel.textContent = 'Interest earned this period (₹) ';
     if (valInputWrap) valInputWrap.style.display = 'none';
     if (valComputedWrap) valComputedWrap.style.display = '';
+    if (valComputedLabel) valComputedLabel.textContent = 'Current value (₹) ';
     if (prevWrap) prevWrap.style.display = '';
     const sumBox = document.getElementById('bal-re-loan-summary');
     if (sumBox) sumBox.style.display = 'none';
@@ -8406,46 +8455,27 @@ function onBalDisbursementInput() {
   const date = document.getElementById('bal-date').value;
   const editId = document.getElementById('bal-edit-id').value;
   const prevValue = priorBalanceValue(component, date, editId || null);
-  const disb = parseFloat(document.getElementById('bal-disbursement').value) || 0;
-  const repaid = parseFloat(document.getElementById('bal-contribution').value) || 0;
+  const disb = parseIndianNumber(document.getElementById('bal-disbursement')?.value);
+  const repaid = parseIndianNumber(document.getElementById('bal-contribution')?.value);
   const newLoan = Math.abs(prevValue) + disb - repaid;
   const valInput = document.getElementById('bal-value-input');
-  if (valInput) valInput.value = Math.round(newLoan);
+  if (valInput) valInput.value = formatIndianNumber(Math.round(newLoan));
   document.getElementById('bal-value').value = (-newLoan).toFixed(2);
+  _updateInputHint('bal-disbursement-hint', disb);
+  _updateInputHint('bal-value-input-hint', -newLoan);
   _updateBalReLoanSummary('LOAN-HOME', newLoan, disb, repaid, prevValue);
 }
 
 function onBalMilestoneInput() {
-  const component = document.getElementById('bal-component').value;
-  if (component !== 'RE-PROP') return;
-  const date = document.getElementById('bal-date').value;
-  const editId = document.getElementById('bal-edit-id').value;
-  const prevValue = priorBalanceValue(component, date, editId || null);
-  const milestone = parseFloat(document.getElementById('bal-milestone').value) || 0;
-  const newProp = prevValue + milestone;
-  const valInput = document.getElementById('bal-value-input');
-  if (valInput) valInput.value = Math.round(newProp);
-  document.getElementById('bal-value').value = newProp.toFixed(2);
-  const bank = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
-  const self = Math.max(0, milestone - bank);
-  const selfEl = document.getElementById('bal-contribution');
-  if (selfEl) selfEl.value = Math.round(self);
-  _updateBalReLoanSummary('RE-PROP', newProp, milestone, self, bank);
+  updateBalComputedValue();
 }
 
 function onBalPropBankInput() {
-  const component = document.getElementById('bal-component').value;
-  if (component !== 'RE-PROP') return;
-  const date = document.getElementById('bal-date').value;
-  const editId = document.getElementById('bal-edit-id').value;
-  const prevValue = priorBalanceValue(component, date, editId || null);
-  const currentVal = parseFloat(document.getElementById('bal-value-input')?.value) || prevValue;
-  const milestone = parseFloat(document.getElementById('bal-milestone')?.value) || Math.max(0, currentVal - prevValue);
-  const bank = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
-  const self = Math.max(0, milestone - bank);
-  const selfEl = document.getElementById('bal-contribution');
-  if (selfEl) selfEl.value = Math.round(self);
-  _updateBalReLoanSummary('RE-PROP', currentVal, milestone, self, bank);
+  updateBalComputedValue();
+}
+
+function onBalPropSelfInput() {
+  updateBalComputedValue();
 }
 
 function onBalValueDirectInput() {
@@ -8454,30 +8484,24 @@ function onBalValueDirectInput() {
   const editId = document.getElementById('bal-edit-id').value;
   const valInput = document.getElementById('bal-value-input');
   if (mode.isNps) {
-    const entered = parseFloat(valInput.value);
-    document.getElementById('bal-value').value = isFinite(entered) ? entered : '';
+    const entered = parseIndianNumber(valInput.value);
+    document.getElementById('bal-value').value = Number.isFinite(entered) ? entered : '';
+    _updateInputHint('bal-value-input-hint', entered);
   } else if (mode.isLoan) {
     const prevValue = priorBalanceValue('LOAN-HOME', date, editId || null);
-    const entered = Math.abs(parseFloat(valInput.value) || 0);
+    const entered = Math.abs(parseIndianNumber(valInput.value));
     document.getElementById('bal-value').value = (-entered).toFixed(2);
+    _updateInputHint('bal-value-input-hint', -entered);
     const delta = entered - Math.abs(prevValue);
-    const repaid = parseFloat(document.getElementById('bal-contribution')?.value) || 0;
+    const repaid = parseIndianNumber(document.getElementById('bal-contribution')?.value);
     const disbEl = document.getElementById('bal-disbursement');
-    if (delta > 0 && disbEl) disbEl.value = Math.round(delta + repaid);
+    if (delta > 0 && disbEl) {
+      disbEl.value = formatIndianNumber(Math.round(delta + repaid));
+      _updateInputHint('bal-disbursement-hint', delta + repaid);
+    }
     _updateBalReLoanSummary('LOAN-HOME', entered, delta > 0 ? (delta + repaid) : 0, repaid, prevValue);
   } else if (mode.isProp) {
-    const prevValue = priorBalanceValue('RE-PROP', date, editId || null);
-    const entered = Math.abs(parseFloat(valInput.value) || 0);
-    document.getElementById('bal-value').value = entered.toFixed(2);
-    const delta = entered - prevValue;
-    const mileEl = document.getElementById('bal-milestone');
-    const bankEl = document.getElementById('bal-prop-bank');
-    const selfEl = document.getElementById('bal-contribution');
-    if (delta > 0 && mileEl) mileEl.value = Math.round(delta);
-    const bank = parseFloat(bankEl?.value) || 0;
-    if (selfEl && bank === 0) selfEl.value = Math.round(Math.max(0, delta));
-    else if (selfEl) selfEl.value = Math.round(Math.max(0, delta - bank));
-    _updateBalReLoanSummary('RE-PROP', entered, delta > 0 ? delta : 0, parseFloat(selfEl?.value) || 0, bank);
+    updateBalComputedValue();
   }
 }
 
@@ -8489,19 +8513,19 @@ function _updateBalReLoanSummary(comp, curVal, demandOrDisb, selfOrRepaid, bankO
     const curL = (curVal / 1e5).toFixed(2);
     const disbL = (demandOrDisb / 1e5).toFixed(2);
     const repL = (selfOrRepaid / 1e5).toFixed(2);
-    box.innerHTML = `🏦 <strong>Loan Liability:</strong> -₹${curL} L` +
-      (demandOrDisb > 0 ? ` · <strong>Bank Disbursed this tranche:</strong> ₹${disbL} L` : '') +
-      (selfOrRepaid > 0 ? ` · <strong>Principal Repaid:</strong> ₹${repL} L` : '') +
-      `<br><span style="font-size:0.75rem;opacity:0.9;">Total Disbursed Bank will update to reflect the full cumulative loan disbursement.</span>`;
+    box.innerHTML = `🏦 <strong>Loan Liability:</strong> -₹${curL} L (-₹${formatIndianNumber(curVal)})` +
+      (demandOrDisb > 0 ? ` · <strong>Bank Disbursed:</strong> ₹${disbL} L (₹${formatIndianNumber(demandOrDisb)})` : '') +
+      (selfOrRepaid > 0 ? ` · <strong>Principal Repaid:</strong> ₹${repL} L (₹${formatIndianNumber(selfOrRepaid)})` : '') +
+      `<br><span style="font-size:0.75rem;opacity:0.9;">Total Disbursed Bank will update to reflect cumulative loan disbursements.</span>`;
   } else if (comp === 'RE-PROP') {
     box.style.display = '';
     const propL = (curVal / 1e5).toFixed(2);
     const demL = (demandOrDisb / 1e5).toFixed(2);
     const selfL = (selfOrRepaid / 1e5).toFixed(2);
     const bankL = (bankOrPrev / 1e5).toFixed(2);
-    box.innerHTML = `🏡 <strong>Gross Property:</strong> ₹${propL} L` +
+    box.innerHTML = `🏡 <strong>Gross Property:</strong> ₹${propL} L (₹${formatIndianNumber(curVal)})` +
       (demandOrDisb > 0 ? ` · <strong>Demand:</strong> ₹${demL} L (Bank: ₹${bankL} L · Self: ₹${selfL} L)` : '') +
-      `<br><span style="font-size:0.75rem;opacity:0.9;">Only your Self payment (₹${selfL} L) counts as personal cash outflow/New Investment.</span>`;
+      `<br><span style="font-size:0.75rem;opacity:0.9;">Only your Self payment (₹${selfL} L) counts as personal cash outflow/New Investment. Home Loan will automatically sync the bank disbursement (+₹${bankL} L).</span>`;
   } else {
     box.style.display = 'none';
   }
@@ -8525,8 +8549,8 @@ function onBalExitAllChange() {
   updateBalComputedValue();
 }
 
-// Recompute the "Current value" field: auto-calculated (previous + contribution +
-// interest) for standard components, or read directly from the editable input for NPS / Loan / Property.
+// Recompute the "Current value" field: auto-calculated for standard components and Real Estate,
+// or read directly from the editable input for NPS / Loan.
 function updateBalComputedValue() {
   const mode = updateBalFormMode();
   const exitAll = !!document.getElementById('bal-exit-all')?.checked;
@@ -8540,59 +8564,82 @@ function updateBalComputedValue() {
     if (exitAll) {
       document.getElementById('bal-value-input').value = '0';
       document.getElementById('bal-value').value = '0';
+      _updateInputHint('bal-value-input-hint', 0);
       return;
     }
-    const entered = parseFloat(document.getElementById('bal-value-input').value);
-    document.getElementById('bal-value').value = isFinite(entered) ? entered : '';
+    const valInput = document.getElementById('bal-value-input');
+    const entered = parseIndianNumber(valInput?.value);
+    document.getElementById('bal-value').value = Number.isFinite(entered) ? entered : '';
+    _updateInputHint('bal-value-input-hint', entered);
+    _updateInputHint('bal-contrib-hint', parseIndianNumber(document.getElementById('bal-contribution')?.value));
     return;
   }
 
   if (mode.isLoan) {
-    document.getElementById('bal-prev-value').textContent = `-₹${(Math.abs(prevValue) / 1e5).toFixed(2)} L (${formatINR(prevValue)})`;
+    document.getElementById('bal-prev-value').textContent = formatIndianCurrency(prevValue);
+    const disb = parseIndianNumber(document.getElementById('bal-disbursement')?.value);
+    const repaid = parseIndianNumber(document.getElementById('bal-contribution')?.value);
+    const interest = parseIndianNumber(document.getElementById('bal-interest')?.value);
+    _updateInputHint('bal-disbursement-hint', disb);
+    _updateInputHint('bal-contrib-hint', repaid);
+    _updateInputHint('bal-interest-hint', interest);
+
     const valInput = document.getElementById('bal-value-input');
-    const disb = parseFloat(document.getElementById('bal-disbursement')?.value) || 0;
-    const repaid = parseFloat(document.getElementById('bal-contribution')?.value) || 0;
-    let loanAbs = parseFloat(valInput?.value);
+    let loanAbs = parseIndianNumber(valInput?.value);
     if (!Number.isFinite(loanAbs) || loanAbs === 0) {
       loanAbs = Math.abs(prevValue) + disb - repaid;
-      if (valInput) valInput.value = Math.round(loanAbs);
+      if (valInput) valInput.value = formatIndianNumber(Math.round(loanAbs));
     } else {
       loanAbs = Math.abs(loanAbs);
     }
+    _updateInputHint('bal-value-input-hint', -loanAbs);
     document.getElementById('bal-value').value = (-loanAbs).toFixed(2);
     _updateBalReLoanSummary('LOAN-HOME', loanAbs, disb, repaid, prevValue);
     return;
   }
 
   if (mode.isProp) {
-    document.getElementById('bal-prev-value').textContent = `₹${(prevValue / 1e5).toFixed(2)} L (${formatINR(prevValue)})`;
-    const valInput = document.getElementById('bal-value-input');
-    const milestone = parseFloat(document.getElementById('bal-milestone')?.value) || 0;
-    const self = parseFloat(document.getElementById('bal-contribution')?.value) || 0;
-    const bank = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
-    let propAbs = parseFloat(valInput?.value);
-    if (!Number.isFinite(propAbs) || propAbs === 0) {
-      propAbs = prevValue + milestone;
-      if (valInput) valInput.value = Math.round(propAbs);
-    }
-    document.getElementById('bal-value').value = propAbs.toFixed(2);
-    _updateBalReLoanSummary('RE-PROP', propAbs, milestone, self, bank);
+    document.getElementById('bal-prev-value').textContent = formatIndianCurrency(prevValue);
+    const bank = parseIndianNumber(document.getElementById('bal-prop-bank')?.value);
+    const self = parseIndianNumber(document.getElementById('bal-prop-self')?.value);
+    _updateInputHint('bal-prop-bank-hint', bank);
+    _updateInputHint('bal-prop-self-hint', self);
+
+    const milestone = bank + self;
+    const mileDisplay = document.getElementById('bal-milestone-display');
+    if (mileDisplay) mileDisplay.textContent = formatIndianCurrency(milestone);
+    const mileInput = document.getElementById('bal-milestone');
+    if (mileInput) mileInput.value = milestone;
+
+    const newProp = prevValue + milestone;
+    const valDisplay = document.getElementById('bal-value-display');
+    if (valDisplay) valDisplay.textContent = formatIndianCurrency(newProp);
+    document.getElementById('bal-value').value = newProp.toFixed(2);
+
+    // Keep hidden/sync contribution field updated to the self amount
+    const contribEl = document.getElementById('bal-contribution');
+    if (contribEl) contribEl.value = self;
+
+    _updateBalReLoanSummary('RE-PROP', newProp, milestone, self, bank);
     return;
   }
 
-  const interest = parseFloat(document.getElementById('bal-interest').value) || 0;
+  // Standard components (PF, PPF, Bonds, Cash, Crypto, etc.)
+  const interest = parseIndianNumber(document.getElementById('bal-interest')?.value);
   const contribEl = document.getElementById('bal-contribution');
   let contribution;
   if (exitAll) {
     contribution = -(prevValue + interest);
-    contribEl.value = contribution.toFixed(2);
+    contribEl.value = formatIndianNumber(contribution);
   } else {
-    contribution = parseFloat(contribEl.value) || 0;
+    contribution = parseIndianNumber(contribEl?.value);
   }
   const currentValue = prevValue + contribution + interest;
-  document.getElementById('bal-prev-value').textContent = formatINR(prevValue);
-  document.getElementById('bal-value-display').textContent = formatINR(currentValue);
+  document.getElementById('bal-prev-value').textContent = formatIndianCurrency(prevValue);
+  document.getElementById('bal-value-display').textContent = formatIndianCurrency(currentValue);
   document.getElementById('bal-value').value = currentValue.toFixed(2);
+  _updateInputHint('bal-contrib-hint', contribution);
+  _updateInputHint('bal-interest-hint', interest);
 }
 
 function handleBalSubmit(e) {
@@ -8604,12 +8651,14 @@ function handleBalSubmit(e) {
   const isProp = comp === 'RE-PROP';
   updateBalComputedValue();
   
-  const rawVal = parseFloat(document.getElementById('bal-value').value);
-  if (!isFinite(rawVal)) { alert('Current value is required.'); return false; }
+  const rawVal = parseIndianNumber(document.getElementById('bal-value').value);
+  if (!Number.isFinite(rawVal)) { alert('Current value is required.'); return false; }
 
   let val = rawVal;
-  let contrib = parseFloat(document.getElementById('bal-contribution').value) || 0;
-  let intVal = parseFloat(document.getElementById('bal-interest').value) || 0;
+  let contrib = isProp
+    ? parseIndianNumber(document.getElementById('bal-prop-self')?.value)
+    : parseIndianNumber(document.getElementById('bal-contribution')?.value);
+  let intVal = parseIndianNumber(document.getElementById('bal-interest')?.value);
 
   if (isLoan) {
     val = -Math.abs(val);
@@ -8631,31 +8680,35 @@ function handleBalSubmit(e) {
     note: document.getElementById('bal-note').value.trim(),
   };
 
-  const disb = parseFloat(document.getElementById('bal-disbursement')?.value) || 0;
+  const disb = parseIndianNumber(document.getElementById('bal-disbursement')?.value);
   if (isLoan && disb > 0) payload.disbursement = disb;
 
-  const bankPart = parseFloat(document.getElementById('bal-prop-bank')?.value) || 0;
+  const bankPart = parseIndianNumber(document.getElementById('bal-prop-bank')?.value);
   if (isProp && bankPart > 0) payload.bankDisbursement = bankPart;
 
   if (editId) updateBalance(editId, payload);
   else addBalance(payload);
 
-  if (isProp && bankPart > 0) {
+  if (isProp) {
     const loanDate = payload.date;
     const existingLoan = (balances || []).find(b => b.component === 'LOAN-HOME' && b.date === loanDate);
-    const priorLoan = Math.abs(priorBalanceValue('LOAN-HOME', loanDate, existingLoan?.id || null));
-    const newLoanVal = -(priorLoan + bankPart);
-    const loanPayload = {
-      component: 'LOAN-HOME',
-      date: loanDate,
-      value: newLoanVal,
-      contribution: 0,
-      interest: 0,
-      disbursement: bankPart,
-      note: payload.note ? `${payload.note} (Bank Disbursement)` : `Bank loan disbursement for milestone (₹${(bankPart / 1e5).toFixed(2)} L)`
-    };
-    if (existingLoan) updateBalance(existingLoan.id, loanPayload);
-    else addBalance(loanPayload);
+    if (bankPart > 0) {
+      const priorLoan = Math.abs(priorBalanceValue('LOAN-HOME', loanDate, existingLoan?.id || null));
+      const newLoanVal = -(priorLoan + bankPart);
+      const loanPayload = {
+        component: 'LOAN-HOME',
+        date: loanDate,
+        value: newLoanVal,
+        contribution: 0,
+        interest: 0,
+        disbursement: bankPart,
+        note: payload.note ? `${payload.note} (Bank Disbursement)` : `Bank loan disbursement for milestone (₹${(bankPart / 1e5).toFixed(2)} L)`
+      };
+      if (existingLoan) updateBalance(existingLoan.id, loanPayload);
+      else addBalance(loanPayload);
+    } else if (existingLoan && existingLoan.disbursement && !existingLoan.contribution && !existingLoan.interest) {
+      deleteBalance(existingLoan.id);
+    }
   }
 
   resetBalForm();
@@ -8678,10 +8731,18 @@ function resetBalForm() {
   if (disbEl) disbEl.value = '0';
   const mileEl = document.getElementById('bal-milestone');
   if (mileEl) mileEl.value = '0';
+  const mileDisp = document.getElementById('bal-milestone-display');
+  if (mileDisp) mileDisp.textContent = '₹0 L (₹0)';
   const propBankEl = document.getElementById('bal-prop-bank');
   if (propBankEl) propBankEl.value = '0';
+  const propSelfEl = document.getElementById('bal-prop-self');
+  if (propSelfEl) propSelfEl.value = '0';
   const sumBox = document.getElementById('bal-re-loan-summary');
   if (sumBox) sumBox.style.display = 'none';
+  ['bal-prop-bank-hint', 'bal-prop-self-hint', 'bal-disbursement-hint', 'bal-contrib-hint', 'bal-interest-hint', 'bal-value-input-hint'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = ''; el.style.display = 'none'; }
+  });
   document.getElementById('bal-exit-all').checked = false;
   updateBalComputedValue();
 }
@@ -8694,14 +8755,17 @@ function editBal(id) {
   document.getElementById('bal-component').value = b.component;
   document.getElementById('bal-date').value = b.date;
   document.getElementById('bal-exit-all').checked = false;
-  document.getElementById('bal-contribution').value = Math.max(0, b.contribution || 0);
-  document.getElementById('bal-interest').value = b.interest || 0;
-  document.getElementById('bal-value-input').value = b.component === 'LOAN-HOME' ? Math.abs(b.value) : b.value;
+  document.getElementById('bal-contribution').value = b.contribution ? formatIndianNumber(Math.max(0, b.contribution)) : '0';
+  document.getElementById('bal-interest').value = b.interest ? formatIndianNumber(b.interest) : '0';
+  const valInput = document.getElementById('bal-value-input');
+  if (valInput) valInput.value = b.component === 'LOAN-HOME' ? formatIndianNumber(Math.abs(b.value)) : formatIndianNumber(b.value);
   document.getElementById('bal-value').value = b.value;
   const disbEl = document.getElementById('bal-disbursement');
-  if (disbEl) disbEl.value = b.disbursement || (b.component === 'LOAN-HOME' && b.contribution < 0 ? Math.abs(b.contribution) : 0);
+  if (disbEl) disbEl.value = b.disbursement ? formatIndianNumber(b.disbursement) : (b.component === 'LOAN-HOME' && b.contribution < 0 ? formatIndianNumber(Math.abs(b.contribution)) : '0');
   const bankEl = document.getElementById('bal-prop-bank');
-  if (bankEl) bankEl.value = b.bankDisbursement || 0;
+  if (bankEl) bankEl.value = b.bankDisbursement ? formatIndianNumber(b.bankDisbursement) : '0';
+  const selfEl = document.getElementById('bal-prop-self');
+  if (selfEl) selfEl.value = b.contribution ? formatIndianNumber(Math.max(0, b.contribution)) : '0';
   document.getElementById('bal-note').value = b.note || '';
   document.getElementById('bal-submit-btn').textContent = 'Update Balance';
   document.getElementById('bal-cancel-btn').style.display = '';

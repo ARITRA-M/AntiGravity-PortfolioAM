@@ -1383,25 +1383,56 @@
               <input type="checkbox" id="bal-exit-all" onchange="onBalExitAllChange()">
               Exit full position (withdraw the entire balance — current value goes to ₹0)
             </label>
-            <div class="manage-row" id="bal-re-loan-row" style="display:none;">
-              <label id="bal-disbursement-wrap" style="display:none;">New Loan Disbursed by Bank (₹)
-                <input type="number" step="any" id="bal-disbursement" value="0" placeholder="0" oninput="onBalDisbursementInput()">
+            <!-- Real Estate Dedicated Payments Row: Bank & Self side-by-side -->
+            <div class="manage-row" id="bal-prop-payments-row" style="display:none;">
+              <label id="bal-prop-bank-wrap">Paid by Bank from Home Loan (₹)
+                <input type="text" inputmode="numeric" id="bal-prop-bank" value="0" placeholder="0" oninput="onBalPropBankInput()" onblur="formatIndianInputBlur(this)">
+                <span id="bal-prop-bank-hint" class="bal-field-hint" style="display:none;"></span>
               </label>
-              <label id="bal-milestone-wrap" style="display:none;">New Installment Demand Added (₹)
-                <input type="number" step="any" id="bal-milestone" value="0" placeholder="0" oninput="onBalMilestoneInput()">
-              </label>
-              <label id="bal-prop-bank-wrap" style="display:none;">Paid by Bank from Home Loan (₹)
-                <input type="number" step="any" id="bal-prop-bank" value="0" placeholder="0" oninput="onBalPropBankInput()">
+              <label id="bal-prop-self-wrap">Paid by Self / Out of Pocket (₹)
+                <input type="text" inputmode="numeric" id="bal-prop-self" value="0" placeholder="0" oninput="onBalPropSelfInput()" onblur="formatIndianInputBlur(this)">
+                <span id="bal-prop-self-hint" class="bal-field-hint" style="display:none;"></span>
               </label>
             </div>
-            <div class="manage-row">
-              <label id="bal-contrib-wrap"><span id="bal-contrib-label">Contributed this period (₹)</span> <input type="number" step="any" id="bal-contribution" value="0" oninput="updateBalComputedValue()"></label>
-              <label id="bal-interest-wrap"><span id="bal-interest-label">Interest earned this period (₹)</span> <input type="number" step="any" id="bal-interest" value="0" oninput="updateBalComputedValue()"></label>
+
+            <!-- Home Loan Disbursement Row -->
+            <div class="manage-row" id="bal-loan-disb-row" style="display:none;">
+              <label id="bal-disbursement-wrap">New Loan Disbursed by Bank (₹)
+                <input type="text" inputmode="numeric" id="bal-disbursement" value="0" placeholder="0" oninput="onBalDisbursementInput()" onblur="formatIndianInputBlur(this)">
+                <span id="bal-disbursement-hint" class="bal-field-hint" style="display:none;"></span>
+              </label>
             </div>
+
+            <!-- Standard Contribution & Interest Row -->
+            <div class="manage-row" id="bal-standard-row">
+              <label id="bal-contrib-wrap"><span id="bal-contrib-label">Contributed this period (₹)</span>
+                <input type="text" inputmode="numeric" id="bal-contribution" value="0" oninput="updateBalComputedValue()" onblur="formatIndianInputBlur(this)">
+                <span id="bal-contrib-hint" class="bal-field-hint" style="display:none;"></span>
+              </label>
+              <label id="bal-interest-wrap"><span id="bal-interest-label">Interest earned this period (₹)</span>
+                <input type="text" inputmode="numeric" id="bal-interest" value="0" oninput="updateBalComputedValue()" onblur="formatIndianInputBlur(this)">
+                <span id="bal-interest-hint" class="bal-field-hint" style="display:none;"></span>
+              </label>
+            </div>
+
+            <!-- Real Estate Auto-Calculated Demand Row -->
+            <div class="manage-row" id="bal-prop-demand-row" style="display:none;">
+              <label class="manage-full">New Installment Demand Added
+                <span id="bal-milestone-display" class="manage-computed">₹0 L (₹0)</span>
+                <input type="hidden" id="bal-milestone" value="0">
+              </label>
+            </div>
+
+            <!-- Values Row -->
             <div class="manage-row">
               <label id="bal-prev-wrap">Previous value <span id="bal-prev-value" class="manage-computed">₹0</span></label>
-              <label id="bal-value-computed-wrap">Current value (₹) <span id="bal-value-display" class="manage-computed" title="Auto-calculated: previous value + contribution + interest earned">₹0</span></label>
-              <label id="bal-value-input-wrap" style="display:none;"><span id="bal-value-input-label">Current value (₹)</span> <input type="number" step="any" id="bal-value-input" oninput="onBalValueDirectInput()"></label>
+              <label id="bal-value-computed-wrap"><span id="bal-value-computed-label">Current value (₹)</span>
+                <span id="bal-value-display" class="manage-computed" title="Auto-calculated">₹0</span>
+              </label>
+              <label id="bal-value-input-wrap" style="display:none;"><span id="bal-value-input-label">Current value (₹)</span>
+                <input type="text" inputmode="numeric" id="bal-value-input" oninput="onBalValueDirectInput()" onblur="formatIndianInputBlur(this)">
+                <span id="bal-value-input-hint" class="bal-field-hint" style="display:none;"></span>
+              </label>
             </div>
             <div id="bal-re-loan-summary" class="bal-hint-box" style="display:none;"></div>
             <div class="manage-row">

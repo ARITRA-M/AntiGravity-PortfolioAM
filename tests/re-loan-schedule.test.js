@@ -121,4 +121,41 @@ test('Subsequent partial self and partial bank payment correctly splits equity a
   assert.strictEqual(Number(curr.equity.toFixed(2)), 25.73); // 23.73 + 2
 });
 
+test('Indian numbering and currency formatting helpers format properly with Indian commas and Lakhs', () => {
+  vm.runInContext(appJs.match(/function parseIndianNumber[\s\S]*?\n\}/)[0], sandbox);
+  vm.runInContext(appJs.match(/function formatIndianNumber[\s\S]*?\n\}/)[0], sandbox);
+  vm.runInContext(appJs.match(/function formatIndianCurrency[\s\S]*?\n\}/)[0], sandbox);
+
+  // parseIndianNumber
+  assert.strictEqual(sandbox.parseIndianNumber('18,16,712'), 1816712);
+  assert.strictEqual(sandbox.parseIndianNumber('₹ 2,01,857'), 201857);
+  assert.strictEqual(sandbox.parseIndianNumber('-75,00,000'), -7500000);
+  assert.strictEqual(sandbox.parseIndianNumber(''), 0);
+  assert.strictEqual(sandbox.parseIndianNumber(null), 0);
+  assert.strictEqual(sandbox.parseIndianNumber(12345), 12345);
+
+  // formatIndianNumber
+  assert.strictEqual(sandbox.formatIndianNumber(1816712), '18,16,712');
+  assert.strictEqual(sandbox.formatIndianNumber(201857), '2,01,857');
+  assert.strictEqual(sandbox.formatIndianNumber(0), '0');
+
+  // formatIndianCurrency
+  assert.strictEqual(sandbox.formatIndianCurrency(1816712), '₹18.17 L (₹18,16,712)');
+  assert.strictEqual(sandbox.formatIndianCurrency(201857), '₹2.02 L (₹2,01,857)');
+  assert.strictEqual(sandbox.formatIndianCurrency(15082569), '₹150.83 L (₹1,50,82,569)');
+  assert.strictEqual(sandbox.formatIndianCurrency(-7500000), '-₹75.00 L (-₹75,00,000)');
+
+  // Auto-calculation of installment demand and gross property
+  const prevValue = 13064000;
+  const bank = sandbox.parseIndianNumber('18,16,712');
+  const self = sandbox.parseIndianNumber('2,01,857');
+  const demand = bank + self;
+  const grossProperty = prevValue + demand;
+  assert.strictEqual(demand, 2018569);
+  assert.strictEqual(grossProperty, 15082569);
+  assert.strictEqual(sandbox.formatIndianCurrency(demand), '₹20.19 L (₹20,18,569)');
+  assert.strictEqual(sandbox.formatIndianCurrency(grossProperty), '₹150.83 L (₹1,50,82,569)');
+});
+
 console.log(`\n${passed} re-loan-schedule tests passed`);
+
