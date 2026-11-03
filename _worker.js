@@ -33,18 +33,20 @@ export default {
       try {
         const payload = await request.json();
 
-        // Ensure secrets are configured in Cloudflare Dashboard
-        if (!env || !env.GITHUB_TOKEN || !env.GITHUB_REPO) {
+        const repo = (env && env.GITHUB_REPO) || 'ARITRA-M/AntiGravity-PortfolioAM';
+        const branch = (env && env.GITHUB_BRANCH) || 'main';
+        const token = (env && env.GITHUB_TOKEN) || request.headers.get('X-GitHub-Token') || payload.github_token;
+
+        if (!token) {
           return new Response(JSON.stringify({
             success: false,
-            error: 'GitHub secrets (GITHUB_TOKEN, GITHUB_REPO) not configured in Cloudflare Dashboard.'
-          }), { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } });
+            needsToken: true,
+            error: 'GitHub token (GITHUB_TOKEN) not configured in Cloudflare Dashboard.'
+          }), { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } });
         }
 
-        const repo = env.GITHUB_REPO;
-        const branch = env.GITHUB_BRANCH || 'main';
         const headers = {
-          'Authorization': `Bearer ${env.GITHUB_TOKEN}`,
+          'Authorization': `Bearer ${token}`,
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': 'AntiGravity-Cloudflare-Worker'
         };
@@ -62,14 +64,20 @@ export default {
         const treeSha = commitData.tree.sha;
 
         // 3. Create a new tree with the updated files
+        const ALLOWED_SAVE_KEYS = new Set([
+          'portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings',
+          'ledger_transactions', 'ledger_balances', 'ledger_frozen_base',
+        ]);
         const tree = [];
         for (const [key, value] of Object.entries(payload)) {
-          tree.push({
-            path: `data/${key}.json`,
-            mode: '100644',
-            type: 'blob',
-            content: JSON.stringify(value, null, 2)
-          });
+          if (ALLOWED_SAVE_KEYS.has(key)) {
+            tree.push({
+              path: `data/${key}.json`,
+              mode: '100644',
+              type: 'blob',
+              content: JSON.stringify(value, null, 2)
+            });
+          }
         }
 
         res = await fetch(`https://api.github.com/repos/${repo}/git/trees`, {

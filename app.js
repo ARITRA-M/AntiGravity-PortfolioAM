@@ -885,9 +885,13 @@ async function commitData() {
       }
     }
 
+    const reqHeaders = { 'Content-Type': 'application/json' };
+    const savedToken = localStorage.getItem('ag_github_token');
+    if (savedToken) reqHeaders['X-GitHub-Token'] = savedToken;
+
     const res = await fetch(commitUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: reqHeaders,
       body: JSON.stringify(payload)
     });
 
@@ -904,8 +908,20 @@ async function commitData() {
       // Local ledger == committed now, so clear the dirty flag. The next reload will
       // adopt the committed ledger files (keeping all devices in sync).
       if (typeof clearLedgerDirty === 'function') clearLedgerDirty();
+    } else if (data.needsToken || (data.error && data.error.includes('GITHUB_TOKEN'))) {
+      const tokenPrompt = prompt('Cloudflare does not have GITHUB_TOKEN configured yet.\n\nEnter your GitHub Personal Access Token to commit directly from this device (saved locally):');
+      if (tokenPrompt && tokenPrompt.trim()) {
+        localStorage.setItem('ag_github_token', tokenPrompt.trim());
+        if (status) status.textContent = 'Retrying commit with GitHub token...';
+        return commitData();
+      } else {
+        if (status) status.textContent = '❌ ' + (data.error || 'GitHub token required to sync with cloud.');
+      }
+    } else if (res.status === 401 && (data.error && data.error.includes('Bad credentials'))) {
+      localStorage.removeItem('ag_github_token');
+      if (status) status.textContent = '❌ Invalid GitHub token. Please re-enter your GitHub token or configure it in Cloudflare.';
     } else if (res.status === 401) {
-      if (status) status.textContent = '🔒 Session expired. Please unlock the portfolio first.';
+      if (status) status.textContent = '🔒 ' + (data.error || 'Session expired or authentication failed.');
     } else {
       if (status) status.textContent = '❌ ' + (data.error || 'Commit failed. Check server logs.');
     }

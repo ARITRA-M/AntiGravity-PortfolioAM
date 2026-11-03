@@ -2,5 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "portfolio-proxy",
   "main": "_worker.js",
-  "compatibility_date": "2024-11-01"
+  "compatibility_date": "2024-11-01",
+  "vars": {
+    "GITHUB_REPO": "ARITRA-M/AntiGravity-PortfolioAM",
+    "GITHUB_BRANCH": "main"
+  }
 }
