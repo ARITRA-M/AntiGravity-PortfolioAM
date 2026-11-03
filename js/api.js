@@ -106,6 +106,21 @@ function _proxyList() {
 let _workingProxyIdx = 0;
 
 async function fetchViaCorsProxy(targetUrl, options = {}, timeoutMs = 8000) {
+  // If running locally (Portfolio Dashboard.app on Mac), use local proxy directly!
+  // Completely bypasses Cloudflare and external proxies with zero latency and 100% reliability.
+  const isLocalHost = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.endsWith('.local'));
+  if (isLocalHost) {
+    try {
+      const localUrl = '/api/proxy?url=' + encodeURIComponent(targetUrl);
+      const resp = await fetch(localUrl, { ...options, signal: AbortSignal.timeout(Math.min(timeoutMs, 6000)) });
+      const ct = (resp.headers.get('content-type') || '').toLowerCase();
+      if (resp.ok && !ct.includes('text/html')) {
+        return resp;
+      }
+    } catch (_) { /* fallback to external proxies below */ }
+  }
+
   // If worker proxy is configured, ALWAYS try it first because it is fast, dedicated, and handles NSE/Yahoo.
   if (WORKER_PROXY_URL) {
     const sep = WORKER_PROXY_URL.includes('?') ? '&' : '?';

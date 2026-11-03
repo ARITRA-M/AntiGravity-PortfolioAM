@@ -1,0 +1,6 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "portfolio-proxy",
+  "main": "_worker.js",
+  "compatibility_date": "2024-11-01"
+}

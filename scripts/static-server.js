@@ -165,9 +165,45 @@ const MIME = {
 };
 
 const server = http.createServer((req, res) => {
+  const route = req.url.split('?')[0];
+
+  // Local CORS proxy endpoint — allows double-clicked local app (localhost:8080)
+  // to fetch live Yahoo Finance, Groww, and NSE quotes directly through Node.js with
+  // zero reliance on Cloudflare or third-party proxies.
+  if (route === '/api/proxy') {
+    const parsed = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const targetUrl = parsed.searchParams.get('url');
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Missing ?url= parameter' }));
+    }
+    const isNse = targetUrl.includes('nseindia.com');
+    fetch(targetUrl, {
+      headers: {
+        'User-Agent': isNse
+          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+          : 'Mozilla/5.0',
+        ...(isNse ? { 'Accept': 'application/json', 'Referer': 'https://www.nseindia.com/market-data/live-market-indices' } : {}),
+      },
+      signal: AbortSignal.timeout(10000),
+    })
+      .then(async (upResp) => {
+        const body = await upResp.arrayBuffer();
+        res.writeHead(upResp.status, {
+          'Content-Type': upResp.headers.get('Content-Type') || 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(Buffer.from(body));
+      })
+      .catch((err) => {
+        res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: err.message }));
+      });
+    return;
+  }
+
   // Commit & git-pull endpoints (localhost only).
   if (req.method === 'POST') {
-    const route = req.url.split('?')[0];
     if (route === '/api/commit-data') return handleCommitData(req, res);
     if (route === '/api/git-pull') return handleGitPull(req, res);
   }
