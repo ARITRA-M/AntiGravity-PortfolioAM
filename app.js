@@ -2232,10 +2232,154 @@ async function _ensureMarketOverviewLongRange() {
   }
 }
 
+function _populateMarketOverviewPortfolioMetrics() {
+  if (!marketOverviewData) marketOverviewData = new Map();
+
+  // 1. Current valuations in Lakhs
+  const liveStockLakhs = latestEquity
+    ? latestEquity.filter(s => typeof isGoldHolding !== 'function' || !isGoldHolding(s)).reduce((s, h) => s + (h.qty * (h.ltp || h.price || 0)), 0) / 100000
+    : 0;
+  const liveMfLakhs = latestMf
+    ? latestMf.reduce((s, h) => s + (h.qty * (h.price || 0)), 0) / 100000
+    : 0;
+  const liveTotalLakhs = (portfolioSummary && portfolioSummary.total_net_worth_lakhs != null)
+    ? portfolioSummary.total_net_worth_lakhs
+    : (liveStockLakhs + liveMfLakhs);
+
+  // 2. Daily gains (1D)
+  let totalStockGain = 0, totalMfGain = 0;
+  let totalPrevStockValue = 0, totalPrevMfValue = 0;
+  if (latestEquity) {
+    latestEquity.forEach(s => {
+      const prevClose = s.yesterdayClose || s.prevClose || 0;
+      if (prevClose > 0) totalPrevStockValue += prevClose * s.qty;
+      const gain = s.change ?? (prevClose > 0 ? ((s.ltp || 0) - prevClose) * s.qty : 0);
+      if (gain != null) totalStockGain += gain;
+    });
+  }
+  if (latestMf) {
+    latestMf.forEach(f => {
+      const prevNav = f.previousNav || f.prevNav || 0;
+      if (prevNav > 0) totalPrevMfValue += prevNav * f.qty;
+      const gain = f.change ?? (prevNav > 0 ? ((f.price || 0) - prevNav) * f.qty : 0);
+      if (gain != null) totalMfGain += gain;
+    });
+  }
+  const dailyStockPct = totalPrevStockValue > 0 ? (totalStockGain / totalPrevStockValue) * 100 : 0;
+  const dailyMfPct = totalPrevMfValue > 0 ? (totalMfGain / totalPrevMfValue) * 100 : 0;
+  const dailyTotalPrev = totalPrevStockValue + totalPrevMfValue;
+  const dailyTotalPct = dailyTotalPrev > 0 ? ((totalStockGain + totalMfGain) / dailyTotalPrev) * 100 : 0;
+
+  // 3. MTD gains
+  let mtdStockGain = 0, mtdMfGain = 0;
+  let mtdStockBase = 0, mtdMfBase = 0;
+  if (latestEquity) {
+    latestEquity.forEach(s => {
+      const base = (calendarMtdData?.stockPriceByInstrument?.get(s.instrument)) || s.yesterdayClose || s.basePrice || s.ltp;
+      if (base > 0) {
+        mtdStockBase += base * s.qty;
+        mtdStockGain += ((s.ltp || base) - base) * s.qty;
+      }
+    });
+  }
+  if (latestMf) {
+    latestMf.forEach(f => {
+      const base = (calendarMtdData?.mfNavByScheme?.get(f.scheme)) || f.previousNav || f.basePrice || f.price;
+      if (base > 0) {
+        mtdMfBase += base * f.qty;
+        mtdMfGain += ((f.price || base) - base) * f.qty;
+      }
+    });
+  }
+  const mtdStockPct = mtdStockBase > 0 ? (mtdStockGain / mtdStockBase) * 100 : dailyStockPct;
+  const mtdMfPct = mtdMfBase > 0 ? (mtdMfGain / mtdMfBase) * 100 : dailyMfPct;
+  const mtdTotalBase = mtdStockBase + mtdMfBase;
+  const mtdTotalPct = mtdTotalBase > 0 ? ((mtdStockGain + mtdMfGain) / mtdTotalBase) * 100 : dailyTotalPct;
+
+  // 4. Time-weighted return for multi-month slices (m1, m3, m6, y1, y3, y5)
+  const twrFor = (nwArr, newMoneyArr, months) => {
+    if (!nwArr || nwArr.length < 2) return null;
+    const twr = computeTWRIndex(nwArr, newMoneyArr);
+    if (!twr || twr.length < 2) return null;
+    const endVal = twr[twr.length - 1];
+    const startIdx = Math.max(0, twr.length - 1 - months);
+    const startVal = twr[startIdx];
+    return startVal > 0 ? ((endVal / startVal) - 1) * 100 : null;
+  };
+
+  const bs = breakupSummary || {};
+  const nw = bs.net_worth || {};
+  const ni = bs.new_investment || {};
+
+  const nwTot = nw['Total']?.values || [];
+  const niTot = ni['Total Investment']?.values || [];
+
+  const nwSt = nw['Stocks (Equity)']?.values || [];
+  const niSt = ni['Stocks (Equity)']?.values || [];
+
+  const nwMf = nw['Mutual Funds (Equity)']?.values || [];
+  const niMf = ni['Mutual Funds (Equity)']?.values || [];
+
+  marketOverviewData.set('portfolio:total', {
+    symbol: 'portfolio:total',
+    label: '💼 Overall Portfolio',
+    group: 'My Portfolio',
+    last: liveTotalLakhs,
+    lastFormatted: formatLakhs(liveTotalLakhs),
+    pct: {
+      daily: dailyTotalPct,
+      mtd: mtdTotalPct,
+      m1: twrFor(nwTot, niTot, 1) ?? mtdTotalPct,
+      m3: twrFor(nwTot, niTot, 3),
+      m6: twrFor(nwTot, niTot, 6),
+      y1: twrFor(nwTot, niTot, 12),
+      y3: twrFor(nwTot, niTot, 36),
+      y5: twrFor(nwTot, niTot, 60),
+    }
+  });
+
+  marketOverviewData.set('portfolio:stocks', {
+    symbol: 'portfolio:stocks',
+    label: '📈 Stocks',
+    group: 'My Portfolio',
+    last: liveStockLakhs,
+    lastFormatted: formatLakhs(liveStockLakhs),
+    pct: {
+      daily: dailyStockPct,
+      mtd: mtdStockPct,
+      m1: twrFor(nwSt, niSt, 1) ?? mtdStockPct,
+      m3: twrFor(nwSt, niSt, 3),
+      m6: twrFor(nwSt, niSt, 6),
+      y1: twrFor(nwSt, niSt, 12),
+      y3: twrFor(nwSt, niSt, 36),
+      y5: twrFor(nwSt, niSt, 60),
+    }
+  });
+
+  marketOverviewData.set('portfolio:mfs', {
+    symbol: 'portfolio:mfs',
+    label: '💰 Mutual Funds',
+    group: 'My Portfolio',
+    last: liveMfLakhs,
+    lastFormatted: formatLakhs(liveMfLakhs),
+    pct: {
+      daily: dailyMfPct,
+      mtd: mtdMfPct,
+      m1: twrFor(nwMf, niMf, 1) ?? mtdMfPct,
+      m3: twrFor(nwMf, niMf, 3),
+      m6: twrFor(nwMf, niMf, 6),
+      y1: twrFor(nwMf, niMf, 12),
+      y3: twrFor(nwMf, niMf, 36),
+      y5: twrFor(nwMf, niMf, 60),
+    }
+  });
+}
+
 function renderMarketOverviewCards() {
   const grid = document.getElementById('market-overview-grid');
   if (!grid) return;
-  if (!marketOverviewData) { grid.innerHTML = ''; return; }
+  if (!marketOverviewData) marketOverviewData = new Map();
+  _populateMarketOverviewPortfolioMetrics();
 
   const pctKey = marketOverviewMode;
   const all = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL];
@@ -2259,6 +2403,7 @@ function renderMarketOverviewCards() {
       ? ' title="No historical price data is available for this index from any free data source"'
       : '';
     const openCls = symbol === _miChartSymbol ? ' mi-open' : '';
+    const lastDisplay = d.lastFormatted || (typeof d.last === 'number' ? d.last.toLocaleString(undefined, { maximumFractionDigits: 2 }) : (d.last || '—'));
     return `
       <div class="market-index-card mi-clickable${openCls}" style="--card-accent: ${accent};"
            onclick="toggleMarketIndexChart('${symbol.replace(/'/g, '')}', this)"
@@ -2266,7 +2411,7 @@ function renderMarketOverviewCards() {
         <div class="mi-group">${escapeHtml(group)}</div>
         <div class="mi-label">${escapeHtml(label)}</div>
         <div class="mi-pct ${cls}"${title}>${pctTxt}</div>
-        <div class="mi-last">${d.last.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+        <div class="mi-last">${lastDisplay}</div>
       </div>`;
   };
 
@@ -2278,6 +2423,13 @@ function renderMarketOverviewCards() {
       <div class="market-index-grid">${html}</div>
     </div>`;
   };
+
+  // My Portfolio benchmarks
+  const portfolioIndices = [
+    { symbol: 'portfolio:total',  label: '💼 Overall Portfolio', group: 'My Portfolio' },
+    { symbol: 'portfolio:stocks', label: '📈 Stocks',            group: 'My Portfolio' },
+    { symbol: 'portfolio:mfs',    label: '💰 Mutual Funds',       group: 'My Portfolio' },
+  ];
 
   // Indian Indices: broad market benchmarks (Nifty 50, Sensex, Midcap/Smallcap
   // 100) — as distinct from sector-specific indices below.
@@ -2303,6 +2455,7 @@ function renderMarketOverviewCards() {
   const losersHtml = losers.map(i => cardHtml({ symbol: i.symbol, label: i.label, group: 'Loser' }));
 
   const sectionsHtml = [
+    section('My Portfolio', portfolioIndices),
     section('Indian Indices', indianIndices),
     section('Global Indices', globalIndices),
     section('Sectoral Indices', sectoralIndices),
@@ -2331,11 +2484,95 @@ let _miChartSymbol = null;   // symbol whose chart panel is currently open
 let _miChart = null;         // Chart.js instance in the open panel
 const _miSeriesCache = new Map(); // symbol → { at, series:{dates,closes} } (full daily history)
 
+async function _getPortfolioIndexSeries(symbol) {
+  const bs = breakupSummary || {};
+  const dates = bs.dates || [];
+  let nwArr = [], newMoneyArr = [];
+  if (symbol === 'portfolio:total') {
+    nwArr = bs.net_worth?.['Total']?.values || [];
+    newMoneyArr = bs.new_investment?.['Total Investment']?.values || [];
+  } else if (symbol === 'portfolio:stocks') {
+    nwArr = bs.net_worth?.['Stocks (Equity)']?.values || [];
+    newMoneyArr = bs.new_investment?.['Stocks (Equity)']?.values || [];
+  } else if (symbol === 'portfolio:mfs') {
+    nwArr = bs.net_worth?.['Mutual Funds (Equity)']?.values || [];
+    newMoneyArr = bs.new_investment?.['Mutual Funds (Equity)']?.values || [];
+  }
+
+  // Monthly base TWR series from breakup_summary
+  const twr = computeTWRIndex(nwArr, newMoneyArr);
+  let pts = dates.map((d, i) => ({
+    t: new Date(d + 'T12:00:00+05:30').getTime(),
+    c: (twr[i] || 1) * 100
+  })).filter(p => !isNaN(p.t));
+
+  // If we have recent 30-day performance data, stitch it in for fine-grained daily resolution
+  try {
+    let perfSeries = null;
+    if (symbol === 'portfolio:stocks') {
+      perfSeries = await buildStockPerfSeries().catch(() => null);
+    } else if (symbol === 'portfolio:mfs') {
+      perfSeries = await buildMfPerfSeries().catch(() => null);
+    } else if (symbol === 'portfolio:total') {
+      const [stk, mf] = await Promise.all([
+        buildStockPerfSeries().catch(() => null),
+        buildMfPerfSeries().catch(() => null)
+      ]);
+      if (stk && stk.axis && stk.portfolio) {
+        const mfMap = new Map();
+        if (mf && mf.axis && mf.portfolio) {
+          mf.axis.forEach((t, i) => mfMap.set(t, mf.portfolio[i]));
+        }
+        const totalNw = (portfolioSummary?.total_net_worth_lakhs || 0) * 100000;
+        const liveStk = stk.portfolio[stk.portfolio.length - 1] || 0;
+        const liveMf = mfMap.get(stk.axis[stk.axis.length - 1]) || 0;
+        const otherAssets = Math.max(0, totalNw - (liveStk + liveMf));
+        const combined = stk.axis.map((t, i) => {
+          const sVal = stk.portfolio[i] || liveStk;
+          const mVal = mfMap.get(t) || liveMf;
+          return sVal + mVal + otherAssets;
+        });
+        perfSeries = { axis: stk.axis, portfolio: combined };
+      }
+    }
+
+    if (perfSeries && perfSeries.axis && perfSeries.axis.length > 0) {
+      const firstDailyT = perfSeries.axis[0];
+      const baseTwrVal = closeAtOrBefore({ dates: pts.map(p => p.t), closes: pts.map(p => p.c) }, firstDailyT)
+        || pts[pts.length - 1]?.c || 100;
+      const firstDailyVal = perfSeries.portfolio[0] || 1;
+      const dailyPts = perfSeries.axis.map((t, i) => ({
+        t,
+        c: firstDailyVal > 0 ? (perfSeries.portfolio[i] / firstDailyVal) * baseTwrVal : baseTwrVal
+      }));
+      // Keep historical monthly points before first daily point, then append daily points
+      pts = [...pts.filter(p => p.t < firstDailyT), ...dailyPts];
+    }
+  } catch (_) {}
+
+  // If today is not in pts, add live point
+  const now = Date.now();
+  if (!pts.length || (now - pts[pts.length - 1].t) > 12 * 3600000) {
+    const lastC = pts.length ? pts[pts.length - 1].c : 100;
+    pts.push({ t: now, c: lastC });
+  }
+
+  pts.sort((a, b) => a.t - b.t);
+  return { dates: pts.map(p => p.t), closes: pts.map(p => p.c) };
+}
+
 // Full daily close series for an overview index. Nifty indices come from
 // Groww (complete 5y dailies for every index); global ones from Yahoo spark.
 async function _getMarketIndexSeries(symbol) {
   const hit = _miSeriesCache.get(symbol);
   if (hit && (Date.now() - hit.at) < MARKET_OVERVIEW_TTL_MS) return hit.series;
+
+  if (symbol.startsWith('portfolio:')) {
+    const series = await _getPortfolioIndexSeries(symbol);
+    _miSeriesCache.set(symbol, { at: Date.now(), series });
+    return series;
+  }
+
   const meta = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL].find(i => i.symbol === symbol);
   let series = null;
   if (symbol === 'INSUREIETF.NS') {
@@ -2416,7 +2653,24 @@ async function _openMarketIndexChart(symbol, cardEl) {
   // The grid re-render path calls this with the old chart's canvas already gone.
   if (_miChart) { _miChart.destroy(); _miChart = null; }
   const meta = [...MARKET_PINNED_INDICES, ...MARKET_MOVER_POOL].find(i => i.symbol === symbol);
-  const label = meta?.label || symbol;
+  let label = meta?.label || symbol;
+  let chartColor = '#818cf8';
+  let chartBg = 'rgba(129,140,248,0.08)';
+
+  if (symbol === 'portfolio:total') {
+    label = '💼 Overall Portfolio';
+    chartColor = '#818cf8';
+    chartBg = 'rgba(129,140,248,0.12)';
+  } else if (symbol === 'portfolio:stocks') {
+    label = '📈 Stocks';
+    chartColor = '#38bdf8';
+    chartBg = 'rgba(56,189,248,0.12)';
+  } else if (symbol === 'portfolio:mfs') {
+    label = '💰 Mutual Funds';
+    chartColor = '#fbbf24';
+    chartBg = 'rgba(251,191,36,0.12)';
+  }
+
   const panel = document.createElement('div');
   panel.className = 'market-chart-panel';
   panel.innerHTML = `
@@ -2443,7 +2697,13 @@ async function _openMarketIndexChart(symbol, cardEl) {
     const cutoff = marketOverviewMode === 'mtd'
       ? new Date(now.getFullYear(), now.getMonth(), 1).getTime()
       : Date.now() - days * 86400000;
-    const pts = main.dates.map((t, i) => ({ t, c: main.closes[i] })).filter(p => p.t >= cutoff);
+    let pts = main.dates.map((t, i) => ({ t, c: main.closes[i] })).filter(p => p.t >= cutoff);
+    if (pts.length < 2 || (pts.length > 0 && pts[0].t > cutoff)) {
+      const prevIdx = main.dates.findIndex(t => t >= cutoff) - 1;
+      if (prevIdx >= 0) {
+        pts = [{ t: main.dates[prevIdx], c: main.closes[prevIdx] }, ...pts];
+      }
+    }
     if (pts.length < 2) { panel.querySelector('.market-chart-status').textContent = 'Not enough data for this period.'; return; }
 
     const base = pts[0].c;
@@ -2460,7 +2720,7 @@ async function _openMarketIndexChart(symbol, cardEl) {
 
     panel.querySelector('.market-chart-status').remove();
     const datasets = [{
-      label, data: mainIdx, borderColor: '#818cf8', backgroundColor: 'rgba(129,140,248,0.08)',
+      label, data: mainIdx, borderColor: chartColor, backgroundColor: chartBg,
       fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2,
     }];
     if (niftyIdx) datasets.push({
