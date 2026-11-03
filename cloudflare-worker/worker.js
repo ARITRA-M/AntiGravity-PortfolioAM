@@ -1,35 +1,22 @@
-// AntiGravity Portfolio — CORS proxy (Cloudflare Worker)
+// AntiGravity Portfolio — CORS proxy & GitHub Commit (Cloudflare Worker)
 // ------------------------------------------------------------------
-// The deployed dashboard (GitHub Pages) has no backend, so it must reach
-// Yahoo Finance through a CORS proxy. The free public proxies it falls back to
-// (corsproxy.io / allorigins / codetabs) are rate-limited and frequently return
-// 403/522 — that's the root cause of "prices won't refresh on mobile".
-//
-// This Worker is a thin, allow-listed pass-through you own: it forwards
-//   GET https://<your-worker>/?url=<encoded Yahoo URL>
-// to Yahoo and returns the response with permissive CORS headers. It ONLY
-// proxies Yahoo Finance hosts, so it can't be abused as a generic open proxy.
-//
-// Deploy: see README.md in this folder (≈2 minutes, free tier, no card).
+// Acts as both a CORS proxy (Yahoo Finance, NSE, Groww) and a GitHub Commit endpoint.
+// In Cloudflare Pages / Workers with Static Assets, `_worker.js` at the repo root
+// intercepts incoming requests. This file in `cloudflare-worker/` is preserved for
+// standalone dashboard deployments.
 
 const ALLOWED_HOSTS = new Set([
   'query1.finance.yahoo.com',
   'query2.finance.yahoo.com',
   // NSE's own index API — used as the primary source for Nifty index moves.
-  // Unlike Yahoo, it always returns a complete, correct daily/30-day/365-day
-  // change for every NSE index (Yahoo's series has multi-day gaps for several
-  // sectoral indices). Requires a browser-like User-Agent (see below);
-  // otherwise NSE returns a bot-block page instead of JSON.
   'www.nseindia.com',
-  // Groww's public price API — the only free source for Sovereign Gold Bond
-  // tranche quotes (Yahoo doesn't list SGB tickers at all, and the GOLDBEES
-  // proxy understates them by ~20%).
+  // Groww's public price API — for Sovereign Gold Bond tranche quotes.
   'groww.in',
 ]);
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': '*',
 };
 
@@ -40,20 +27,20 @@ export default {
     }
 
     const reqUrl = new URL(request.url);
-    
-    // --- New: GitHub Commit API Endpoint ---
+
+    // --- 1. GitHub Commit API Endpoint ---
     if (request.method === 'POST' && reqUrl.pathname.endsWith('/api/commit-data')) {
       try {
         const payload = await request.json();
-        
-        // Ensure secrets are configured
-        if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) {
+
+        // Ensure secrets are configured in Cloudflare Dashboard
+        if (!env || !env.GITHUB_TOKEN || !env.GITHUB_REPO) {
           return new Response(JSON.stringify({
-            success: false, 
+            success: false,
             error: 'GitHub secrets (GITHUB_TOKEN, GITHUB_REPO) not configured in Cloudflare Dashboard.'
           }), { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } });
         }
-        
+
         const repo = env.GITHUB_REPO;
         const branch = env.GITHUB_BRANCH || 'main';
         const headers = {
@@ -119,54 +106,54 @@ export default {
         return new Response(JSON.stringify({
           success: true,
           message: 'Synced to GitHub successfully',
-          details: [`Commit ${newCommitSha.substring(0,7)}`]
+          details: [`Commit ${newCommitSha.substring(0, 7)}`]
         }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
       } catch (err) {
         return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } });
       }
     }
-    // ---------------------------------------
 
+    // --- 2. CORS Proxy Endpoint ---
     const target = reqUrl.searchParams.get('url');
-    if (!target) {
-      return new Response('Missing ?url= parameter', { status: 400, headers: CORS });
+    if (target) {
+      let t;
+      try { t = new URL(target); } catch {
+        return new Response('Malformed ?url=', { status: 400, headers: CORS });
+      }
+      if (!ALLOWED_HOSTS.has(t.hostname)) {
+        return new Response('Host not allowed: ' + t.hostname, { status: 403, headers: CORS });
+      }
+
+      try {
+        const isNse = t.hostname === 'www.nseindia.com';
+        const upstream = await fetch(target, {
+          headers: {
+            'User-Agent': isNse
+              ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+              : 'Mozilla/5.0',
+            ...(isNse ? { 'Accept': 'application/json', 'Referer': 'https://www.nseindia.com/market-data/live-market-indices' } : {}),
+          },
+          cf: { cacheTtl: 30, cacheEverything: true },
+        });
+        const body = await upstream.arrayBuffer();
+        return new Response(body, {
+          status: upstream.status,
+          headers: {
+            ...CORS,
+            'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
+          },
+        });
+      } catch (e) {
+        return new Response('Upstream error: ' + (e && e.message), { status: 502, headers: CORS });
+      }
     }
 
-    let t;
-    try { t = new URL(target); } catch {
-      return new Response('Malformed ?url=', { status: 400, headers: CORS });
-    }
-    if (!ALLOWED_HOSTS.has(t.hostname)) {
-      return new Response('Host not allowed: ' + t.hostname, { status: 403, headers: CORS });
+    // --- 3. Static Asset Serving (Pages / Workers with Assets) ---
+    if (env && env.ASSETS && typeof env.ASSETS.fetch === 'function') {
+      return env.ASSETS.fetch(request);
     }
 
-    try {
-      // NSE rejects requests without a full browser User-Agent (+ Accept) with a
-      // bot-challenge page instead of JSON; Yahoo doesn't care either way, so one
-      // header set works for both.
-      const isNse = t.hostname === 'www.nseindia.com';
-      // Light edge caching (30s) smooths repeated quote lookups and reduces the
-      // chance of rate-limiting during a full portfolio refresh.
-      const upstream = await fetch(target, {
-        headers: {
-          'User-Agent': isNse
-            ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-            : 'Mozilla/5.0',
-          ...(isNse ? { 'Accept': 'application/json', 'Referer': 'https://www.nseindia.com/market-data/live-market-indices' } : {}),
-        },
-        cf: { cacheTtl: 30, cacheEverything: true },
-      });
-      const body = await upstream.arrayBuffer();
-      return new Response(body, {
-        status: upstream.status,
-        headers: {
-          ...CORS,
-          'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
-        },
-      });
-    } catch (e) {
-      return new Response('Upstream error: ' + (e && e.message), { status: 502, headers: CORS });
-    }
+    return new Response('Missing ?url= parameter', { status: 400, headers: CORS });
   },
 };

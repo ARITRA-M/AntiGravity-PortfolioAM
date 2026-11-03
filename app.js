@@ -1155,7 +1155,8 @@ const MF_SCHEME_CODES = {
   "Kotak Midcap Fund Direct-Growth": 119775,
   "PGIM India Global Equity Opportunities FoF Direct-Growth": 138528,
   "Navi Nasdaq100 US Specific Equity Passive FoF Direct - Growth": 149910,
-  "Nippon India Nifty IT Index Fund Direct - Growth": 152392
+  "Nippon India Nifty IT Index Fund Direct - Growth": 152392,
+  "HSBC Global Emerging Markets Fund - Direct Plan - IDCW": 120044
 };
 
 // Dynamic maps for user-added scrips and custom classifications

@@ -112,7 +112,12 @@ async function fetchViaCorsProxy(targetUrl, options = {}, timeoutMs = 8000) {
     const workerUrl = WORKER_PROXY_URL + sep + 'url=' + encodeURIComponent(targetUrl);
     try {
       const resp = await fetch(workerUrl, { ...options, signal: AbortSignal.timeout(Math.min(timeoutMs, 6000)) });
-      if (resp.ok) return resp;
+      const ct = (resp.headers.get('content-type') || '').toLowerCase();
+      // Ensure the proxy returned an actual API response and NOT the HTML frontend fallback
+      if (resp.ok && !ct.includes('text/html')) {
+        return resp;
+      }
+      console.warn('Worker proxy returned non-JSON / HTML response (' + resp.status + ', ' + ct + '), falling back to secondary rotation.');
     } catch (_) { /* worker failed or timed out — fall through to secondary rotation */ }
   }
 
@@ -122,11 +127,12 @@ async function fetchViaCorsProxy(targetUrl, options = {}, timeoutMs = 8000) {
     const idx = (_workingProxyIdx + i) % proxies.length;
     try {
       const resp = await fetch(proxies[idx](targetUrl), { ...options, signal: AbortSignal.timeout(Math.min(timeoutMs, 4000)) });
-      if (resp.ok) {
+      const ct = (resp.headers.get('content-type') || '').toLowerCase();
+      if (resp.ok && !ct.includes('text/html')) {
         _workingProxyIdx = idx;
         return resp;
       }
-      lastErr = new Error('Proxy HTTP ' + resp.status);
+      lastErr = new Error('Proxy HTTP ' + resp.status + (ct ? ' (' + ct + ')' : ''));
     } catch (e) {
       lastErr = e;
     }
@@ -262,7 +268,13 @@ async function fetchSparkQuotes(tickers) {
     try {
       const res = await fetchViaCorsProxy(url, {}, 12000);
       if (!res.ok) return;
-      const raw = await res.json();
+      let raw;
+      try {
+        raw = await res.json();
+      } catch (err) {
+        console.warn('Spark quotes JSON parse failed:', err);
+        return;
+      }
       for (const r of (raw?.spark?.result || [])) {
         const resp = r?.response?.[0];
         if (!resp) continue;
@@ -316,13 +328,19 @@ async function fetchStockQuote(ticker, source) {
 
   // Local server returns { price, prevClose } directly
   if (!window.__staticMode) {
-    const data = await resp.json();
-    price = data.price ?? null;
-    prevClose = data.prevClose ?? null;
+    const data = await resp.json().catch(err => {
+      console.warn(`Failed to parse quote JSON for ${ticker}:`, err);
+      return null;
+    });
+    price = data?.price ?? null;
+    prevClose = data?.prevClose ?? null;
   } else {
     // GitHub Pages: response is raw Yahoo Finance JSON — parse it ourselves
-    const data = await resp.json();
-    const parsed = parseYahooChart(data);
+    const data = await resp.json().catch(err => {
+      console.warn(`Failed to parse Yahoo chart JSON for ${ticker}:`, err);
+      return null;
+    });
+    const parsed = data ? parseYahooChart(data) : null;
     price = parsed?.price ?? null;
     prevClose = parsed?.prevClose ?? null;
   }
