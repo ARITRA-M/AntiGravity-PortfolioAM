@@ -4346,7 +4346,7 @@ function initFixedIncomeTab() {
     { name: 'Bonds (Debt)', nwKey: 'Bonds (Debt)', newInvKey: 'Bonds (Debt)' }
   ];
 
-  let totCurVal = 0, totPrevVal = 0, totMonthChange = 0, totInvested = 0, totReturns = 0;
+  let totCurVal = 0, totPrevVal = 0, totMonthChange = 0, totInvested = 0, totReturns = 0, totNewInv = 0;
 
   const tbody = document.getElementById('fixed-income-body');
   const rowsHtml = fiItems.map(item => {
@@ -4356,12 +4356,14 @@ function initFixedIncomeTab() {
     const monthChangePct = prevVal > 0 ? (monthChange / prevVal) * 100 : 0;
     const totalInvested = getTotalInvested(item.nwKey, item.newInvKey);
     const totalReturns = getTotalReturns(item.nwKey, item.newInvKey);
+    const monthNewInv = Number(breakupSummary.new_investment?.[item.newInvKey]?.values?.slice(-1)?.[0]) || 0;
 
     totCurVal += currentVal;
     totPrevVal += prevVal;
     totMonthChange += monthChange;
     totInvested += totalInvested;
     totReturns += totalReturns;
+    totNewInv += monthNewInv;
 
     return `
     <tr>
@@ -4382,6 +4384,7 @@ function initFixedIncomeTab() {
   }).join('');
 
   const totMonthChangePct = totPrevVal > 0 ? (totMonthChange / totPrevVal) * 100 : 0;
+  const totMonthReturns = totMonthChange - totNewInv;
   const totalRowHtml = `
     <tr style="border-top: 1px solid rgba(255, 255, 255, 0.12); font-weight: 700;">
       <td>Total</td>
@@ -4401,22 +4404,12 @@ function initFixedIncomeTab() {
 
   tbody.innerHTML = rowsHtml + totalRowHtml;
 
-  // Monthly summary line for Debt instruments & combined with Gold
+  // Monthly summary line for Debt instruments (Change, New Investment, Returns)
   const fiSummaryEl = document.getElementById('fixed-income-month-change');
   if (fiSummaryEl) {
     const debtCls = totMonthChange >= 0 ? 'trend-up' : 'trend-down';
-    const goldVals = nw['Gold (Gold)']?.values || [];
-    const goldCurValL = (portfolioSummary && portfolioSummary.gold_lakhs != null)
-      ? portfolioSummary.gold_lakhs
-      : (goldVals.slice(-1)?.[0] || 0);
-    const goldPrevValL = goldVals.length >= 2 ? goldVals[goldVals.length - 2] : goldCurValL;
-    const goldMonthChangeL = goldCurValL - goldPrevValL;
-    const combPrev = totPrevVal + goldPrevValL;
-    const combChange = totMonthChange + goldMonthChangeL;
-    const combPct = combPrev > 0 ? (combChange / combPrev) * 100 : 0;
-    const combCls = combChange >= 0 ? 'trend-up' : 'trend-down';
-
-    fiSummaryEl.innerHTML = `This Month Change (Debt): <span class="${debtCls}" style="font-weight:600;">${totMonthChange >= 0 ? '+' : ''}${totMonthChange.toFixed(2)} L (${totMonthChangePct >= 0 ? '+' : ''}${totMonthChangePct.toFixed(2)}%)</span> &nbsp;·&nbsp; Combined Debt &amp; Gold: <span class="${combCls}" style="font-weight:600;">${combChange >= 0 ? '+' : ''}${combChange.toFixed(2)} L (${combPct >= 0 ? '+' : ''}${combPct.toFixed(2)}%)</span>`;
+    const retCls = totMonthReturns >= 0 ? 'trend-up' : 'trend-down';
+    fiSummaryEl.innerHTML = `This Month Change: <span class="${debtCls}" style="font-weight:600;">${totMonthChange >= 0 ? '+' : ''}${totMonthChange.toFixed(2)} L (${totMonthChangePct >= 0 ? '+' : ''}${totMonthChangePct.toFixed(2)}%)</span> &nbsp;·&nbsp; New Investment: <span style="font-weight:600;color:var(--text-primary);">${totNewInv >= 0 ? '+' : ''}${totNewInv.toFixed(2)} L</span> &nbsp;·&nbsp; Returns: <span class="${retCls}" style="font-weight:600;">${totMonthReturns >= 0 ? '+' : ''}${totMonthReturns.toFixed(2)} L</span>`;
   }
 
 }
@@ -4615,6 +4608,13 @@ function initNpsTab() {
   const npsReturnsG = npsGVal - npsInvG;
   const npsTotalReturns = npsReturnsE + npsReturnsC + npsReturnsG;
 
+  const npsMonthNewInv = (Number(npsNewInvE.slice(-1)?.[0]) || 0) + (Number(npsNewInvC.slice(-1)?.[0]) || 0) + (Number(npsNewInvG.slice(-1)?.[0]) || 0);
+  const npsMonthReturns = npsTotalGain - npsMonthNewInv;
+  const npsPrevVal = npsTotal - npsTotalGain;
+  const npsTotalGainPct = npsPrevVal > 0 ? (npsTotalGain / npsPrevVal) * 100 : 0;
+  const npsGainCls = npsTotalGain >= 0 ? 'trend-up' : 'trend-down';
+  const npsRetCls = npsMonthReturns >= 0 ? 'trend-up' : 'trend-down';
+
   const summaryContainer = document.getElementById('nps-summary');
   summaryContainer.innerHTML = `
     <div class="table-wrapper">
@@ -4661,7 +4661,7 @@ function initNpsTab() {
       </table>
     </div>
     <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.85rem; color: var(--text-secondary);">
-      This Month Change: <span class="${npsTotalGain >= 0 ? 'trend-up' : 'trend-down'}">${npsTotalGain >= 0 ? '+' : ''}${npsTotalGain.toFixed(2)} L</span>
+      This Month Change: <span class="${npsGainCls}" style="font-weight:600;">${npsTotalGain >= 0 ? '+' : ''}${npsTotalGain.toFixed(2)} L (${npsTotalGainPct >= 0 ? '+' : ''}${npsTotalGainPct.toFixed(2)}%)</span> &nbsp;·&nbsp; New Investment: <span style="font-weight:600;color:var(--text-primary);">${npsMonthNewInv >= 0 ? '+' : ''}${npsMonthNewInv.toFixed(2)} L</span> &nbsp;·&nbsp; Returns: <span class="${npsRetCls}" style="font-weight:600;">${npsMonthReturns >= 0 ? '+' : ''}${npsMonthReturns.toFixed(2)} L</span>
     </div>
   `;
 
@@ -9461,7 +9461,7 @@ function renderGoldSection() {
     badge.textContent = `${formatINR(totVal)} · P&L ${pnl >= 0 ? '+' : ''}${formatINR(pnl)}`;
   }
 
-  // Monthly summary line for Gold & Combined Debt + Gold
+  // Monthly summary line for Gold (Change, New Investment, Returns)
   const nw = breakupSummary?.net_worth || {};
   const goldVals = nw['Gold (Gold)']?.values || [];
   const goldCurValL = (portfolioSummary && portfolioSummary.gold_lakhs != null)
@@ -9472,33 +9472,13 @@ function renderGoldSection() {
   const goldMonthChangePct = goldPrevValL > 0 ? (goldMonthChangeL / goldPrevValL) * 100 : 0;
   const goldCls = goldMonthChangeL >= 0 ? 'trend-up' : 'trend-down';
 
-  // Compute debt change for combined summary
-  const fiItems = ['PF (Debt)', 'PPF (Debt)', 'Bonds (Debt)'];
-  let debtCur = 0, debtPrev = 0;
-  fiItems.forEach(k => {
-    const v = nw[k]?.values || [];
-    const cur = v.slice(-1)?.[0] || 0;
-    const prev = v.length >= 2 ? v[v.length - 2] : cur;
-    debtCur += cur;
-    debtPrev += prev;
-  });
-  const debtChange = debtCur - debtPrev;
-  const debtPct = debtPrev > 0 ? (debtChange / debtPrev) * 100 : 0;
-  const combPrev = debtPrev + goldPrevValL;
-  const combChange = debtChange + goldMonthChangeL;
-  const combPct = combPrev > 0 ? (combChange / combPrev) * 100 : 0;
-  const combCls = combChange >= 0 ? 'trend-up' : 'trend-down';
+  const goldNewInvL = Number(breakupSummary.new_investment?.['Gold (Gold)']?.values?.slice(-1)?.[0]) || 0;
+  const goldMonthReturnsL = goldMonthChangeL - goldNewInvL;
+  const goldRetCls = goldMonthReturnsL >= 0 ? 'trend-up' : 'trend-down';
 
   const goldSummaryEl = document.getElementById('gold-month-change');
   if (goldSummaryEl) {
-    goldSummaryEl.innerHTML = `This Month Change (Gold): <span class="${goldCls}" style="font-weight:600;">${goldMonthChangeL >= 0 ? '+' : ''}${goldMonthChangeL.toFixed(2)} L (${goldMonthChangePct >= 0 ? '+' : ''}${goldMonthChangePct.toFixed(2)}%)</span> &nbsp;·&nbsp; Combined Debt &amp; Gold: <span class="${combCls}" style="font-weight:600;">${combChange >= 0 ? '+' : ''}${combChange.toFixed(2)} L (${combPct >= 0 ? '+' : ''}${combPct.toFixed(2)}%)</span>`;
-  }
-
-  // Keep fixed-income-month-change in sync
-  const fiSummaryEl = document.getElementById('fixed-income-month-change');
-  if (fiSummaryEl) {
-    const debtCls = debtChange >= 0 ? 'trend-up' : 'trend-down';
-    fiSummaryEl.innerHTML = `This Month Change (Debt): <span class="${debtCls}" style="font-weight:600;">${debtChange >= 0 ? '+' : ''}${debtChange.toFixed(2)} L (${debtPct >= 0 ? '+' : ''}${debtPct.toFixed(2)}%)</span> &nbsp;·&nbsp; Combined Debt &amp; Gold: <span class="${combCls}" style="font-weight:600;">${combChange >= 0 ? '+' : ''}${combChange.toFixed(2)} L (${combPct >= 0 ? '+' : ''}${combPct.toFixed(2)}%)</span>`;
+    goldSummaryEl.innerHTML = `This Month Change: <span class="${goldCls}" style="font-weight:600;">${goldMonthChangeL >= 0 ? '+' : ''}${goldMonthChangeL.toFixed(2)} L (${goldMonthChangePct >= 0 ? '+' : ''}${goldMonthChangePct.toFixed(2)}%)</span> &nbsp;·&nbsp; New Investment: <span style="font-weight:600;color:var(--text-primary);">${goldNewInvL >= 0 ? '+' : ''}${goldNewInvL.toFixed(2)} L</span> &nbsp;·&nbsp; Returns: <span class="${goldRetCls}" style="font-weight:600;">${goldMonthReturnsL >= 0 ? '+' : ''}${goldMonthReturnsL.toFixed(2)} L</span>`;
   }
 
   // Gold valuation vs cumulative invested — same pattern as the Growth tab's
