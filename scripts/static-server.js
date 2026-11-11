@@ -153,16 +153,36 @@ function handleChat(req, res) {
   req.on('end', async () => {
     try {
       const payload = JSON.parse(body || '{}');
-      const workerUrl = 'https://portfolio-proxy.aritra2k7.workers.dev/api/chat';
+      if (!payload.model) {
+        payload.model = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+      }
+
+      const endpoints = [
+        'https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/api/chat',
+        'https://portfolio-proxy.aritra2k7.workers.dev/api/chat'
+      ];
+
       let upstream = null;
-      try {
-        upstream = await fetch(workerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(6000)
-        });
-      } catch (_) {}
+      let lastErr = null;
+      for (const workerUrl of endpoints) {
+        try {
+          const resp = await fetch(workerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(12000)
+          });
+          if (resp && resp.ok) {
+            upstream = resp;
+            break;
+          } else if (resp) {
+            const errData = await resp.json().catch(() => ({}));
+            lastErr = errData.error || `HTTP ${resp.status}`;
+          }
+        } catch (fetchErr) {
+          lastErr = fetchErr.message;
+        }
+      }
 
       if (upstream && upstream.ok) {
         const data = await upstream.json();

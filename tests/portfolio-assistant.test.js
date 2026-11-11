@@ -15,11 +15,12 @@ console.log('  ✓ wrangler.json contains valid Cloudflare Workers AI binding');
 // 2. Verify _worker.js and cloudflare-worker/worker.js have /api/chat route
 const rootWorker = fs.readFileSync(path.join(__dirname, '..', '_worker.js'), 'utf-8');
 assert.ok(rootWorker.includes("reqUrl.pathname.endsWith('/api/chat')"), '_worker.js must contain /api/chat endpoint');
-assert.ok(rootWorker.includes('@cf/meta/llama-3.3-70b-instruct'), '_worker.js must reference Llama 3.3 model');
+assert.ok(rootWorker.includes('@cf/meta/llama-3.3-70b-instruct-fp8-fast'), '_worker.js must reference Llama 3.3 fp8-fast model');
 
 const cfWorker = fs.readFileSync(path.join(__dirname, '..', 'cloudflare-worker', 'worker.js'), 'utf-8');
 assert.ok(cfWorker.includes("reqUrl.pathname.endsWith('/api/chat')"), 'cloudflare-worker/worker.js must contain /api/chat endpoint');
-console.log('  ✓ Cloudflare Worker endpoints properly implement /api/chat with Llama 3.3');
+assert.ok(cfWorker.includes('@cf/meta/llama-3.3-70b-instruct-fp8-fast'), 'cloudflare-worker must reference Llama 3.3 fp8-fast model');
+console.log('  ✓ Cloudflare Worker endpoints properly implement /api/chat with Llama 3.3 70B fp8-fast');
 
 // 3. Verify server.js and static-server.js have /api/chat
 const serverJs = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf-8');
@@ -110,13 +111,28 @@ assert.strictEqual(parsedConfig.title, 'Allocation');
 assert.strictEqual(parsedConfig.data.length, 2);
 console.log('  ✓ Chart.js block detection and JSON parsing verified');
 
-// 4b. Test Specific Holding Extraction Logic (e.g. "How many ITC stocks do I have?")
+// 4b. Test Intent Classification & Comparative Performance Delegation
 const mockEquityHoldings = [
-  { instrument: 'ITC', sector: 'FMCG', qty: 250, avg_cost: 410.2, ltp: 470.5, cur_val: 117625, invested: 102550, pnl: 15075, gain_pct: 14.7 },
+  { instrument: 'ITC', sector: 'Consumer Goods & FMCG', qty: 788, avg_cost: 206.55, ltp: 285.05, cur_val: 224619, invested: 162761, pnl: 61858, gain_pct: 38.01 },
   { instrument: 'HDFCBANK', sector: 'Banking', qty: 100, avg_cost: 1520, ltp: 1720, cur_val: 172000, invested: 152000, pnl: 20000, gain_pct: 13.15 }
 ];
 
+function isAnalyticalOrComparative(query) {
+  return /\b(compare|comparison|relative|vs|versus|against|index|benchmark|fmcg|sector|trend|history|historical|why|analysis|research|recommend|should i|underperform|outperform|cagr|alpha|beta|valuation|pe|pb|dividend|growth|outlook|holding period|timeline)\b/i.test(query);
+}
+
+function isHoldingLookup(query) {
+  return /\b(how many|how much|quantity|qty|shares|units|do i have|do i own|holding of|my holding|what is my avg|buy price|cost basis|how much invested)\b/i.test(query);
+}
+
 function testSolveHolding(query, holdings) {
+  // If analytical or comparative, MUST NOT be intercepted locally
+  if (isAnalyticalOrComparative(query)) {
+    return { matched: false, reason: 'routed_to_ai_pipeline' };
+  }
+  if (!isHoldingLookup(query)) {
+    return { matched: false, reason: 'not_explicit_holding_lookup' };
+  }
   for (const s of holdings) {
     const inst = s.instrument.toUpperCase();
     const regex = new RegExp(`\\b${inst}\\b`, 'i');
@@ -133,12 +149,35 @@ function testSolveHolding(query, holdings) {
   return { matched: false };
 }
 
-const itcResult = testSolveHolding('How many ITC stocks do I have?', mockEquityHoldings);
-assert.strictEqual(itcResult.matched, true, 'Should match ITC holding query');
-assert.strictEqual(itcResult.instrument, 'ITC');
-assert.strictEqual(itcResult.qty, 250);
-assert.strictEqual(itcResult.avg_cost, 410.2);
-console.log('  ✓ Specific holding query ("How many ITC stocks do I have?") resolved directly with exact holding metrics');
+// 1. Simple lookup: "How many ITC stocks do I have?" -> Matches fast holding card
+const simpleLookup = testSolveHolding('How many ITC stocks do I have?', mockEquityHoldings);
+assert.strictEqual(simpleLookup.matched, true, 'Simple holding lookup must match local holding card');
+assert.strictEqual(simpleLookup.instrument, 'ITC');
+assert.strictEqual(simpleLookup.qty, 788);
+
+// 2. Analytical comparative query: "How has been the performance of ITC stocks relative to overall fmcg index over my holding period?"
+// MUST NOT be intercepted by the simple holding card, but routed to the AI pipeline
+const compQuery = 'How has been the performance of ITC stocks relative to overall fmcg index over my holding period?';
+assert.strictEqual(isAnalyticalOrComparative(compQuery), true, 'Comparative query must be classified as analytical');
+const compResult = testSolveHolding(compQuery, mockEquityHoldings);
+assert.strictEqual(compResult.matched, false, 'Comparative query must bypass local holding card');
+assert.strictEqual(compResult.reason, 'routed_to_ai_pipeline');
+
+// 3. Test Benchmark Index Detection for FMCG
+function detectBenchmarkIndex(query, holdingSector) {
+  const q = (query || '').toLowerCase();
+  const sec = (holdingSector || '').toLowerCase();
+  if (q.includes('fmcg') || sec.includes('fmcg') || sec.includes('consumer goods')) {
+    if (q.includes('index') || q.includes('fmcg') || q.includes('sector') || q.includes('relative') || q.includes('benchmark')) {
+      return { symbol: '^CNXFMCG', name: 'NIFTY FMCG Index', sector: 'FMCG' };
+    }
+  }
+  return null;
+}
+const bench = detectBenchmarkIndex(compQuery, 'Consumer Goods & FMCG');
+assert.ok(bench, 'Must detect benchmark index');
+assert.strictEqual(bench.symbol, '^CNXFMCG', 'Benchmark symbol must be ^CNXFMCG');
+console.log('  ✓ Query intent classification & benchmark routing verified (comparative queries bypass local card and route to AI)');
 
 // 5. Verify index.html & style.css references
 const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');

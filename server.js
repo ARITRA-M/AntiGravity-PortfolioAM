@@ -502,14 +502,46 @@ app.get('/api/search-mf-scheme', async (req, res) => {
 // ── AI Portfolio Copilot chat endpoint ──────────────────────────────────
 app.post('/api/chat', async (req, res) => {
   try {
-    const workerUrl = (process.env.WORKER_PROXY_URL || 'https://portfolio-proxy.aritra2k7.workers.dev/').replace(/\/+$/, '') + '/api/chat';
-    const upstream = await fetch(workerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body)
+    const payload = req.body || {};
+    if (!payload.model) {
+      payload.model = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+    }
+
+    const endpoints = [
+      (process.env.WORKER_PREVIEW_URL || 'https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/api/chat'),
+      (process.env.WORKER_PROXY_URL || 'https://portfolio-proxy.aritra2k7.workers.dev/').replace(/\/+$/, '') + '/api/chat'
+    ];
+
+    let upstream = null;
+    let lastErr = null;
+    for (const workerUrl of endpoints) {
+      try {
+        const resp = await fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (resp && resp.ok) {
+          upstream = resp;
+          break;
+        } else if (resp) {
+          const errData = await resp.json().catch(() => ({}));
+          lastErr = errData.error || `HTTP ${resp.status}`;
+        }
+      } catch (err) {
+        lastErr = err.message;
+      }
+    }
+
+    if (upstream && upstream.ok) {
+      const data = await upstream.json();
+      return res.status(upstream.status).json(data);
+    }
+
+    return res.status(502).json({
+      success: false,
+      error: 'Failed to contact Cloudflare AI Worker: ' + (lastErr || 'Unknown error')
     });
-    const data = await upstream.json();
-    return res.status(upstream.status).json(data);
   } catch (err) {
     return res.status(502).json({ success: false, error: 'Failed to contact Cloudflare AI Worker: ' + err.message });
   }

@@ -126,7 +126,7 @@ export default {
     if (request.method === 'POST' && reqUrl.pathname.endsWith('/api/chat')) {
       try {
         const payload = await request.json();
-        const { messages, model = '@cf/meta/llama-3.3-70b-instruct', systemPrompt } = payload;
+        const { messages, model = '@cf/meta/llama-3.3-70b-instruct-fp8-fast', systemPrompt } = payload;
 
         if (!env || !env.AI) {
           return new Response(JSON.stringify({
@@ -151,9 +151,9 @@ export default {
             temperature: 0.3
           });
         } catch (mErr) {
-          // Graceful fallback to 8B model if 70B is congested
-          if (model !== '@cf/meta/llama-3.1-8b-instruct') {
-            aiResult = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+          // Graceful fallback to 8B model if 70B is congested or throttled
+          if (model !== '@cf/meta/llama-3.1-8b-instruct-fp8') {
+            aiResult = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
               messages: chatMessages,
               max_tokens: 1800,
               temperature: 0.3
