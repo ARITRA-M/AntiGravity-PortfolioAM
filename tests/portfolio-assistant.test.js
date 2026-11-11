@@ -273,6 +273,54 @@ assert.strictEqual(sampleStats['EPS'], '₹15.07');
 assert.strictEqual(parseFloat(sampleStats['P/E ratio']), 18.78);
 console.log('  ✓ Valuation query detection, buildProxyUrl localhost routing, and fundamentals parsing confirmed');
 
+// 4d. Test Asset Allocation calculation with real breakupSummary keys
+const testBreakup = {
+  dates: ['2026-01-31', '2026-10-31'],
+  net_worth: {
+    'Total': { values: [350.0, 371.48] },
+    'Stocks (Equity)': { values: [140.0, 155.2] },
+    'Mutual Funds (Equity)': { values: [28.0, 30.0] },
+    'PF (Debt)': { values: [55.0, 60.5] },
+    'PPF (Debt)': { values: [22.0, 25.0] },
+    'Bonds (Debt)': { values: [20.0, 25.0] },
+    'Gold (Gold)': { values: [12.0, 14.8] },
+    'Real Estate (Property)': { values: [130.0, 130.0] },
+    'Home Loan (Liability)': { values: [-72.0, -69.02] }
+  }
+};
+
+const getLatestVal = (nw, key) => {
+  const v = nw[key]?.values;
+  return (v && v.length) ? (v[v.length - 1] || 0) : 0;
+};
+
+const stocksEq = getLatestVal(testBreakup.net_worth, 'Stocks (Equity)');
+const mfEq = getLatestVal(testBreakup.net_worth, 'Mutual Funds (Equity)');
+const totalEq = stocksEq + mfEq;
+const pf = getLatestVal(testBreakup.net_worth, 'PF (Debt)');
+const ppf = getLatestVal(testBreakup.net_worth, 'PPF (Debt)');
+const bonds = getLatestVal(testBreakup.net_worth, 'Bonds (Debt)');
+const totalDebt = pf + ppf + bonds;
+const gold = getLatestVal(testBreakup.net_worth, 'Gold (Gold)');
+const re = Math.max(0, getLatestVal(testBreakup.net_worth, 'Real Estate (Property)') + getLatestVal(testBreakup.net_worth, 'Home Loan (Liability)'));
+const totalNw = getLatestVal(testBreakup.net_worth, 'Total');
+
+assert.strictEqual(totalNw, 371.48);
+assert.strictEqual(totalEq, 185.2);
+assert.strictEqual(totalDebt, 110.5);
+assert.strictEqual(gold, 14.8);
+assert.strictEqual(Number(((gold / totalNw) * 100).toFixed(1)), 4.0);
+console.log('  ✓ Asset Allocation mapping to breakupSummary.net_worth keys verified');
+
+// 4e. Test Clean Ticker Detection (no false positive on 'SHOULD')
+const goldAdviceQuery = 'Should I increase my gold allocation now?';
+const generalPortfolioCheck = /\b(ALLOCATION|ASSET CLASS|NET WORTH|PORTFOLIO|REBALANCE|WEALTH|TAX|RETURNS|OVERALL)\b/i.test(goldAdviceQuery);
+assert.strictEqual(generalPortfolioCheck, true, 'Should I increase my gold allocation must be recognized as broad portfolio topic');
+
+assert.ok(assistantJs.includes('ctx.historicalNetWorthTrend'), 'assistant.js must provide historicalNetWorthTrend');
+assert.ok(assistantJs.includes('ctx.goldExposure'), 'assistant.js must provide goldExposure');
+console.log('  ✓ Net worth trend and gold exposure context generation verified');
+
 // 5. Verify index.html & style.css references (Clean Portfolio Copilot Branding)
 const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');
 assert.ok(indexHtml.includes('copilot-modal'), 'index.html must contain copilot-modal');

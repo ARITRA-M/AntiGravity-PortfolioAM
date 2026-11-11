@@ -227,32 +227,108 @@ const PortfolioAssistant = (() => {
   function buildPortfolioContext(targetStockSymbol, benchmarkData, fundamentalsData, userQueryText) {
     const ctx = {};
 
+    const getLatestVal = (nw, key) => {
+      if (!nw || !nw[key] || !Array.isArray(nw[key].values) || !nw[key].values.length) return 0;
+      const v = nw[key].values[nw[key].values.length - 1];
+      return (v != null && !isNaN(v)) ? v : 0;
+    };
+
     // 1. Total Net Worth
     let totalNw = 0;
     if (typeof breakupSummary !== 'undefined' && breakupSummary.net_worth?.['Total']?.values?.length) {
-      const vals = breakupSummary.net_worth['Total'].values;
-      totalNw = vals[vals.length - 1]; // In Lakhs
+      totalNw = getLatestVal(breakupSummary.net_worth, 'Total');
     }
     ctx.netWorth = `₹${totalNw.toFixed(2)} Lakhs`;
 
-    // 2. Asset Allocation Breakdown
+    // 2. Historical Net Worth Trend (Sampled points over time)
+    if (typeof breakupSummary !== 'undefined' && Array.isArray(breakupSummary.dates) && breakupSummary.net_worth?.['Total']?.values) {
+      const dates = breakupSummary.dates;
+      const vals = breakupSummary.net_worth['Total'].values;
+      if (dates.length > 0 && vals.length > 0) {
+        const step = Math.max(1, Math.floor(dates.length / 14));
+        ctx.historicalNetWorthTrend = [];
+        for (let i = 0; i < dates.length; i += step) {
+          ctx.historicalNetWorthTrend.push({
+            date: dates[i].slice(0, 7),
+            netWorthLakhs: Number((vals[i] || 0).toFixed(2))
+          });
+        }
+        const lastIdx = dates.length - 1;
+        if (ctx.historicalNetWorthTrend[ctx.historicalNetWorthTrend.length - 1].date !== dates[lastIdx].slice(0, 7)) {
+          ctx.historicalNetWorthTrend.push({
+            date: dates[lastIdx].slice(0, 7),
+            netWorthLakhs: Number((vals[lastIdx] || 0).toFixed(2))
+          });
+        }
+      }
+    }
+
+    // 3. Asset Allocation Breakdown (Accurate mapping to breakupSummary.net_worth keys)
     ctx.allocation = [];
     if (typeof breakupSummary !== 'undefined' && breakupSummary.net_worth) {
       const nw = breakupSummary.net_worth;
-      const cats = ['Equity', 'Mutual Funds', 'PF', 'PPF', 'Bonds', 'Gold', 'NPS', 'Real Estate', 'Home Loan'];
-      cats.forEach(c => {
-        if (nw[c] && nw[c].values?.length) {
-          const v = nw[c].values[nw[c].values.length - 1];
-          const pct = totalNw > 0 ? (v / totalNw) * 100 : 0;
-          if (Math.abs(v) > 0.001) {
-            ctx.allocation.push({
-              asset: c,
-              pct: Number(pct.toFixed(1)),
-              val: `₹${v.toFixed(2)}L`
-            });
-          }
+      const stocksEq = getLatestVal(nw, 'Stocks (Equity)');
+      const mfEq = getLatestVal(nw, 'Mutual Funds (Equity)');
+      const npsEq = getLatestVal(nw, 'NPS E (Equity)');
+      const totalEquity = stocksEq + mfEq + npsEq;
+
+      const pf = getLatestVal(nw, 'PF (Debt)');
+      const ppf = getLatestVal(nw, 'PPF (Debt)');
+      const bonds = getLatestVal(nw, 'Bonds (Debt)');
+      const npsDebt = getLatestVal(nw, 'NPS C (Debt)') + getLatestVal(nw, 'NPS G (Debt)');
+      const totalDebt = pf + ppf + bonds + npsDebt;
+
+      const totalGold = getLatestVal(nw, 'Gold (Gold)');
+      const reProp = getLatestVal(nw, 'Real Estate (Property)');
+      const reLoan = getLatestVal(nw, 'Home Loan (Liability)');
+      const netRealEstate = Math.max(0, reProp + reLoan);
+      const cash = getLatestVal(nw, 'Cash (Liquid)');
+      const crypto = getLatestVal(nw, 'Crypto (Alternate)');
+
+      const totalAssets = totalNw || (totalEquity + totalDebt + totalGold + netRealEstate + cash + crypto) || 1;
+
+      const assetGroups = [
+        { asset: 'Direct Equity & Equity Funds', val: totalEquity },
+        { asset: 'Fixed Income & Debt (PF/PPF/Bonds)', val: totalDebt },
+        { asset: 'Gold (SGBs & Gold ETFs)', val: totalGold },
+        { asset: 'Real Estate (Net Value)', val: netRealEstate },
+        { asset: 'Cash & Liquid', val: cash },
+        { asset: 'Alternate / Crypto', val: crypto }
+      ];
+
+      assetGroups.forEach(g => {
+        if (g.val > 0.01) {
+          const pct = ((g.val / totalAssets) * 100);
+          ctx.allocation.push({
+            asset: g.asset,
+            valLakhs: Number(g.val.toFixed(2)),
+            pct: Number(pct.toFixed(1))
+          });
         }
       });
+
+      // Gold specific exposure and instruments
+      const goldInstruments = [];
+      if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+        latestEquity.forEach(e => {
+          const inst = (e.instrument || '').toUpperCase();
+          const sec = (e.sector || '').toLowerCase();
+          if (inst.includes('GOLD') || sec.includes('gold') || sec.includes('commodity')) {
+            goldInstruments.push({
+              instrument: e.instrument,
+              qty: e.qty,
+              curVal: typeof formatINR === 'function' ? formatINR(e.cur_val) : e.cur_val,
+              gainPct: Number((e.gain_pct || 0).toFixed(1))
+            });
+          }
+        });
+      }
+
+      ctx.goldExposure = {
+        totalGoldValueLakhs: Number(totalGold.toFixed(2)),
+        goldWeightInNetWorthPct: Number(((totalGold / totalAssets) * 100).toFixed(1)),
+        goldHoldings: goldInstruments
+      };
     }
 
     // 3. Complete Equity Holdings (from latestEquity)
@@ -462,11 +538,30 @@ const PortfolioAssistant = (() => {
     if (!query) return null;
     const q = query.trim().toUpperCase();
 
+    // Guard against broad portfolio / asset class questions where no specific stock research is queried
+    const isBroadPortfolioTopic = /\b(ALLOCATION|ASSET CLASS|NET WORTH|PORTFOLIO|REBALANCE|WEALTH|TAX|RETURNS|OVERALL|MY WEALTH|MY ASSETS)\b/i.test(query);
+
     // 1. Explicit NSE/BSE suffix (e.g. TRENT.NS or HDFCBANK.BO)
     const suffixMatch = q.match(/\b([A-Z0-9-]{3,12})\.(?:NS|BO)\b/);
     if (suffixMatch) return suffixMatch[1];
 
-    // 2. Check known aliases (sorted by key length descending)
+    // 2. Explicit research keywords: "research X", "PE of X", "price of X", "analyze X", "quote of X"
+    const keywordMatch = q.match(/(?:RESEARCH|PE\s+RATIO\s+(?:OF|FOR)|PE\s+(?:OF|FOR)|PRICE\s+OF|QUOTE\s+OF|ANALYZE)\s+([A-Z0-9-]{2,12})\b/);
+    if (keywordMatch) {
+      const candidate = keywordMatch[1];
+      const stopWords = new Set([
+        'THE', 'THIS', 'THAT', 'MY', 'ALL', 'ANY', 'OUR', 'GOLD', 'DEBT', 'EQUITY',
+        'STOCK', 'STOCKS', 'FUNDS', 'PORTFOLIO', 'WORTH', 'ALLOCATION', 'INDEX', 'BENCHMARK'
+      ]);
+      if (!stopWords.has(candidate)) return candidate;
+    }
+
+    // If broad portfolio query without explicit stock keywords, do NOT match tickers
+    if (isBroadPortfolioTopic && !/\b(PE|RATIO|EPS|BUY|SELL|STOCK|SHARES|RESEARCH|PRICE|LTP)\b/i.test(query)) {
+      return null;
+    }
+
+    // 3. Known aliases in STOCK_ALIASES (sorted by key length descending)
     const sortedAliases = Object.keys(STOCK_ALIASES).sort((a, b) => b.length - a.length);
     for (const alias of sortedAliases) {
       const escaped = alias.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -484,8 +579,8 @@ const PortfolioAssistant = (() => {
       }
     }
 
-    // 3. Direct match against user's own equity instruments in latestEquity
-    if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+    // 4. Direct match against user's own equity instruments in latestEquity (excluding broad portfolio queries)
+    if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity) && !isBroadPortfolioTopic) {
       for (const eq of latestEquity) {
         if (eq.instrument && new RegExp(`(^|[^A-Z0-9])${eq.instrument}([^A-Z0-9]|$)`, 'i').test(q)) {
           return eq.instrument;
@@ -493,30 +588,6 @@ const PortfolioAssistant = (() => {
       }
     }
 
-    // 4. Contextual keyword match: "PE of ITC", "PE ratio of X", "price of X", "research X"
-    const keywordMatch = q.match(/(?:RESEARCH|PE\s+RATIO\s+(?:OF|FOR)|PE\s+(?:OF|FOR)|PRICE\s+OF|TREND\s+OF|ABOUT|ANALYZE)\s+([A-Z0-9-]{3,12})\b/);
-    if (keywordMatch) {
-      const candidate = keywordMatch[1];
-      const stopWords = new Set(['THE', 'THIS', 'THAT', 'MY', 'ALL', 'ANY', 'OUR']);
-      if (!stopWords.has(candidate)) return candidate;
-    }
-
-    // 5. Fallback: Scan uppercase tokens excluding stop words
-    const stopWords = new Set([
-      'THE', 'AND', 'FOR', 'ARE', 'CAN', 'YOU', 'ALL', 'ANY', 'NOT', 'GET',
-      'WHAT', 'WHEN', 'WHERE', 'SHOW', 'HOW', 'CHART', 'GRAPH', 'PORTFOLIO',
-      'STOCKS', 'STOCK', 'FUNDS', 'SHARE', 'PRICE', 'RESEARCH', 'TOTAL', 'WORTH',
-      'VALUE', 'INVEST', 'MONEY', 'GAIN', 'LOSS', 'BANK', 'TECH', 'RATIO',
-      'TELL', 'ABOUT', 'CURRENT', 'TREND', 'RANGE', 'COMPARE', 'OVERVIEW', 'DETAILS',
-      'INDEX', 'FMCG', 'RELATIVE', 'OVERALL', 'PERIOD', 'THIS', 'MOVED', 'OVER',
-      'MANY', 'MUCH', 'DOES', 'HAVE', 'HOLD', 'UNITS', 'SHARES'
-    ]);
-    const tokens = q.match(/\b[A-Z0-9-]{3,14}\b/g) || [];
-    for (const token of tokens) {
-      if (!stopWords.has(token) && !/^\d+$/.test(token)) {
-        return token;
-      }
-    }
     return null;
   }
 
@@ -672,6 +743,123 @@ const PortfolioAssistant = (() => {
   function solveLocallyIfPossible(query) {
     const q = query.toLowerCase().trim();
 
+    const getLatestVal = (nw, key) => {
+      if (!nw || !nw[key] || !Array.isArray(nw[key].values) || !nw[key].values.length) return 0;
+      const v = nw[key].values[nw[key].values.length - 1];
+      return (v != null && !isNaN(v)) ? v : 0;
+    };
+
+    // 1. Asset Allocation Query (Instant local breakdown & doughnut chart)
+    if (q.includes('asset allocation') || q.includes('asset breakdown') || q.includes('allocation breakdown') || q === 'allocation' || (q.includes('allocation') && !q.includes('increase') && !q.includes('decrease') && !q.includes('should') && !q.includes('gold'))) {
+      if (typeof breakupSummary !== 'undefined' && breakupSummary.net_worth) {
+        const nw = breakupSummary.net_worth;
+        const stocksEq = getLatestVal(nw, 'Stocks (Equity)');
+        const mfEq = getLatestVal(nw, 'Mutual Funds (Equity)');
+        const npsEq = getLatestVal(nw, 'NPS E (Equity)');
+        const totalEquity = stocksEq + mfEq + npsEq;
+
+        const pf = getLatestVal(nw, 'PF (Debt)');
+        const ppf = getLatestVal(nw, 'PPF (Debt)');
+        const bonds = getLatestVal(nw, 'Bonds (Debt)');
+        const npsDebt = getLatestVal(nw, 'NPS C (Debt)') + getLatestVal(nw, 'NPS G (Debt)');
+        const totalDebt = pf + ppf + bonds + npsDebt;
+
+        const totalGold = getLatestVal(nw, 'Gold (Gold)');
+        const reProp = getLatestVal(nw, 'Real Estate (Property)');
+        const reLoan = getLatestVal(nw, 'Home Loan (Liability)');
+        const netRealEstate = Math.max(0, reProp + reLoan);
+        const cash = getLatestVal(nw, 'Cash (Liquid)');
+        const crypto = getLatestVal(nw, 'Crypto (Alternate)');
+
+        const totalNw = getLatestVal(nw, 'Total') || (totalEquity + totalDebt + totalGold + netRealEstate + cash + crypto) || 1;
+
+        const items = [
+          { name: 'Equity (Stocks & MFs)', val: totalEquity },
+          { name: 'Fixed Income & Debt (PF/PPF/Bonds)', val: totalDebt },
+          { name: 'Gold (SGBs & ETFs)', val: totalGold },
+          { name: 'Real Estate (Net Equity)', val: netRealEstate },
+          { name: 'Cash & Liquid', val: cash },
+          { name: 'Alternate / Crypto', val: crypto }
+        ];
+
+        const labels = [];
+        const data = [];
+        let summaryText = `Here is your broad **Asset Class Allocation** across your entire portfolio (Total Net Worth: **₹${totalNw.toFixed(2)} Lakhs**):\n\n`;
+
+        items.forEach(it => {
+          if (it.val > 0.01) {
+            const pct = Number(((it.val / totalNw) * 100).toFixed(1));
+            labels.push(it.name);
+            data.push(pct);
+            summaryText += `* **${it.name}**: **${pct}%** (₹${it.val.toFixed(2)} L)\n`;
+          }
+        });
+
+        const chartBlock = `\n\`\`\`chart:doughnut\n${JSON.stringify({
+          title: 'Asset Allocation Breakdown (%)',
+          labels: labels,
+          data: data
+        }, null, 2)}\n\`\`\``;
+
+        return summaryText + chartBlock;
+      }
+    }
+
+    // 2. Net Worth Trend & Growth Query (Instant local historical line chart & stats)
+    if (q.includes('net worth trend') || q.includes('growth trend') || q.includes('wealth trend') || (q.includes('net worth') && (q.includes('trend') || q.includes('chart') || q.includes('graph') || q.includes('history') || q.includes('grow')))) {
+      if (typeof breakupSummary !== 'undefined' && Array.isArray(breakupSummary.dates) && breakupSummary.net_worth?.['Total']?.values) {
+        const dates = breakupSummary.dates;
+        const vals = breakupSummary.net_worth['Total'].values;
+        if (dates.length > 0 && vals.length > 0) {
+          const startVal = vals[0] || 0;
+          const curVal = vals[vals.length - 1] || 0;
+          const peakVal = Math.max(...vals);
+          const totalGrowthPct = startVal > 0 ? (((curVal - startVal) / startVal) * 100).toFixed(1) : 0;
+
+          // Sample ~14 points for clean line chart
+          const step = Math.max(1, Math.floor(dates.length / 14));
+          const chartLabels = [];
+          const chartData = [];
+          for (let i = 0; i < dates.length; i += step) {
+            chartLabels.push(dates[i].slice(0, 7));
+            chartData.push(Number((vals[i] || 0).toFixed(2)));
+          }
+          const lastIdx = dates.length - 1;
+          if (chartLabels[chartLabels.length - 1] !== dates[lastIdx].slice(0, 7)) {
+            chartLabels.push(dates[lastIdx].slice(0, 7));
+            chartData.push(Number((vals[lastIdx] || 0).toFixed(2)));
+          }
+
+          let text = `Here is your **Historical Net Worth Growth Trend**:\n\n`;
+          text += `* **Current Net Worth**: **₹${curVal.toFixed(2)} Lakhs**\n`;
+          text += `* **Initial Recorded Baseline**: **₹${startVal.toFixed(2)} Lakhs** (${dates[0].slice(0, 7)})\n`;
+          text += `* **All-Time Peak**: **₹${peakVal.toFixed(2)} Lakhs**\n`;
+          text += `* **Overall Growth**: **+${totalGrowthPct}%** across ${dates.length} recorded periods.\n`;
+
+          const chartBlock = `\n\`\`\`chart:line\n${JSON.stringify({
+            title: 'Net Worth Growth Trend (₹ Lakhs)',
+            labels: chartLabels,
+            data: chartData
+          }, null, 2)}\n\`\`\``;
+
+          return text + chartBlock;
+        }
+      }
+    }
+
+    // 3. Simple Net Worth Stat
+    if (q === 'net worth' || q === 'what is my net worth' || q === 'total wealth' || q === 'total net worth' || q === 'portfolio value') {
+      if (typeof breakupSummary !== 'undefined' && breakupSummary.net_worth?.['Total']) {
+        const vals = breakupSummary.net_worth['Total'].values;
+        const curVal = vals[vals.length - 1] || 0;
+        let text = `Here is your current **Total Net Worth**:\n\n`;
+        text += `* **Total Net Worth**: **₹${curVal.toFixed(2)} Lakhs**\n`;
+        text += `* **Asset Distribution**: Active across 6 asset classes (Equity, Fixed Income, Gold, Real Estate, Liquid, Alternate).\n`;
+        text += `You can view the full asset breakdown by asking *"Show asset allocation"* or trend by asking *"Show net worth trend"*.\n`;
+        return text;
+      }
+    }
+
     // Analytical, comparative, valuation, or holding-period questions should ALWAYS be handled
     // by Portfolio Copilot with live market / benchmark index data.
     if (isAnalyticalOrComparative(query)) {
@@ -800,51 +988,6 @@ const PortfolioAssistant = (() => {
       }
     }
 
-    // 3. Asset Allocation Query
-    if (q.includes('asset allocation') || q.includes('allocation') || q.includes('breakdown') || q.includes('distribution')) {
-      if (typeof breakupSummary === 'undefined' || !breakupSummary.net_worth) return null;
-      const nw = breakupSummary.net_worth;
-      const total = nw['Total']?.values?.[nw['Total'].values.length - 1] || 1;
-      
-      const labels = [];
-      const data = [];
-      let summaryText = 'Here is your broad **Asset Class Allocation** across your entire portfolio:\n\n';
-
-      const eq = (nw['Equity']?.values?.[nw['Equity'].values.length - 1]) || 0;
-      const mf = (nw['Mutual Funds']?.values?.[nw['Mutual Funds'].values.length - 1]) || 0;
-      const pf = (nw['PF']?.values?.[nw['PF'].values.length - 1]) || 0;
-      const ppf = (nw['PPF']?.values?.[nw['PPF'].values.length - 1]) || 0;
-      const bonds = (nw['Bonds']?.values?.[nw['Bonds'].values.length - 1]) || 0;
-      const fi = pf + ppf + bonds;
-      const gold = (nw['Gold']?.values?.[nw['Gold'].values.length - 1]) || 0;
-      const re = (nw['Real Estate']?.values?.[nw['Real Estate'].values.length - 1]) || 0;
-
-      const items = [
-        { name: 'Direct Equity', val: eq },
-        { name: 'Mutual Funds', val: mf },
-        { name: 'Fixed Income (PF/PPF/Bonds)', val: fi },
-        { name: 'Gold (SGB/ETFs)', val: gold },
-        { name: 'Real Estate (Net Equity)', val: re }
-      ];
-
-      items.forEach(it => {
-        if (it.val > 0.01) {
-          const pct = ((it.val / total) * 100).toFixed(1);
-          labels.push(it.name);
-          data.push(Number(pct));
-          summaryText += `* **${it.name}**: **${pct}%** (₹${it.val.toFixed(2)} L)\n`;
-        }
-      });
-
-      const chartBlock = `\n\`\`\`chart:doughnut\n${JSON.stringify({
-        title: 'Asset Allocation Breakdown (%)',
-        labels: labels,
-        data: data
-      }, null, 2)}\n\`\`\``;
-
-      return summaryText + chartBlock;
-    }
-
     // 4. Sector Exposure Queries
     const sectorKeywords = {
       'banking': ['banking', 'banks', 'financial'],
@@ -949,19 +1092,6 @@ const PortfolioAssistant = (() => {
       }
     }
 
-    // 8. Total Net Worth Query
-    if (q.includes('net worth') || q.includes('total wealth') || q.includes('total portfolio value')) {
-      if (typeof breakupSummary !== 'undefined' && breakupSummary.net_worth?.['Total']) {
-        const vals = breakupSummary.net_worth['Total'].values;
-        const curVal = vals[vals.length - 1] || 0;
-        let text = `Here is your current **Total Net Worth**:\n\n`;
-        text += `* **Total Net Worth**: **₹${curVal.toFixed(2)} Lakhs**\n`;
-        text += `* **Asset Distribution**: Active across 9 asset classes (Equity, MFs, Fixed Income, Gold, Real Estate).\n`;
-        text += `You can view the full asset breakdown by asking *"Show asset allocation"* or trend by asking *"Show net worth trend"*.\n`;
-        return text;
-      }
-    }
-
     return null; // Delegate to Portfolio Copilot AI
   }
 
@@ -988,8 +1118,13 @@ Your goals:
    - Explicitly compare the holding's return percentage against the benchmark index return percentage over the user's holding period.
    - State clearly whether the holding outperformed or underperformed (calculate the alpha in percentage points).
    - Use a Bar Chart (\`\`\`chart:bar) comparing the two returns.
-6. Chart Selection Rules (CRITICAL: NEVER default to a vertical bar chart):
-   - Line Chart (\`\`\`chart:line): Use for time-series trends (PE ratio movement over time, historical price trends, portfolio growth over time).
+6. When asked about Asset Allocation, Rebalancing, or Gold Exposure (e.g. "Should I increase my gold allocation?"):
+   - Ground strictly in the user's provided "allocation" array, "goldExposure", and "netWorth".
+   - State their exact current allocation percentage and valuation in Lakhs.
+   - Provide standard institutional financial guidelines (e.g. 5–10% gold as an inflation hedge and crisis diversifier) with concise commentary.
+   - Use a Doughnut Chart (\`\`\`chart:doughnut) showing the current asset allocation breakdown.
+7. Chart Selection Rules (CRITICAL: NEVER default to a vertical bar chart):
+   - Line Chart (\`\`\`chart:line): Use for time-series trends (PE ratio movement over time, historical price trends, net worth growth over time).
    - Doughnut Chart (\`\`\`chart:doughnut): Use for compositions & breakdowns of a whole (Asset allocation, sector split, market cap split).
    - Bar Chart (\`\`\`chart:bar): Use ONLY for comparing discrete category snapshots at a single point in time (Holding Return vs Benchmark Return, Top Performers, Holding Breakdown).
    - No Chart: Omit if the question is purely explanatory, a single factual lookup, or if visual aid is not genuinely useful.
@@ -1499,9 +1634,20 @@ User Question: ${promptText}`;
     open: openCopilot,
     close: closeCopilot,
     toggle: toggleCopilot,
-    ask: submitQuery
+    ask: submitQuery,
+    // Exposed helpers for testing and verification
+    solveLocallyIfPossible,
+    detectTickerQuery,
+    buildPortfolioContext,
+    isAnalyticalOrComparative,
+    isValuationQuery,
+    fetchStockFundamentals,
+    fetchMarketResearch
   };
 })();
+
+if (typeof window !== 'undefined') window.PortfolioAssistant = PortfolioAssistant;
+if (typeof module !== 'undefined' && module.exports) module.exports = PortfolioAssistant;
 
 // Global hooks for HTML onclick attributes
 function openCopilot() { PortfolioAssistant.open(); }
