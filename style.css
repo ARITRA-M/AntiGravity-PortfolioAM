@@ -3572,6 +3572,15 @@ table tbody:empty::after {
   align-items: center;
   gap: 0.5rem;
 }
+.instrument-chart-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted, #9ca3af);
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.75;
+}
 .instrument-chart-container {
   height: 330px;
   width: 100%;
@@ -3666,7 +3675,10 @@ table tbody:empty::after {
   }
   .instrument-chart-container {
     height: 270px;
-    padding: 0.75rem;
+    padding: 0.75rem 0.4rem 0.5rem 0.4rem;
+  }
+  .instrument-chart-hint {
+    font-size: 0.68rem;
   }
   .instrument-ledger-table th, .instrument-ledger-table td {
     padding: 0.6rem 0.65rem;

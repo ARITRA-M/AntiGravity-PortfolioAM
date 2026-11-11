@@ -4962,19 +4962,34 @@ let _instrumentDetailChart = null;
 let _activeInstrumentModalSymbol = null;
 
 function _instrumentModalChartOptions(title) {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
   return {
-    responsive: true, maintainAspectRatio: false,
+    responsive: true,
+    maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       title: { display: false },
-      legend: { position: 'top', labels: { color: '#e5e7eb', boxWidth: 12, font: { family: 'Outfit', size: 11 }, padding: 14 } },
+      legend: {
+        position: 'top',
+        labels: {
+          color: '#e5e7eb',
+          boxWidth: 8,
+          boxHeight: 8,
+          usePointStyle: true,
+          pointStyle: 'circle',
+          font: { family: 'Outfit, sans-serif', size: isMobile ? 10 : 11, weight: '500' },
+          padding: isMobile ? 8 : 14
+        }
+      },
       tooltip: {
         backgroundColor: 'rgba(15, 23, 42, 0.95)',
         titleColor: '#f8fafc',
+        titleFont: { family: 'Outfit, sans-serif', size: 12, weight: '600' },
         bodyColor: '#e2e8f0',
-        borderColor: 'rgba(255,255,255,0.1)',
+        bodyFont: { family: 'Outfit, sans-serif', size: 11 },
+        borderColor: 'rgba(255, 255, 255, 0.1)',
         borderWidth: 1,
-        padding: 10,
+        padding: isMobile ? 8 : 10,
         boxPadding: 4,
         usePointStyle: true,
         callbacks: {
@@ -4982,7 +4997,7 @@ function _instrumentModalChartOptions(title) {
             let label = ctx.dataset.label || '';
             if (label) label += ': ';
             if (ctx.dataset.yAxisID === 'yPrice') {
-              label += '₹' + ctx.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 2 });
+              label += '₹' + ctx.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             } else {
               label += '₹' + ctx.parsed.y.toFixed(2) + 'L';
             }
@@ -4992,11 +5007,36 @@ function _instrumentModalChartOptions(title) {
       }
     },
     scales: {
-      x: { grid: { display: false }, ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 11 } } },
-      y: { position: 'left', grid: { color: 'rgba(255,255,255,0.06)' },
-           ticks: { color: '#9ca3af', font: { size: 11 }, callback: v => '₹' + v.toFixed(1) + 'L' } },
-      yPrice: { position: 'right', grid: { drawOnChartArea: false },
-                ticks: { color: '#9ca3af', font: { size: 11 }, callback: v => '₹' + v.toLocaleString(undefined, {maximumFractionDigits: 0}) } }
+      x: {
+        grid: { display: false },
+        ticks: {
+          color: '#9ca3af',
+          maxTicksLimit: isMobile ? 5 : 8,
+          maxRotation: 0,
+          autoSkip: true,
+          font: { family: 'Outfit, sans-serif', size: isMobile ? 10 : 11 }
+        }
+      },
+      y: {
+        position: 'left',
+        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+        ticks: {
+          color: '#9ca3af',
+          maxTicksLimit: isMobile ? 4 : 5,
+          font: { family: 'Outfit, sans-serif', size: isMobile ? 10 : 11 },
+          callback: v => '₹' + v.toFixed(1) + 'L'
+        }
+      },
+      yPrice: {
+        position: 'right',
+        grid: { drawOnChartArea: false },
+        ticks: {
+          color: 'rgba(245, 158, 11, 0.85)',
+          maxTicksLimit: isMobile ? 4 : 5,
+          font: { family: 'Outfit, sans-serif', size: isMobile ? 10 : 11 },
+          callback: v => '₹' + v.toLocaleString(undefined, { maximumFractionDigits: 0 })
+        }
+      }
     }
   };
 }
@@ -5178,8 +5218,17 @@ function openInstrumentDetailModal(instrument, type) {
 
   if (history && history.length > 0) {
     if (chartCanvas) {
+      const ctx = chartCanvas.getContext('2d');
+      // Subtle vertical gradient fill for valuation area
+      const valGradient = ctx.createLinearGradient(0, 0, 0, 260);
+      valGradient.addColorStop(0, 'rgba(99, 102, 241, 0.20)');
+      valGradient.addColorStop(1, 'rgba(99, 102, 241, 0.01)');
+
+      // Point radius: hide dots for smooth clean lines, keep visible if very few points
+      const ptRadius = history.length <= 2 ? 3 : 0;
+
       _instrumentDetailChart = new Chart(
-        chartCanvas.getContext('2d'),
+        ctx,
         {
           type: 'line',
           data: {
@@ -5189,29 +5238,47 @@ function openInstrumentDetailModal(instrument, type) {
                 label: 'Valuation (₹ L)',
                 data: history.map(h => h.cur_val / 100000),
                 borderColor: '#6366f1',
-                backgroundColor: 'rgba(99, 102, 241, 0.12)',
+                backgroundColor: valGradient,
                 fill: true,
-                borderWidth: 2.5,
-                tension: 0.25,
+                borderWidth: 2.2,
+                tension: 0,
+                pointRadius: ptRadius,
+                pointHoverRadius: 6,
+                pointHoverBackgroundColor: '#6366f1',
+                pointHoverBorderColor: '#ffffff',
+                pointHoverBorderWidth: 2,
+                pointHitRadius: 12,
                 yAxisID: 'y'
               },
               {
                 label: 'Invested (₹ L)',
                 data: history.map(h => h.invested / 100000),
                 borderColor: '#10b981',
-                borderWidth: 2,
-                borderDash: [5, 5],
+                borderWidth: 1.8,
+                borderDash: [5, 4],
                 fill: false,
-                tension: 0.15,
+                tension: 0,
+                pointRadius: ptRadius,
+                pointHoverRadius: 6,
+                pointHoverBackgroundColor: '#10b981',
+                pointHoverBorderColor: '#ffffff',
+                pointHoverBorderWidth: 2,
+                pointHitRadius: 12,
                 yAxisID: 'y'
               },
               {
                 label: `${priceLabel} (₹)`,
                 data: history.map(h => h.ltp || h.nav),
                 borderColor: '#f59e0b',
-                borderWidth: 2,
+                borderWidth: 1.8,
                 fill: false,
-                tension: 0.2,
+                tension: 0,
+                pointRadius: ptRadius,
+                pointHoverRadius: 6,
+                pointHoverBackgroundColor: '#f59e0b',
+                pointHoverBorderColor: '#ffffff',
+                pointHoverBorderWidth: 2,
+                pointHitRadius: 12,
                 yAxisID: 'yPrice'
               }
             ]
