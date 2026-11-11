@@ -277,7 +277,7 @@ const PortfolioAssistant = (() => {
   }
 
   // ── Build Structured Portfolio Knowledge Context ───────────────────────────
-  function buildPortfolioContext(targetStockSymbol, benchmarkData, fundamentalsData, userQueryText) {
+  function buildPortfolioContext(targetStockSymbol, benchmarkData, fundamentalsData, userQueryText, comparedFundamentalsData) {
     const ctx = {};
 
     const getLatestVal = (nw, key) => {
@@ -499,6 +499,21 @@ const PortfolioAssistant = (() => {
       };
     }
 
+    if (Array.isArray(comparedFundamentalsData) && comparedFundamentalsData.length > 0) {
+      ctx.comparedFundamentals = comparedFundamentalsData.map(cf => ({
+        symbol: cf.symbol,
+        companyName: cf.companyName || cf.symbol,
+        currentPe: cf.latestPe,
+        fiveYearMedianPe: cf.medianPe,
+        latestRoce: cf.latestRoce != null ? `${cf.latestRoce}%` : undefined,
+        latestRoe: cf.latestRoe != null ? `${cf.latestRoe}%` : undefined,
+        bookValue: cf.bookValue != null ? `₹${cf.bookValue}` : undefined,
+        historicalRoceTrend: cf.roceHistory,
+        marketCap: cf.marketCap,
+        dividendYield: cf.dividendYield
+      }));
+    }
+
     // 6. Complete Mutual Funds (from latestMf)
     ctx.portfolioMutualFunds = [];
     ctx.allOwnedMutualFunds = [];
@@ -663,37 +678,56 @@ const PortfolioAssistant = (() => {
     return null;
   }
 
-  // ── Helper: Detect Ticker Symbol for Research ──────────────────────────────
+  // ── Helper: Detect Ticker Symbol(s) for Research ───────────────────────────
   function detectTickerQuery(query) {
-    if (!query) return null;
+    const list = detectTickersQuery(query);
+    return list.length > 0 ? list[0] : null;
+  }
+
+  function detectTickersQuery(query) {
+    if (!query) return [];
     const q = query.trim().toUpperCase();
 
     // Guard against broad portfolio / asset class questions where no specific stock research is queried
     const isBroadPortfolioTopic = /\b(ALLOCATION|ASSET CLASS|NET WORTH|PORTFOLIO|REBALANCE|WEALTH|TAX|RETURNS|OVERALL|MY WEALTH|MY ASSETS)\b/i.test(query);
 
-    // 1. Explicit NSE/BSE suffix (e.g. TRENT.NS or HDFCBANK.BO)
-    const suffixMatch = q.match(/\b([A-Z0-9-]{3,12})\.(?:NS|BO)\b/);
-    if (suffixMatch) return suffixMatch[1];
+    const matches = []; // { sym, idx }
+    const addMatch = (sym, idx) => {
+      if (!sym) return;
+      if (!matches.some(m => m.sym === sym)) {
+        matches.push({ sym, idx: idx != null && idx >= 0 ? idx : 9999 });
+      }
+    };
 
-    // 2. Explicit research keywords: "research X", "PE of X", "price of X", "ROCE of X", "analyze X"
-    const keywordMatch = q.match(/(?:RESEARCH|ROCE\s+(?:OF|FOR)|ROE\s+(?:OF|FOR)|PE\s+RATIO\s+(?:OF|FOR)|PE\s+(?:OF|FOR)|PRICE\s+OF|QUOTE\s+OF|PERFORMANCE\s+OF|TREND\s+OF|ANALYZE)\s+([A-Z0-9-]{2,12})\b/);
-    if (keywordMatch) {
-      const candidate = keywordMatch[1];
-      const stopWords = new Set([
-        'THE', 'THIS', 'THAT', 'MY', 'ALL', 'ANY', 'OUR', 'GOLD', 'DEBT', 'EQUITY',
-        'STOCK', 'STOCKS', 'FUNDS', 'PORTFOLIO', 'WORTH', 'ALLOCATION', 'INDEX', 'BENCHMARK'
-      ]);
+    // 1. Explicit NSE/BSE suffix (e.g. TRENT.NS or HDFCBANK.BO)
+    const suffixRegex = /\b([A-Z0-9-]{3,12})\.(?:NS|BO)\b/g;
+    let sm;
+    while ((sm = suffixRegex.exec(q)) !== null) {
+      addMatch(sm[1], sm.index);
+    }
+
+    // 2. Explicit research keywords: "research X", "PE of X", "price of X", "ROCE of X"
+    const keywordRegex = /(?:RESEARCH|ROCE\s+(?:OF|FOR)|ROE\s+(?:OF|FOR)|PE\s+RATIO\s+(?:OF|FOR)|PE\s+(?:OF|FOR)|PRICE\s+OF|QUOTE\s+OF|PERFORMANCE\s+OF|TREND\s+OF|ANALYZE)\s+([A-Z0-9-]{2,12})\b/g;
+    const stopWords = new Set([
+      'THE', 'THIS', 'THAT', 'MY', 'ALL', 'ANY', 'OUR', 'GOLD', 'DEBT', 'EQUITY',
+      'STOCK', 'STOCKS', 'FUNDS', 'PORTFOLIO', 'WORTH', 'ALLOCATION', 'INDEX', 'BENCHMARK'
+    ]);
+    let km;
+    while ((km = keywordRegex.exec(q)) !== null) {
+      const candidate = km[1];
       if (!stopWords.has(candidate)) {
         if (STOCK_ALIASES[candidate]) {
-          return STOCK_ALIASES[candidate].symbols[0];
+          addMatch(STOCK_ALIASES[candidate].symbols[0], km.index);
+        } else {
+          addMatch(candidate, km.index);
         }
-        return candidate;
       }
     }
 
     // If broad portfolio query without explicit stock keywords, do NOT match tickers
     if (isBroadPortfolioTopic && !/\b(PE|RATIO|EPS|BUY|SELL|STOCK|SHARES|RESEARCH|PRICE|LTP|ROCE|ROE)\b/i.test(query)) {
-      return null;
+      matches.sort((a, b) => a.idx - b.idx);
+      return matches.map(m => m.sym);
     }
 
     // 3. Known aliases in STOCK_ALIASES (sorted by key length descending)
@@ -701,29 +735,37 @@ const PortfolioAssistant = (() => {
     for (const alias of sortedAliases) {
       const escaped = alias.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
       const rx = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i');
-      if (rx.test(q)) {
+      const m = q.match(rx);
+      if (m) {
+        const idx = q.indexOf(alias);
         const entry = STOCK_ALIASES[alias];
         const syms = entry.symbols || [];
-        if (syms.length === 1) return syms[0];
-        // If multiple symbols, check if user holds one of them in latestEquity
-        if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+        if (syms.length === 1) {
+          addMatch(syms[0], idx);
+        } else if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
           const held = latestEquity.find(e => syms.includes((e.instrument || '').toUpperCase()));
-          if (held) return held.instrument;
+          addMatch(held ? held.instrument : syms[0], idx);
+        } else {
+          addMatch(syms[0], idx);
         }
-        return syms[0];
       }
     }
 
-    // 4. Direct match against user's own equity instruments in latestEquity (excluding broad portfolio queries)
+    // 4. Direct match against user's own equity instruments in latestEquity
     if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity) && !isBroadPortfolioTopic) {
       for (const eq of latestEquity) {
-        if (eq.instrument && new RegExp(`(^|[^A-Z0-9])${eq.instrument}([^A-Z0-9]|$)`, 'i').test(q)) {
-          return eq.instrument;
+        if (eq.instrument) {
+          const rx = new RegExp(`(^|[^A-Z0-9])${eq.instrument}([^A-Z0-9]|$)`, 'i');
+          const m = q.match(rx);
+          if (m) {
+            addMatch(eq.instrument, q.indexOf(eq.instrument));
+          }
         }
       }
     }
 
-    return null;
+    matches.sort((a, b) => a.idx - b.idx);
+    return matches.map(m => m.sym);
   }
 
   // Helper to format proxy URLs for browser fetch calls
@@ -739,16 +781,40 @@ const PortfolioAssistant = (() => {
     return `https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/?url=${encodeURIComponent(rawUrl)}`;
   }
 
+  // Multi-tier resilient fetch with localhost and worker proxy fallbacks
+  async function fetchWithProxyFallback(rawUrl, timeoutMs = 8000) {
+    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const urls = [];
+    if (isLocalhost) {
+      urls.push(`/api/proxy?url=${encodeURIComponent(rawUrl)}`);
+    }
+    if (typeof _proxyList === 'function') {
+      try {
+        const proxies = _proxyList();
+        if (proxies && proxies[0]) urls.push(proxies[0](rawUrl));
+      } catch (_) {}
+    }
+    urls.push(`https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/?url=${encodeURIComponent(rawUrl)}`);
+    urls.push(`https://portfolio-proxy.aritra2k7.workers.dev/?url=${encodeURIComponent(rawUrl)}`);
+
+    for (const u of urls) {
+      try {
+        const res = await fetch(u, { signal: AbortSignal.timeout(timeoutMs) });
+        if (res && res.ok) return res;
+      } catch (_) {}
+    }
+    return null;
+  }
+
   // ── Helper: Fetch Live Market Quote & Price History ────────────────────────
   async function fetchMarketResearch(symbol, range = '1y') {
     const isIndex = symbol.startsWith('^');
     const ticker = isIndex || symbol.endsWith('.NS') || symbol.endsWith('.BO') ? symbol : `${symbol}.NS`;
     const rawUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=1mo`;
-    const fetchUrl = buildProxyUrl(rawUrl);
 
     try {
-      const res = await fetch(fetchUrl);
-      if (!res.ok) return null;
+      const res = await fetchWithProxyFallback(rawUrl, 10000);
+      if (!res || !res.ok) return null;
       const json = await res.json();
       const result = json.chart?.result?.[0];
       if (!result) return null;
@@ -793,9 +859,9 @@ const PortfolioAssistant = (() => {
 
     // 1. Google Finance live exchange fundamentals (Real-time NSE P/E, EPS, Mcap, Div Yield)
     try {
-      const gfUrl = buildProxyUrl(`https://www.google.com/finance/quote/${clean}:NSE`);
-      const gfRes = await fetch(gfUrl);
-      if (gfRes.ok) {
+      const gfUrl = `https://www.google.com/finance/quote/${clean}:NSE`;
+      const gfRes = await fetchWithProxyFallback(gfUrl, 7000);
+      if (gfRes && gfRes.ok) {
         const html = await gfRes.text();
         const regex = /<div class="(?:SwQK7|mD6t2c)">([^<]+)<\/div>[\s\S]*?<div class="(?:dO6ijd|P6K39c)">([^<]+)<\/div>/g;
         let m;
@@ -818,13 +884,11 @@ const PortfolioAssistant = (() => {
 
     // 2. Screener.in Company Page (ROCE, ROE, Book Value, and Annual ROCE History)
     try {
-      let pageUrl = buildProxyUrl(`https://www.screener.in/company/${clean}/consolidated/`);
-      let pageRes = await fetch(pageUrl);
-      if (!pageRes.ok) {
-        pageUrl = buildProxyUrl(`https://www.screener.in/company/${clean}/`);
-        pageRes = await fetch(pageUrl);
+      let pageRes = await fetchWithProxyFallback(`https://www.screener.in/company/${clean}/consolidated/`, 8000);
+      if (!pageRes || !pageRes.ok) {
+        pageRes = await fetchWithProxyFallback(`https://www.screener.in/company/${clean}/`, 8000);
       }
-      if (pageRes.ok) {
+      if (pageRes && pageRes.ok) {
         const html = await pageRes.text();
 
         // 2a. Top Ratios list (ROCE, ROE, Book Value, etc.)
@@ -885,17 +949,15 @@ const PortfolioAssistant = (() => {
 
     // 3. Screener.in search & PE chart (5-year historical PE trajectory & median PE)
     try {
-      const searchUrl = buildProxyUrl(`https://www.screener.in/api/company/search/?q=${encodeURIComponent(clean)}`);
-      const searchRes = await fetch(searchUrl);
-      if (searchRes.ok) {
+      const searchRes = await fetchWithProxyFallback(`https://www.screener.in/api/company/search/?q=${encodeURIComponent(clean)}`, 7000);
+      if (searchRes && searchRes.ok) {
         const searchData = await searchRes.json();
         if (Array.isArray(searchData) && searchData.length > 0) {
           const match = searchData.find(c => c.url && c.url.toUpperCase().includes('/' + clean + '/')) || searchData[0];
           if (match && match.id) {
             result.companyName = match.name || clean;
-            const chartUrl = buildProxyUrl(`https://www.screener.in/api/company/${match.id}/chart/?q=Price+to+Earning-Median+PE-EPS&days=1825`);
-            const chartRes = await fetch(chartUrl);
-            if (chartRes.ok) {
+            const chartRes = await fetchWithProxyFallback(`https://www.screener.in/api/company/${match.id}/chart/?q=Price+to+Earning-Median+PE-EPS&days=1825`, 7000);
+            if (chartRes && chartRes.ok) {
               const chartData = await chartRes.json();
               const peDs = chartData.datasets?.find(d => d.metric === 'Price to Earning' || d.label === 'PE');
               const medianDs = chartData.datasets?.find(d => d.metric === 'Median PE' || (d.label && d.label.includes('Median PE')));
@@ -1345,11 +1407,16 @@ Your goals:
    - State clearly whether the holding outperformed or underperformed (calculate the alpha in percentage points).
    - Use a Bar Chart (\`\`\`chart:bar) comparing the two returns.
 8. When asked about Return on Capital Employed (ROCE), Return on Equity (ROE), or Capital Efficiency:
-   - CRITICAL GROUNDING: When Market Fundamentals & Valuation Data includes "latestRoce" or "historicalRoceTrend", you MUST state the exact numbers from that data (e.g. latest ROCE of 28.4% and latest ROE of 31.0%).
-   - NEVER state that ROCE or 5-year ROCE data is unavailable when "latestRoce" or "historicalRoceTrend" is present in Market Fundamentals.
-   - Present the 5-year ROCE trajectory using the exact annual numbers from "historicalRoceTrend" (e.g. 2021: 39%, 2022: 25%, 2023: 27%, 2024: 27%, 2025: 28%, 2026: 28%).
-   - Explain what drove the ROCE changes (e.g. operating leverage, capital discipline, debt-free balance sheet, high reinvestment rate).
-   - Output a Line Chart (\`\`\`chart:line) visualizing the historical ROCE % trajectory over time using labels and data from historicalRoceTrend.
+   - When multiple companies are queried for comparison (e.g. ITC vs HUL):
+     * State the exact latest ROCE and ROE for EACH company from the provided data (e.g. ITC: ROCE 38.9%, ROE 29.3% vs HUL: ROCE 28.4%, ROE 31.0%).
+     * Highlight key business drivers: ITC's capital-efficient FMCG + cigarette cash flows yielding ~39% ROCE vs HUL's asset-light brand power and high dividend payout yielding ~28% ROCE.
+     * Output a Bar Chart (\`\`\`chart:bar) comparing the ROCE % across the queried companies.
+   - When a single company is queried:
+     * CRITICAL GROUNDING: When Market Fundamentals & Valuation Data includes "latestRoce" or "historicalRoceTrend", you MUST state the exact numbers from that data (e.g. latest ROCE of 28.4% and latest ROE of 31.0%).
+     * NEVER state that ROCE or 5-year ROCE data is unavailable when "latestRoce" or "historicalRoceTrend" is present in Market Fundamentals.
+     * Present the 5-year ROCE trajectory using the exact annual numbers from "historicalRoceTrend" (e.g. 2021: 39%, 2022: 25%, 2023: 27%, 2024: 27%, 2025: 28%, 2026: 28%).
+     * Explain what drove the ROCE changes (e.g. operating leverage, capital discipline, debt-free balance sheet, high reinvestment rate).
+     * Output a Line Chart (\`\`\`chart:line) visualizing the historical ROCE % trajectory over time using labels and data from historicalRoceTrend.
 9. When asked about Asset Allocation, Rebalancing, or Gold Exposure (e.g. "Should I increase my gold allocation?"):
    - Ground strictly in the user's provided "allocation" array, "goldExposure", and "netWorth".
    - State their exact current allocation percentage and valuation in Lakhs.
@@ -1358,7 +1425,7 @@ Your goals:
 10. Chart Selection Rules (CRITICAL: NEVER default to a vertical bar chart):
    - Line Chart (\`\`\`chart:line): Use for time-series trends (PE ratio movement over time, ROCE trajectory over time, historical price trends, net worth growth over time).
    - Doughnut Chart (\`\`\`chart:doughnut): Use for compositions & breakdowns of a whole (Asset allocation, sector split, market cap split).
-   - Bar Chart (\`\`\`chart:bar): Use ONLY for comparing discrete category snapshots at a single point in time (Holding Return vs Benchmark Return, Top Performers, Holding Breakdown).
+   - Bar Chart (\`\`\`chart:bar): Use ONLY for comparing discrete category snapshots at a single point in time (Holding Return vs Benchmark Return, Company A vs Company B ROCE, Top Performers, Holding Breakdown).
    - No Chart: Omit if the question is purely explanatory, a single factual lookup, or if visual aid is not genuinely useful.
 
 Output format for charts:
@@ -1374,6 +1441,7 @@ Output format for charts:
 ${JSON.stringify(portfolioContext, null, 2)}
 ${researchData ? `\nLive Market Price & History Data:\n${JSON.stringify(researchData, null, 2)}` : ''}
 ${fundamentalsData ? `\nMarket Fundamentals & Valuation Data (PE Ratio, EPS, ROCE, ROE, Mcap):\n${JSON.stringify(fundamentalsData, null, 2)}` : ''}
+${Array.isArray(comparedFundamentals) && comparedFundamentals.length > 0 ? `\nCompared Stocks Market Fundamentals & Valuation Data:\n${JSON.stringify(comparedFundamentals, null, 2)}` : ''}
 ${benchmarkData ? `\nSector Benchmark Index Data:\n${JSON.stringify(benchmarkData, null, 2)}` : ''}
 
 User Question: ${promptText}`;
@@ -1383,29 +1451,49 @@ User Question: ${promptText}`;
       { role: 'user', content: userContent }
     ];
 
-    let endpoint = '/api/chat';
     const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    if (!isLocalhost) {
-      endpoint = 'https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/api/chat';
+    const endpoints = isLocalhost
+      ? [
+          '/api/chat',
+          'https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/api/chat',
+          'https://portfolio-proxy.aritra2k7.workers.dev/api/chat'
+        ]
+      : [
+          'https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/api/chat',
+          'https://portfolio-proxy.aritra2k7.workers.dev/api/chat'
+        ];
+
+    let lastError = null;
+    for (const endpoint of endpoints) {
+      try {
+        const timeoutMs = endpoint.startsWith('http') ? 35000 : 8000;
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages,
+            systemPrompt,
+            model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+          }),
+          signal: AbortSignal.timeout(timeoutMs)
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.response) {
+            return data.response;
+          }
+        } else {
+          const errBody = await res.json().catch(() => ({}));
+          lastError = new Error(errBody.error || `AI endpoint returned HTTP ${res.status}`);
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`Attempt via ${endpoint} failed:`, err.message);
+      }
     }
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages,
-        systemPrompt,
-        model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
-      })
-    });
-
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody.error || `AI endpoint returned HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data.response;
+    throw lastError || new Error('All AI endpoints failed to respond');
   }
 
   // ── Render Message to DOM with Markdown & Chart.js ────────────────────────
@@ -1491,6 +1579,21 @@ User Question: ${promptText}`;
     // Bullet Lists
     processed = processed.replace(/^\s*[-*]\s+(.*$)/gim, '<li class="copilot-li">$1</li>');
     processed = processed.replace(/(<li class="copilot-li">.*<\/li>)/gms, '<ul class="copilot-ul">$1</ul>');
+
+    // Tables
+    processed = processed.replace(/(?:^\|.+?\|$\r?\n?)+/gm, (tableMatch) => {
+      const rows = tableMatch.trim().split(/\r?\n/);
+      if (rows.length < 2) return tableMatch;
+      let html = '<div class="copilot-table-wrap"><table class="copilot-table">';
+      rows.forEach((row, idx) => {
+        if (/^\|[-:\s|]+\|$/.test(row.trim())) return;
+        const cells = row.split('|').slice(1, -1).map(c => c.trim());
+        const tag = idx === 0 ? 'th' : 'td';
+        html += '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+      });
+      html += '</table></div>';
+      return html;
+    });
 
     // Paragraph line breaks
     processed = processed.replace(/\n\n+/g, '<br><br>');
@@ -1702,15 +1805,17 @@ User Question: ${promptText}`;
 
     // 4. Check for Stock Research, Fundamentals & Benchmark Comparison
     showTypingIndicator('Analyzing request…');
-    const ticker = detectTickerQuery(userQuery);
+    const tickers = detectTickersQuery(userQuery);
+    const ticker = tickers.length > 0 ? tickers[0] : null;
     const isComp = isAnalyticalOrComparative(userQuery);
     const isVal = isValuationQuery(userQuery);
 
     let researchData = null;
     let benchmarkData = null;
     let fundamentalsData = null;
+    let comparedFundamentals = [];
 
-    if (ticker) {
+    if (tickers.length > 0) {
       let holding = null;
       if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
         holding = latestEquity.find(s => (s.instrument || '').toUpperCase() === ticker.toUpperCase());
@@ -1719,12 +1824,12 @@ User Question: ${promptText}`;
       // Check if a sector benchmark index is relevant
       const benchmarkMeta = detectBenchmarkIndex(userQuery, holding?.sector);
 
-      showTypingIndicator(`Fetching market & valuation data for ${ticker}…`);
+      showTypingIndicator(`Fetching market & valuation data for ${tickers.join(', ')}…`);
 
-      // Fetch stock price history, valuation fundamentals, and benchmark index in parallel
+      // Fetch stock price history, valuation fundamentals for all queried tickers in parallel
       const promises = [
         fetchMarketResearch(ticker, isComp || isVal ? '5y' : '1y'),
-        fetchStockFundamentals(ticker)
+        ...tickers.map(t => fetchStockFundamentals(t))
       ];
       if (benchmarkMeta) {
         promises.push(fetchMarketResearch(benchmarkMeta.symbol, '5y'));
@@ -1733,9 +1838,12 @@ User Question: ${promptText}`;
       const results = await Promise.all(promises);
       researchData = results[0];
       fundamentalsData = results[1];
+      if (tickers.length > 1) {
+        comparedFundamentals = results.slice(2, 1 + tickers.length).filter(Boolean);
+      }
 
-      if (benchmarkMeta && results[2]) {
-        const benchRes = results[2];
+      if (benchmarkMeta && results[1 + tickers.length]) {
+        const benchRes = results[1 + tickers.length];
         let baselinePrice = benchRes.price;
         if (benchRes.history && benchRes.history.length > 0) {
           baselinePrice = benchRes.history[0].close || benchRes.price;
@@ -1750,8 +1858,8 @@ User Question: ${promptText}`;
         };
       }
 
-      // If user ONLY asked for a simple price quote or 52-week range (and NOT comparative/valuation analysis):
-      if (researchData && !isComp && !isVal && (userQuery.toLowerCase().includes('52w') || userQuery.toLowerCase().includes('price') || userQuery.toLowerCase().startsWith('research '))) {
+      // If user ONLY asked for a simple price quote or 52-week range of a single stock:
+      if (tickers.length === 1 && researchData && !isComp && !isVal && (userQuery.toLowerCase().includes('52w') || userQuery.toLowerCase().includes('price') || userQuery.toLowerCase().startsWith('research '))) {
         const chgSign = researchData.changePct >= 0 ? '+' : '';
         let quickReply = `Here is the live market data for **${researchData.name}** (${researchData.symbol}):\n\n`;
         quickReply += `* **Current Price**: ₹${researchData.price?.toLocaleString('en-IN') || '—'} (${chgSign}${researchData.changePct?.toFixed(2)}%)\n`;
@@ -1777,10 +1885,10 @@ User Question: ${promptText}`;
 
     // 5. Portfolio Copilot AI Call
     showTypingIndicator('Analyzing with Portfolio Copilot…');
-    const context = buildPortfolioContext(ticker, benchmarkData, fundamentalsData, userQuery);
+    const context = buildPortfolioContext(ticker, benchmarkData, fundamentalsData, userQuery, comparedFundamentals);
 
     try {
-      const response = await callCloudflareWorkersAI(userQuery, context, researchData, benchmarkData, fundamentalsData);
+      const response = await callCloudflareWorkersAI(userQuery, context, researchData, benchmarkData, fundamentalsData, comparedFundamentals);
       hideTypingIndicator();
       appendMessage('assistant', response, false);
       chatHistory.push({ role: 'user', content: userQuery });
@@ -1791,7 +1899,70 @@ User Question: ${promptText}`;
 
       // Synthesize answer directly from available data
       let fallbackMsg = '';
-      if (fundamentalsData && (userQuery.toLowerCase().includes('roce') || userQuery.toLowerCase().includes('capital employed') || userQuery.toLowerCase().includes('roe')) && fundamentalsData.latestRoce) {
+      const allFund = [fundamentalsData, ...comparedFundamentals].filter(Boolean);
+
+      // Case A: Multi-stock Comparison (ROCE, P/E, or general)
+      if (allFund.length > 1) {
+        const isRoceQuery = userQuery.toLowerCase().includes('roce') || userQuery.toLowerCase().includes('capital employed') || userQuery.toLowerCase().includes('efficiency');
+        const isPeQuery = userQuery.toLowerCase().includes('pe') || userQuery.toLowerCase().includes('ratio') || userQuery.toLowerCase().includes('valuation') || userQuery.toLowerCase().includes('multiple');
+        const compNames = allFund.map(f => f.companyName || f.symbol).join(' vs ');
+
+        if (isRoceQuery || (!isPeQuery && allFund.some(f => f.latestRoce != null))) {
+          const withRoce = allFund.filter(f => f.latestRoce != null);
+          if (withRoce.length > 1) {
+            fallbackMsg = `### ROCE & Capital Efficiency Comparison: **${compNames}**\n\n`;
+            withRoce.forEach(f => {
+              fallbackMsg += `* **${f.companyName || f.symbol}**: **${f.latestRoce}% ROCE**` +
+                (f.latestRoe ? ` | ROE: **${f.latestRoe}%**` : '') +
+                (f.latestPe ? ` | P/E: ${f.latestPe}x` : '') +
+                (f.bookValue ? ` | Book Value: ₹${f.bookValue}` : '') +
+                (f.marketCap ? ` | Mcap: ${f.marketCap}` : '') + `\n`;
+            });
+
+            const sortedByRoce = [...withRoce].sort((a, b) => b.latestRoce - a.latestRoce);
+            const top = sortedByRoce[0];
+            const bottom = sortedByRoce[sortedByRoce.length - 1];
+            fallbackMsg += `\n**Key Takeaways:**\n` +
+              `* **Capital Efficiency:** **${top.companyName || top.symbol}** delivers superior operating returns on capital employed (**${top.latestRoce}% ROCE**) compared to **${bottom.latestRoce}% ROCE** for **${bottom.companyName || bottom.symbol}**.\n` +
+              (top.latestPe && bottom.latestPe ? `* **Valuation Spread:** ${top.latestPe < bottom.latestPe ? `**${top.companyName || top.symbol}** trades at a more modest valuation multiple (**${top.latestPe}x P/E** vs **${bottom.latestPe}x P/E** for ${bottom.symbol}).` : `**${bottom.companyName || bottom.symbol}** trades at a lower multiple (**${bottom.latestPe}x P/E** vs **${top.latestPe}x P/E** for ${top.symbol}).`}\n` : '') +
+              (top.latestRoe && bottom.latestRoe ? `* **Return on Equity:** ROE stands at **${top.latestRoe}%** for ${top.symbol} vs **${bottom.latestRoe}%** for ${bottom.symbol}.\n` : '');
+
+            fallbackMsg += `\n\`\`\`chart:bar\n${JSON.stringify({
+              title: `ROCE Comparison (%): ${withRoce.map(f => f.symbol).join(' vs ')}`,
+              labels: withRoce.map(f => f.symbol),
+              data: withRoce.map(f => f.latestRoce)
+            }, null, 2)}\n\`\`\``;
+          }
+        } else if (isPeQuery || allFund.some(f => f.latestPe != null)) {
+          const withPe = allFund.filter(f => f.latestPe != null);
+          if (withPe.length > 1) {
+            fallbackMsg = `### Valuation & P/E Comparison: **${compNames}**\n\n`;
+            withPe.forEach(f => {
+              fallbackMsg += `* **${f.companyName || f.symbol}**: **${f.latestPe}x P/E**` +
+                (f.medianPe ? ` (5Y Median: ${f.medianPe}x)` : '') +
+                (f.latestRoce ? ` | ROCE: **${f.latestRoce}%**` : '') +
+                (f.latestRoe ? ` | ROE: ${f.latestRoe}%` : '') +
+                (f.marketCap ? ` | Mcap: ${f.marketCap}` : '') + `\n`;
+            });
+
+            const sortedByPe = [...withPe].sort((a, b) => a.latestPe - b.latestPe);
+            const lower = sortedByPe[0];
+            const higher = sortedByPe[sortedByPe.length - 1];
+            fallbackMsg += `\n**Key Takeaways:**\n` +
+              `* **Valuation Multiple:** **${lower.companyName || lower.symbol}** is valued lower at **${lower.latestPe}x P/E** vs **${higher.latestPe}x P/E** for **${higher.companyName || higher.symbol}**.\n` +
+              (lower.latestRoce && higher.latestRoce ? `* **Capital Productivity:** ROCE is **${lower.latestRoce}%** for ${lower.symbol} vs **${higher.latestRoce}%** for ${higher.symbol}.\n` : '');
+
+            fallbackMsg += `\n\`\`\`chart:bar\n${JSON.stringify({
+              title: `P/E Ratio Comparison: ${withPe.map(f => f.symbol).join(' vs ')}`,
+              labels: withPe.map(f => f.symbol),
+              data: withPe.map(f => f.latestPe)
+            }, null, 2)}\n\`\`\``;
+          }
+        }
+      }
+
+      // Case B: Single stock ROCE fallback
+      if (!fallbackMsg && fundamentalsData && (userQuery.toLowerCase().includes('roce') || userQuery.toLowerCase().includes('capital employed') || userQuery.toLowerCase().includes('roe')) && fundamentalsData.latestRoce) {
         fallbackMsg = `### ROCE & Capital Efficiency Summary for **${fundamentalsData.companyName || ticker}**:\n\n` +
           `* **Current ROCE**: **${fundamentalsData.latestRoce}%**\n` +
           (fundamentalsData.latestRoe ? `* **Current ROE**: **${fundamentalsData.latestRoe}%**\n` : '') +
@@ -1806,7 +1977,7 @@ User Question: ${promptText}`;
             data: fundamentalsData.roceHistory.map(p => p.roce)
           }, null, 2)}\n\`\`\``;
         }
-      } else if (fundamentalsData && fundamentalsData.latestPe) {
+      } else if (!fallbackMsg && fundamentalsData && fundamentalsData.latestPe) {
         fallbackMsg = `### Valuation Summary for **${fundamentalsData.companyName || ticker}**:\n\n` +
           `* **Current P/E Ratio**: **${fundamentalsData.latestPe}x**\n` +
           `* **5-Year Median P/E**: **${fundamentalsData.medianPe ? fundamentalsData.medianPe + 'x' : '—'}**\n` +
@@ -1822,20 +1993,56 @@ User Question: ${promptText}`;
             data: fundamentalsData.peHistory.map(p => p.pe)
           }, null, 2)}\n\`\`\``;
         }
-      } else if (context && context.matchedHoldings && context.matchedHoldings.length > 1) {
+      } else if (!fallbackMsg && context && context.matchedHoldings && context.matchedHoldings.length > 1) {
         fallbackMsg = `Based on your portfolio records, you hold **${context.matchedHoldings.length} stocks** matching your query:\n\n`;
         context.matchedHoldings.forEach(h => {
           fallbackMsg += `* **${h.symbol}** (${h.sector}): **${h.qty.toLocaleString()} shares** | Valuation: ${h.currentValuation} (${h.weightInEquity}% of equity) | Return: +${h.holdingGainPct}%\n`;
         });
-      } else if (context && context.targetHolding) {
+        fallbackMsg += `\n\`\`\`chart:bar\n${JSON.stringify({
+          title: `Holding Value: ${context.matchedHoldings.map(h => h.symbol).join(', ')}`,
+          labels: context.matchedHoldings.map(h => h.symbol),
+          data: context.matchedHoldings.map(h => h.gainPct || h.holdingGainPct || 0)
+        }, null, 2)}\n\`\`\``;
+      } else if (!fallbackMsg && context && context.targetHolding) {
         const th = context.targetHolding;
         const benchText = context.benchmark ? `\n* **Benchmark (${context.benchmark.name})**: Return: **+${context.benchmark.periodReturnPct}%**\n* **Alpha**: **+${(th.holdingGainPct - context.benchmark.periodReturnPct).toFixed(2)}%**` : '';
-        fallbackMsg = `Based on your portfolio records for **${th.symbol}** (${th.sector}):\n\n` +
-          `* **Holding Period Return**: **+${th.holdingGainPct}%** (Avg Cost: ₹${th.avgCost} vs LTP: ₹${th.currentPrice})\n` +
-          `* **Quantity Held**: **${th.qty.toLocaleString()} shares** (${th.weightInEquity}% of equity)${benchText}\n\n` +
-          `*(Note: Offline fallback mode. Analytical metrics computed directly from in-memory records.)*`;
-      } else {
-        fallbackMsg = `I am unable to reach the online AI service right now. You can continue asking about your portfolio holdings, asset allocation, or net worth trend offline.`;
+        fallbackMsg = `You currently hold **${th.qty.toLocaleString()} shares** of **${th.symbol}** (${th.sector}):\n\n` +
+          `* **Holding Period Return**: **+${th.holdingGainPct}%** (Avg Buy Price: ₹${th.avgCost} vs LTP: ₹${th.currentPrice})\n` +
+          `* **Current Valuation**: **${th.currentValuation}** (${th.weightInEquity}% of total equity)\n` +
+          `* **Unrealized Gain**: **+${th.holdingGainPct}%**${benchText}\n`;
+
+        if (context.benchmark) {
+          fallbackMsg += `\n\`\`\`chart:bar\n${JSON.stringify({
+            title: `Holding Return vs ${context.benchmark.name} (%)`,
+            labels: [th.symbol, context.benchmark.name],
+            data: [th.holdingGainPct, context.benchmark.periodReturnPct]
+          }, null, 2)}\n\`\`\``;
+        }
+      } else if (!fallbackMsg && userQuery.toLowerCase().includes('gold') && context && context.goldExposure) {
+        const ge = context.goldExposure;
+        fallbackMsg = `You currently hold **${ge.instruments.join(', ')}** with a total valuation of **${ge.totalValue}** (**${ge.weightInEquity}%** of your equity portfolio, **${ge.weightInNetWorth}%** of total net worth).\n\n` +
+          `**Asset Allocation Insights:**\n` +
+          `* **Recommended Target:** Institutional guidelines typically recommend keeping **5% to 10%** in gold as a crisis hedge, portfolio stabilizer, and currency depreciation offset.\n` +
+          `* **Your Current Position:** At **${ge.weightInNetWorth}%**, your gold allocation is positioned at a conservative hedge level. If your equity allocation is elevated or you anticipate market volatility, incrementally increasing toward 8–10% through SGBs or Gold ETFs can enhance downside protection.\n`;
+
+        if (context.allocation && context.allocation.length > 0) {
+          fallbackMsg += `\n\`\`\`chart:doughnut\n${JSON.stringify({
+            title: "Current Asset Allocation Breakdown",
+            labels: context.allocation.map(a => a.assetClass),
+            data: context.allocation.map(a => a.percentage)
+          }, null, 2)}\n\`\`\``;
+        }
+      } else if (!fallbackMsg && (userQuery.toLowerCase().includes('net worth') || userQuery.toLowerCase().includes('growth') || userQuery.toLowerCase().includes('trend')) && context && context.netWorthTrend && context.netWorthTrend.length > 1) {
+        fallbackMsg = `Your total portfolio net worth stands at **${context.netWorth}**.\n\n` +
+          `* **Net Worth Trajectory:** Steady capital appreciation across your equity, mutual funds, real estate, and fixed-income assets.\n`;
+
+        fallbackMsg += `\n\`\`\`chart:line\n${JSON.stringify({
+          title: "Net Worth Growth Trend (₹ Lakhs)",
+          labels: context.netWorthTrend.map(p => p.date),
+          data: context.netWorthTrend.map(p => p.value)
+        }, null, 2)}\n\`\`\``;
+      } else if (!fallbackMsg) {
+        fallbackMsg = `Cloudflare Workers AI daily allocation (10,000 neurons) is currently reached for today. However, Portfolio Copilot continues to run in offline analytical mode with full access to your decrypted portfolio data, live fundamentals, stock comparisons, and charts.`;
       }
       appendMessage('assistant', fallbackMsg, false);
       chatHistory.push({ role: 'user', content: userQuery });
@@ -1885,6 +2092,7 @@ User Question: ${promptText}`;
     // Exposed helpers for testing and verification
     solveLocallyIfPossible,
     detectTickerQuery,
+    detectTickersQuery,
     buildPortfolioContext,
     isAnalyticalOrComparative,
     isValuationQuery,

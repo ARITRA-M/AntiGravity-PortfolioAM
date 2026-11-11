@@ -4057,6 +4057,34 @@ table tbody:empty::after {
   margin-bottom: 0.25rem;
 }
 
+/* Copilot Markdown Tables */
+.copilot-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin: 0.65rem 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.45);
+}
+.copilot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  text-align: left;
+}
+.copilot-table th, .copilot-table td {
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.copilot-table th {
+  background: rgba(255, 255, 255, 0.05);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+.copilot-table tr:last-child td {
+  border-bottom: none;
+}
+
 /* Inline Dynamic Charts */
 .copilot-chart-card {
   margin: 0.75rem 0 0.25rem;

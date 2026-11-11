@@ -416,4 +416,28 @@ while ((tdMatch = tdRegex.exec(ratiosHtml)) !== null) {
 assert.deepStrictEqual(cells, [39, 25, 27]);
 console.log('  ✓ Oracle/OFSS alias, sector disambiguation, and ROCE extraction verified');
 
+// 6d. Verify multi-ticker comparative extraction & comparedFundamentals context
+assert.ok(typeof assistantModule.detectTickersQuery === 'function', 'detectTickersQuery must be exported');
+const compTickers = assistantModule.detectTickersQuery("How does ITC's ROCE compare with HUL?");
+assert.deepStrictEqual(compTickers, ['ITC', 'HINDUNILVR'], 'Comparative query must detect both ITC and HINDUNILVR in prompt order');
+
+const compTech = assistantModule.detectTickersQuery('Compare TCS with Infosys on PE ratio');
+assert.deepStrictEqual(compTech, ['TCS', 'INFY'], 'Comparative query must detect TCS and INFY');
+
+const goldQueryTickers = assistantModule.detectTickersQuery('Should I increase my gold allocation now?');
+assert.deepStrictEqual(goldQueryTickers, [], 'Broad gold query must not mistakenly match "SHOULD" as a ticker');
+
+// Verify context generation with comparedFundamentals
+const mockItcFund = { symbol: 'ITC', companyName: 'ITC Ltd', latestRoce: 38.9, latestRoe: 29.3, latestPe: 18.9, bookValue: 57, marketCap: '₹357544 Cr' };
+const mockHulFund = { symbol: 'HINDUNILVR', companyName: 'Hindustan Unilever', latestRoce: 28.4, latestRoe: 31.0, latestPe: 42.4, bookValue: 208, marketCap: '₹474776 Cr' };
+const compContext = assistantModule.buildPortfolioContext('ITC', null, mockItcFund, "How does ITC's ROCE compare with HUL?", [mockHulFund]);
+
+assert.ok(compContext.comparedFundamentals, 'Context must include comparedFundamentals array');
+assert.strictEqual(compContext.comparedFundamentals.length, 1);
+assert.strictEqual(compContext.comparedFundamentals[0].symbol, 'HINDUNILVR');
+assert.strictEqual(compContext.comparedFundamentals[0].latestRoce, '28.4%');
+assert.strictEqual(compContext.comparedFundamentals[0].latestRoe, '31%');
+assert.strictEqual(compContext.comparedFundamentals[0].currentPe, 42.4);
+console.log('  ✓ Multi-ticker extraction and multi-stock comparison context verified');
+
 console.log('\nAll 6 Portfolio Copilot tests passed successfully!\n');
