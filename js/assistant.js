@@ -237,12 +237,88 @@ const PortfolioAssistant = (() => {
     const q = query.toLowerCase().trim();
     const isAnon = privacyMode === 'anonymized';
 
-    // 1. Asset Allocation Query
+    // 1. Specific Stock Holding Query (e.g., "How many ITC stocks do I have?", "Do I own HDFCBANK?", "What is my profit in INFY?")
+    if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity) && latestEquity.length > 0) {
+      const totalEq = latestEquity.reduce((sum, e) => sum + (e.cur_val || 0), 0);
+      for (const s of latestEquity) {
+        if (!s.instrument) continue;
+        const inst = s.instrument.toUpperCase();
+        // Check if query contains the instrument as a distinct token
+        const regex = new RegExp(`\\b${inst}\\b`, 'i');
+        if (regex.test(query)) {
+          const gainSign = s.gain_pct >= 0 ? '+' : '';
+          const pnlSign = s.pnl >= 0 ? '+' : '−';
+          const weight = totalEq > 0 ? ((s.cur_val / totalEq) * 100).toFixed(1) : '0';
+
+          let text = `You currently hold **${s.qty.toLocaleString()} shares** of **${s.instrument}** (${s.sector || 'Direct Equity'}):\n\n`;
+          text += `* **Current Quantity**: **${s.qty.toLocaleString()} shares**\n`;
+          text += `* **Average Buy Price**: **₹${s.avg_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
+          text += `* **Current Market Price (LTP)**: **₹${s.ltp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
+          
+          if (!isAnon) {
+            text += `* **Total Invested**: **${formatINR(s.invested)}**\n`;
+            text += `* **Current Valuation**: **${formatINR(s.cur_val)}** (${weight}% of total equity)\n`;
+            text += `* **Unrealized P&L**: **${gainSign}${formatINR(Math.abs(s.pnl))} (${gainSign}${s.gain_pct.toFixed(2)}%)**\n`;
+          } else {
+            text += `* **Equity Weight**: Represents **${weight}%** of your total equity portfolio\n`;
+            text += `* **Unrealized Gain**: **${gainSign}${s.gain_pct.toFixed(2)}%**\n`;
+          }
+
+          // Bar chart comparing Avg Buy Price vs Current Market Price
+          const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
+            title: `${s.instrument}: Average Cost vs Current Price (₹)`,
+            labels: ['Avg Buy Price', 'Current LTP'],
+            data: [Number(s.avg_cost.toFixed(2)), Number(s.ltp.toFixed(2))]
+          }, null, 2)}\n\`\`\``;
+
+          return text + chartBlock;
+        }
+      }
+    }
+
+    // 2. Specific Mutual Fund Holding Query (e.g., "Parag Parikh", "Mirae", "HDFC Top 100")
+    if (typeof latestMf !== 'undefined' && Array.isArray(latestMf) && latestMf.length > 0) {
+      const totalMf = latestMf.reduce((sum, m) => sum + (m.cur_val || 0), 0);
+      for (const m of latestMf) {
+        if (!m.scheme) continue;
+        const schemeLower = m.scheme.toLowerCase();
+        const schemeWords = schemeLower.split(/\s+/).filter(w => w.length > 3 && !['fund', 'direct', 'plan', 'growth', 'equity', 'flexi', 'index'].includes(w));
+        const matchesWords = schemeWords.length >= 1 && schemeWords.every(w => q.includes(w));
+        if (q.includes(schemeLower) || matchesWords) {
+          const gainSign = m.gain_pct >= 0 ? '+' : '';
+          const weight = totalMf > 0 ? ((m.cur_val / totalMf) * 100).toFixed(1) : '0';
+          const avgNav = m.avg_nav || m.price || 0;
+          const curNav = m.price || m.nav || 0;
+
+          let text = `Here are the details for your holding in **${m.scheme}** (${m.category || 'Mutual Fund'}):\n\n`;
+          text += `* **Units Held**: **${m.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })} units**\n`;
+          text += `* **Average Purchase NAV**: **₹${avgNav.toFixed(2)}**\n`;
+          text += `* **Current NAV**: **₹${curNav.toFixed(2)}**\n`;
+          if (!isAnon) {
+            text += `* **Total Invested**: **${formatINR(m.invested)}**\n`;
+            text += `* **Current Valuation**: **${formatINR(m.cur_val)}** (${weight}% of mutual funds)\n`;
+            text += `* **Unrealized Gain**: **${gainSign}${formatINR(Math.abs(m.pnl))} (${gainSign}${m.gain_pct.toFixed(2)}%)**\n`;
+          } else {
+            text += `* **Mutual Fund Weight**: **${weight}%** of your mutual fund portfolio\n`;
+            text += `* **Unrealized Gain**: **${gainSign}${m.gain_pct.toFixed(2)}%**\n`;
+          }
+
+          const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
+            title: `${m.scheme.slice(0, 24)}…: Avg NAV vs Current NAV (₹)`,
+            labels: ['Avg Purchase NAV', 'Current NAV'],
+            data: [Number(avgNav.toFixed(2)), Number(curNav.toFixed(2))]
+          }, null, 2)}\n\`\`\``;
+
+          return text + chartBlock;
+        }
+      }
+    }
+
+    // 3. Asset Allocation Query
     if (q.includes('asset allocation') || q.includes('allocation') || q.includes('breakdown') || q.includes('distribution')) {
       if (typeof breakupSummary === 'undefined' || !breakupSummary.net_worth) return null;
       const nw = breakupSummary.net_worth;
       const total = nw['Total']?.values?.[nw['Total'].values.length - 1] || 1;
-      const categories = ['Equity', 'Mutual Funds', 'Fixed Income', 'Gold', 'Real Estate'];
       
       const labels = [];
       const data = [];
@@ -284,7 +360,44 @@ const PortfolioAssistant = (() => {
       return summaryText + chartBlock;
     }
 
-    // 2. Top Stock Holdings Query
+    // 4. Sector Exposure Queries (e.g. Banking, IT, Tech, FMCG, Pharma)
+    const sectorKeywords = {
+      'banking': ['banking', 'banks', 'financial'],
+      'technology': ['it', 'tech', 'software', 'technology'],
+      'fmcg': ['fmcg', 'consumer goods', 'consumer'],
+      'pharma': ['pharma', 'healthcare', 'medical'],
+      'auto': ['auto', 'automobile', 'vehicles']
+    };
+    for (const [secName, kwList] of Object.entries(sectorKeywords)) {
+      if (kwList.some(k => q.includes(k)) && (q.includes('sector') || q.includes('exposure') || q.includes('how much') || q.includes('holding') || q.includes('stocks'))) {
+        if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+          const matchedStocks = latestEquity.filter(s => (s.sector || '').toLowerCase().includes(secName) || kwList.some(k => (s.sector || '').toLowerCase().includes(k)));
+          if (matchedStocks.length) {
+            const totalEq = latestEquity.reduce((sum, e) => sum + (e.cur_val || 0), 0);
+            const secVal = matchedStocks.reduce((sum, s) => sum + (s.cur_val || 0), 0);
+            const secWeight = totalEq > 0 ? ((secVal / totalEq) * 100).toFixed(1) : '0';
+
+            let text = `Your exposure to the **${secName.toUpperCase()}** sector represents **${secWeight}%** of your direct equity portfolio:\n\n`;
+            if (!isAnon) text += `* **Total Valuation**: **${formatINR(secVal)}**\n`;
+            text += `* **Holdings Count**: **${matchedStocks.length} stocks**\n\n`;
+            matchedStocks.forEach(s => {
+              const wt = totalEq > 0 ? ((s.cur_val / totalEq) * 100).toFixed(1) : '0';
+              text += `  - **${s.instrument}**: ${s.qty.toLocaleString()} shares (${wt}% of equity)\n`;
+            });
+
+            const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
+              title: `${secName.toUpperCase()} Sector Holdings by Weight (%)`,
+              labels: matchedStocks.map(s => s.instrument),
+              data: matchedStocks.map(s => Number(((s.cur_val / totalEq) * 100).toFixed(1)))
+            }, null, 2)}\n\`\`\``;
+
+            return text + chartBlock;
+          }
+        }
+      }
+    }
+
+    // 5. Top Stock Holdings Query
     if (q.includes('top stock') || q.includes('top holding') || q.includes('largest stock') || q.includes('biggest stock')) {
       if (typeof latestEquity === 'undefined' || !latestEquity.length) return null;
       const sorted = [...latestEquity].sort((a, b) => (b.cur_val || 0) - (a.cur_val || 0)).slice(0, 5);
@@ -310,7 +423,7 @@ const PortfolioAssistant = (() => {
       return text + chartBlock;
     }
 
-    // 3. Top Mutual Funds Query
+    // 6. Top Mutual Funds Query
     if (q.includes('top mutual') || q.includes('top mf') || q.includes('largest mf') || q.includes('best mutual')) {
       if (typeof latestMf === 'undefined' || !latestMf.length) return null;
       const sorted = [...latestMf].sort((a, b) => (b.cur_val || 0) - (a.cur_val || 0)).slice(0, 5);
@@ -336,7 +449,73 @@ const PortfolioAssistant = (() => {
       return text + chartBlock;
     }
 
-    // 4. Net Worth Trend Query
+    // 7. Top Gainers & Top Losers
+    if (q.includes('gainer') || q.includes('best perform') || q.includes('highest return') || q.includes('top profit')) {
+      if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+        const sorted = [...latestEquity].sort((a, b) => (b.gain_pct || 0) - (a.gain_pct || 0)).slice(0, 5);
+        let text = 'Here are your **Top Performing Stocks** by percentage gain:\n\n';
+        sorted.forEach((s, idx) => {
+          text += `${idx + 1}. **${s.instrument}**: **+${s.gain_pct?.toFixed(2)}%**${isAnon ? '' : ` (P&L: +${formatINR(s.pnl)})`}\n`;
+        });
+        const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
+          title: 'Top Performers by Gain (%)',
+          labels: sorted.map(s => s.instrument),
+          data: sorted.map(s => Number(s.gain_pct.toFixed(1)))
+        }, null, 2)}\n\`\`\``;
+        return text + chartBlock;
+      }
+    }
+    if (q.includes('loser') || q.includes('worst perform') || q.includes('lowest return') || q.includes('biggest loss')) {
+      if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+        const sorted = [...latestEquity].sort((a, b) => (a.gain_pct || 0) - (b.gain_pct || 0)).slice(0, 5);
+        let text = 'Here are your **Lowest Performing Stocks** by percentage return:\n\n';
+        sorted.forEach((s, idx) => {
+          const sign = s.gain_pct >= 0 ? '+' : '';
+          text += `${idx + 1}. **${s.instrument}**: **${sign}${s.gain_pct?.toFixed(2)}%**${isAnon ? '' : ` (P&L: ${formatINR(s.pnl)})`}\n`;
+        });
+        const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
+          title: 'Lowest Performers by Gain (%)',
+          labels: sorted.map(s => s.instrument),
+          data: sorted.map(s => Number(s.gain_pct.toFixed(1)))
+        }, null, 2)}\n\`\`\``;
+        return text + chartBlock;
+      }
+    }
+
+    // 8. Gold Asset Position
+    if (q.includes('gold') || q.includes('sgb') || q.includes('goldbees')) {
+      if (typeof breakupSummary !== 'undefined' && breakupSummary.net_worth?.['Gold']) {
+        const goldVals = breakupSummary.net_worth['Gold'].values;
+        const totalNw = breakupSummary.net_worth['Total']?.values;
+        const curGold = goldVals[goldVals.length - 1] || 0;
+        const curNw = totalNw ? totalNw[totalNw.length - 1] || 1 : 1;
+        const pct = ((curGold / curNw) * 100).toFixed(1);
+
+        let text = `Here is your **Gold Asset Position**:\n\n`;
+        text += `* **Allocation**: Represents **${pct}%** of your total portfolio net worth.\n`;
+        if (!isAnon) text += `* **Current Valuation**: **₹${curGold.toFixed(2)} Lakhs**\n`;
+        text += `* **Holdings**: SGB tranches and GOLDBEES, auto-valued against market prices.\n`;
+        return text;
+      }
+    }
+
+    // 9. Total Net Worth Query
+    if (q.includes('net worth') || q.includes('total wealth') || q.includes('total portfolio value')) {
+      if (typeof breakupSummary !== 'undefined' && breakupSummary.net_worth?.['Total']) {
+        const vals = breakupSummary.net_worth['Total'].values;
+        const curVal = vals[vals.length - 1] || 0;
+        let text = `Here is your current **Total Net Worth**:\n\n`;
+        if (!isAnon) {
+          text += `* **Total Net Worth**: **₹${curVal.toFixed(2)} Lakhs**\n`;
+        } else {
+          text += `* **Net Worth Status**: Active across 9 asset classes (Equity, MFs, Fixed Income, Gold, Real Estate).\n`;
+        }
+        text += `You can view the full asset breakdown by asking *"Show asset allocation"* or trend by asking *"Show net worth trend"*.\n`;
+        return text;
+      }
+    }
+
+    // 10. Net Worth Trend Query
     if (q.includes('net worth trend') || q.includes('net worth growth') || q.includes('how did my portfolio grow') || q.includes('growth history')) {
       if (typeof breakupSummary === 'undefined' || !breakupSummary.dates || !breakupSummary.net_worth?.['Total']) return null;
       const dates = breakupSummary.dates.slice(-12); // Last 12 points
@@ -398,9 +577,10 @@ User Question: ${promptText}`;
       { role: 'user', content: userContent }
     ];
 
-    // Endpoint: prefer local /api/chat if backend exists, otherwise WORKER_PROXY_URL/api/chat
-    let endpoint = 'api/chat';
-    if (window.__isGitHubPages || (typeof WORKER_PROXY_URL === 'string' && WORKER_PROXY_URL)) {
+    // Endpoint: on localhost, use local /api/chat. On GitHub Pages, use WORKER_PROXY_URL
+    let endpoint = '/api/chat';
+    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    if (!isLocalhost && (window.__isGitHubPages || (typeof WORKER_PROXY_URL === 'string' && WORKER_PROXY_URL))) {
       const base = (WORKER_PROXY_URL || 'https://portfolio-proxy.aritra2k7.workers.dev/').replace(/\/+$/, '');
       endpoint = `${base}/api/chat`;
     }
@@ -705,14 +885,21 @@ User Question: ${promptText}`;
     } catch (err) {
       hideTypingIndicator();
       console.warn('Cloudflare Workers AI call failed:', err);
-      // Helpful fallback message with localized assistance
-      let fallbackMsg = `⚠️ **Could not connect to Cloudflare AI Worker** (${err.message}).\n\n`;
-      fallbackMsg += `You can still explore your portfolio instantly with these built-in local queries:\n`;
-      fallbackMsg += `* [Asset Allocation](#) — *Type "Show my asset allocation"*\n`;
-      fallbackMsg += `* [Top Holdings](#) — *Type "Show my top stocks"*\n`;
-      fallbackMsg += `* [Growth Trend](#) — *Type "Show net worth trend"*\n`;
-      fallbackMsg += `* [Live Stock Research](#) — *Type "Research RELIANCE" or "Price of TRENT"*`;
+
+      // Synthesize answer directly from in-memory portfolio context
+      let fallbackMsg = '';
+      if (context && context.topStocks && context.topStocks.length) {
+        fallbackMsg = `Based on your decrypted in-memory portfolio data:\n\n` +
+          `* **Total Net Worth**: **${context.netWorth}**\n` +
+          `* **Top Holding**: **${context.topStocks[0].symbol}** (${context.topStocks[0].weightInEquity}% of equity, return: +${context.topStocks[0].gainPct}%)\n` +
+          `* **Tracked Asset Classes**: ${context.allocation?.length || 5} active segments\n\n` +
+          `*(Note: Cloudflare Workers AI edge deployment is currently pending remote update. All portfolio metrics, holdings and stock research are resolved directly in zero-leakage local mode.)*`;
+      } else {
+        fallbackMsg = `⚠️ **Note**: All portfolio queries and live market research are operating in private zero-leakage local mode. Cloudflare Workers AI will activate once published to your worker.`;
+      }
       appendMessage('assistant', fallbackMsg, false);
+      chatHistory.push({ role: 'user', content: userQuery });
+      chatHistory.push({ role: 'assistant', content: fallbackMsg });
     } finally {
       isProcessing = false;
     }

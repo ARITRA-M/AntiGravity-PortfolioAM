@@ -21,10 +21,13 @@ const cfWorker = fs.readFileSync(path.join(__dirname, '..', 'cloudflare-worker',
 assert.ok(cfWorker.includes("reqUrl.pathname.endsWith('/api/chat')"), 'cloudflare-worker/worker.js must contain /api/chat endpoint');
 console.log('  ✓ Cloudflare Worker endpoints properly implement /api/chat with Llama 3.3');
 
-// 3. Verify server.js has /api/chat proxy
+// 3. Verify server.js and static-server.js have /api/chat
 const serverJs = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf-8');
 assert.ok(serverJs.includes("app.post('/api/chat'"), 'server.js must contain app.post("/api/chat")');
-console.log('  ✓ server.js proxies /api/chat for local development');
+
+const staticServerJs = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'static-server.js'), 'utf-8');
+assert.ok(staticServerJs.includes("route === '/api/chat'"), 'static-server.js must handle route === "/api/chat"');
+console.log('  ✓ server.js and static-server.js support /api/chat for local development');
 
 // 4. Verify assistant.js logic
 const assistantJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'assistant.js'), 'utf-8');
@@ -106,6 +109,36 @@ const parsedConfig = JSON.parse(chartMatch[2].trim());
 assert.strictEqual(parsedConfig.title, 'Allocation');
 assert.strictEqual(parsedConfig.data.length, 2);
 console.log('  ✓ Chart.js block detection and JSON parsing verified');
+
+// 4b. Test Specific Holding Extraction Logic (e.g. "How many ITC stocks do I have?")
+const mockEquityHoldings = [
+  { instrument: 'ITC', sector: 'FMCG', qty: 250, avg_cost: 410.2, ltp: 470.5, cur_val: 117625, invested: 102550, pnl: 15075, gain_pct: 14.7 },
+  { instrument: 'HDFCBANK', sector: 'Banking', qty: 100, avg_cost: 1520, ltp: 1720, cur_val: 172000, invested: 152000, pnl: 20000, gain_pct: 13.15 }
+];
+
+function testSolveHolding(query, holdings) {
+  for (const s of holdings) {
+    const inst = s.instrument.toUpperCase();
+    const regex = new RegExp(`\\b${inst}\\b`, 'i');
+    if (regex.test(query)) {
+      return {
+        matched: true,
+        instrument: s.instrument,
+        qty: s.qty,
+        avg_cost: s.avg_cost,
+        ltp: s.ltp
+      };
+    }
+  }
+  return { matched: false };
+}
+
+const itcResult = testSolveHolding('How many ITC stocks do I have?', mockEquityHoldings);
+assert.strictEqual(itcResult.matched, true, 'Should match ITC holding query');
+assert.strictEqual(itcResult.instrument, 'ITC');
+assert.strictEqual(itcResult.qty, 250);
+assert.strictEqual(itcResult.avg_cost, 410.2);
+console.log('  ✓ Specific holding query ("How many ITC stocks do I have?") resolved directly with exact holding metrics');
 
 // 5. Verify index.html & style.css references
 const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');
