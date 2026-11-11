@@ -6,5 +6,8 @@
   "vars": {
     "GITHUB_REPO": "ARITRA-M/AntiGravity-PortfolioAM",
     "GITHUB_BRANCH": "main"
+  },
+  "ai": {
+    "binding": "AI"
   }
 }

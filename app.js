@@ -7980,6 +7980,12 @@ if (typeof document !== 'undefined') {
     if (e.key === 'Escape') {
       const modal = document.getElementById('instrument-detail-modal');
       const xrayModal = document.getElementById('xray-slice-modal');
+      const copilotModal = document.getElementById('copilot-modal');
+      if (copilotModal && copilotModal.style.display !== 'none') {
+        e.preventDefault();
+        if (typeof closeCopilot === 'function') closeCopilot();
+        return;
+      }
       if (modal && modal.style.display !== 'none') {
         e.preventDefault();
         closeInstrumentDetailModal();

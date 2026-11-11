@@ -114,6 +114,64 @@ export default {
       }
     }
 
+    // --- 2. Cloudflare Workers AI Chat Endpoint ---
+    if (request.method === 'POST' && reqUrl.pathname.endsWith('/api/chat')) {
+      try {
+        const payload = await request.json();
+        const { messages, model = '@cf/meta/llama-3.3-70b-instruct', systemPrompt } = payload;
+
+        if (!env || !env.AI) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Cloudflare Workers AI binding (env.AI) not configured. Add "ai": { "binding": "AI" } to wrangler.json.'
+          }), { status: 503, headers: { ...CORS, 'Content-Type': 'application/json' } });
+        }
+
+        const chatMessages = [];
+        if (systemPrompt) {
+          chatMessages.push({ role: 'system', content: systemPrompt });
+        }
+        if (Array.isArray(messages)) {
+          chatMessages.push(...messages);
+        }
+
+        let aiResult;
+        try {
+          aiResult = await env.AI.run(model, {
+            messages: chatMessages,
+            max_tokens: 1800,
+            temperature: 0.3
+          });
+        } catch (mErr) {
+          // Graceful fallback to 8B model if 70B is congested
+          if (model !== '@cf/meta/llama-3.1-8b-instruct') {
+            aiResult = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+              messages: chatMessages,
+              max_tokens: 1800,
+              temperature: 0.3
+            });
+          } else {
+            throw mErr;
+          }
+        }
+
+        const reply = typeof aiResult === 'string'
+          ? aiResult
+          : (aiResult.response || aiResult.text || JSON.stringify(aiResult));
+
+        return new Response(JSON.stringify({
+          success: true,
+          response: reply
+        }), { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+
+      } catch (err) {
+        return new Response(JSON.stringify({ success: false, error: err.message }), {
+          status: 500,
+          headers: { ...CORS, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // --- 2. CORS Proxy Endpoint ---
     const target = reqUrl.searchParams.get('url');
     if (target) {

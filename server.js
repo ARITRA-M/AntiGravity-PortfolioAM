@@ -499,6 +499,22 @@ app.get('/api/search-mf-scheme', async (req, res) => {
   }
 });
 
+// ── AI Portfolio Copilot chat endpoint ──────────────────────────────────
+app.post('/api/chat', async (req, res) => {
+  try {
+    const workerUrl = (process.env.WORKER_PROXY_URL || 'https://portfolio-proxy.aritra2k7.workers.dev/').replace(/\/+$/, '') + '/api/chat';
+    const upstream = await fetch(workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body)
+    });
+    const data = await upstream.json();
+    return res.status(upstream.status).json(data);
+  } catch (err) {
+    return res.status(502).json({ success: false, error: 'Failed to contact Cloudflare AI Worker: ' + err.message });
+  }
+});
+
 // ── Commit portfolio data to GitHub (one-click deploy) ───────────────────
 const ALLOWED_SAVE_KEYS = new Set(['portfolio_summary', 'breakup_summary', 'latest_equity', 'latest_mf', 'historical_holdings',
   'ledger_transactions', 'ledger_balances', 'ledger_frozen_base']);
