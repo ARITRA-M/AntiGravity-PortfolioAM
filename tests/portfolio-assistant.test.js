@@ -112,11 +112,77 @@ assert.strictEqual(parsedConfig.title, 'Allocation');
 assert.strictEqual(parsedConfig.data.length, 2);
 console.log('  ✓ Chart.js block detection and JSON parsing verified');
 
-// 4b. Test Intent Classification & Comparative Performance Delegation
+// 4b. Test Intent Classification, Alias Resolution & Holding Matching
 const mockEquityHoldings = [
   { instrument: 'ITC', sector: 'Consumer Goods & FMCG', qty: 788, avg_cost: 206.55, ltp: 285.05, cur_val: 224619, invested: 162761, pnl: 61858, gain_pct: 38.01 },
-  { instrument: 'HDFCBANK', sector: 'Banking', qty: 100, avg_cost: 1520, ltp: 1720, cur_val: 172000, invested: 152000, pnl: 20000, gain_pct: 13.15 }
+  { instrument: 'HDFCBANK', sector: 'Banking', qty: 100, avg_cost: 1520, ltp: 1720, cur_val: 172000, invested: 152000, pnl: 20000, gain_pct: 13.15 },
+  { instrument: 'ICICIBANK', sector: 'Banking & Financial Services', qty: 120, avg_cost: 1050, ltp: 1280, cur_val: 153600, invested: 126000, pnl: 27600, gain_pct: 21.90 },
+  { instrument: 'ICICIGI', sector: 'Insurance', qty: 50, avg_cost: 1450, ltp: 1720, cur_val: 86000, invested: 72500, pnl: 13500, gain_pct: 18.62 }
 ];
+
+// Verify STOCK_ALIASES in assistant.js
+assert.ok(assistantJs.includes('const STOCK_ALIASES'), 'assistant.js must define STOCK_ALIASES');
+assert.ok(assistantJs.includes("'ICICI':"), 'STOCK_ALIASES must include ICICI');
+assert.ok(assistantJs.includes("'HUL':"), 'STOCK_ALIASES must include HUL');
+assert.ok(assistantJs.includes("'HINDUNILVR'"), 'STOCK_ALIASES must map HUL to HINDUNILVR');
+assert.ok(assistantJs.includes('findMatchingHoldings'), 'assistant.js must define findMatchingHoldings');
+assert.ok(assistantJs.includes('portfolioHoldings'), 'assistant.js must provide full portfolioHoldings');
+assert.ok(assistantJs.includes('allOwnedStockSymbols'), 'assistant.js must provide allOwnedStockSymbols');
+assert.ok(assistantJs.includes('NEVER say "as it is not listed in your top stocks holdings"'), 'assistant.js prompt must forbid top stocks disclaimer');
+
+// Replicate findMatchingHoldings logic for unit test
+const TEST_ALIASES = {
+  'ICICI BANK': { symbols: ['ICICIBANK'], name: 'ICICI Bank' },
+  'ICICI': { symbols: ['ICICIBANK', 'ICICIGI', 'ICICIPRULI'], name: 'ICICI Group', isGroup: true },
+  'HUL': { symbols: ['HINDUNILVR'], name: 'Hindustan Unilever (HUL)' },
+  'HDFCBANK': { symbols: ['HDFCBANK'], name: 'HDFC Bank' }
+};
+
+function testFindMatchingHoldings(query, holdingsList) {
+  const q = query.trim().toUpperCase();
+  const sorted = Object.keys(TEST_ALIASES).sort((a, b) => b.length - a.length);
+  for (const alias of sorted) {
+    const escaped = alias.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const rx = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i');
+    if (rx.test(q)) {
+      const entry = TEST_ALIASES[alias];
+      const targetSymbols = entry.symbols || [];
+      const matched = holdingsList.filter(h => {
+        const inst = (h.instrument || '').toUpperCase();
+        return targetSymbols.some(ts => ts === inst || inst.startsWith(ts));
+      });
+      return { matches: matched, queriedGroup: alias, targetSymbols, entry };
+    }
+  }
+  for (const h of holdingsList) {
+    if (!h.instrument) continue;
+    const inst = h.instrument.toUpperCase();
+    const rx = new RegExp(`(^|[^A-Z0-9])${inst}([^A-Z0-9]|$)`, 'i');
+    if (rx.test(q)) {
+      return { matches: [h], queriedGroup: inst, targetSymbols: [inst], entry: { symbols: [inst], name: inst } };
+    }
+  }
+  return { matches: [], queriedGroup: null, targetSymbols: [] };
+}
+
+// Test Group Matching: "How many ICICI do I own?" matches BOTH ICICIBANK and ICICIGI
+const iciciMatch = testFindMatchingHoldings('How many ICICI do I own?', mockEquityHoldings);
+assert.strictEqual(iciciMatch.matches.length, 2, 'ICICI group query must match both ICICIBANK and ICICIGI');
+assert.ok(iciciMatch.matches.some(m => m.instrument === 'ICICIBANK'), 'Must include ICICIBANK');
+assert.ok(iciciMatch.matches.some(m => m.instrument === 'ICICIGI'), 'Must include ICICIGI');
+
+// Test Specific Alias Matching: "How many ICICI Bank shares do I own?" matches ONLY ICICIBANK
+const iciciBankMatch = testFindMatchingHoldings('How many ICICI Bank shares do I own?', mockEquityHoldings);
+assert.strictEqual(iciciBankMatch.matches.length, 1, 'ICICI Bank query must match exactly 1 holding');
+assert.strictEqual(iciciBankMatch.matches[0].instrument, 'ICICIBANK');
+
+// Test Non-Held Alias: "How many HUL stocks do i own?" resolves to HINDUNILVR with 0 holdings
+const hulMatch = testFindMatchingHoldings('How many HUL stocks do i own?', mockEquityHoldings);
+assert.strictEqual(hulMatch.matches.length, 0, 'HUL must have 0 holdings in mock portfolio');
+assert.strictEqual(hulMatch.targetSymbols[0], 'HINDUNILVR', 'HUL must map to HINDUNILVR');
+assert.strictEqual(hulMatch.entry.name, 'Hindustan Unilever (HUL)');
+
+console.log('  ✓ Stock alias resolution & multi-holding matching (ICICI -> Bank + GI, HUL -> HINDUNILVR) confirmed');
 
 function isAnalyticalOrComparative(query) {
   return /\b(compare|comparison|relative|vs|versus|against|index|benchmark|fmcg|sector|trend|history|historical|why|analysis|research|recommend|should i|underperform|outperform|cagr|alpha|beta|valuation|pe|pb|dividend|growth|outlook|holding period|timeline)\b/i.test(query);

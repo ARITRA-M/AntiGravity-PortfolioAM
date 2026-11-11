@@ -18,8 +18,213 @@ const PortfolioAssistant = (() => {
     return '₹' + Number(val).toLocaleString('en-IN');
   }
 
+  // ── Indian Stock & Group Alias Dictionary ─────────────────────────────────
+  const STOCK_ALIASES = {
+    // ICICI
+    'ICICI BANK': { symbols: ['ICICIBANK'], name: 'ICICI Bank' },
+    'ICICI GENERAL INSURANCE': { symbols: ['ICICIGI'], name: 'ICICI Lombard General Insurance' },
+    'ICICI LOMBARD': { symbols: ['ICICIGI'], name: 'ICICI Lombard General Insurance' },
+    'ICICI GI': { symbols: ['ICICIGI'], name: 'ICICI Lombard General Insurance' },
+    'ICICI PRUDENTIAL': { symbols: ['ICICIPRULI'], name: 'ICICI Prudential Life Insurance' },
+    'ICICI PRU LIFE': { symbols: ['ICICIPRULI'], name: 'ICICI Prudential Life Insurance' },
+    'ICICI PRU': { symbols: ['ICICIPRULI'], name: 'ICICI Prudential Life Insurance' },
+    'ICICI SECURITIES': { symbols: ['ISEC'], name: 'ICICI Securities' },
+    'ICICI': { symbols: ['ICICIBANK', 'ICICIGI', 'ICICIPRULI', 'ISEC'], name: 'ICICI Group', isGroup: true },
+
+    // HDFC
+    'HDFC BANK': { symbols: ['HDFCBANK'], name: 'HDFC Bank' },
+    'HDFC LIFE': { symbols: ['HDFCLIFE'], name: 'HDFC Life Insurance' },
+    'HDFC AMC': { symbols: ['HDFCAMC'], name: 'HDFC AMC' },
+    'HDFC': { symbols: ['HDFCBANK', 'HDFCLIFE', 'HDFCAMC'], name: 'HDFC Group', isGroup: true },
+
+    // HUL / Unilever
+    'HINDUSTAN UNILEVER': { symbols: ['HINDUNILVR'], name: 'Hindustan Unilever (HUL)' },
+    'HINDUNILVR': { symbols: ['HINDUNILVR'], name: 'Hindustan Unilever (HUL)' },
+    'HUL': { symbols: ['HINDUNILVR'], name: 'Hindustan Unilever (HUL)' },
+    'UNILEVER': { symbols: ['HINDUNILVR'], name: 'Hindustan Unilever (HUL)' },
+
+    // Tata Group
+    'TCS': { symbols: ['TCS'], name: 'Tata Consultancy Services' },
+    'TATA CONSULTANCY': { symbols: ['TCS'], name: 'Tata Consultancy Services' },
+    'TATA MOTORS': { symbols: ['TATAMOTORS'], name: 'Tata Motors' },
+    'TATA STEEL': { symbols: ['TATASTEEL'], name: 'Tata Steel' },
+    'TATA POWER': { symbols: ['TATAPOWER'], name: 'Tata Power' },
+    'TATA CONSUMER': { symbols: ['TATACONSUM'], name: 'Tata Consumer Products' },
+    'TATA CHEMICALS': { symbols: ['TATACHEM'], name: 'Tata Chemicals' },
+    'TATA ELXSI': { symbols: ['TATAELXSI'], name: 'Tata Elxsi' },
+    'TATA TECH': { symbols: ['TATATECH'], name: 'Tata Technologies' },
+    'TITAN': { symbols: ['TITAN'], name: 'Titan Company' },
+    'VOLTAS': { symbols: ['VOLTAS'], name: 'Voltas' },
+    'TRENT': { symbols: ['TRENT'], name: 'Trent' },
+    'TATA': { symbols: ['TCS', 'TATAMOTORS', 'TATASTEEL', 'TATAPOWER', 'TATACONSUM', 'TITAN', 'VOLTAS', 'TRENT'], name: 'Tata Group', isGroup: true },
+
+    // Reliance
+    'RELIANCE': { symbols: ['RELIANCE'], name: 'Reliance Industries' },
+    'RELIANCE INDUSTRIES': { symbols: ['RELIANCE'], name: 'Reliance Industries' },
+    'RIL': { symbols: ['RELIANCE'], name: 'Reliance Industries (RIL)' },
+    'JIO FINANCIAL': { symbols: ['JIOFIN'], name: 'Jio Financial Services' },
+    'JIO': { symbols: ['JIOFIN'], name: 'Jio Financial Services' },
+
+    // State Bank of India
+    'STATE BANK OF INDIA': { symbols: ['SBIN'], name: 'State Bank of India' },
+    'SBI BANK': { symbols: ['SBIN'], name: 'State Bank of India' },
+    'SBI LIFE': { symbols: ['SBILIFE'], name: 'SBI Life Insurance' },
+    'SBI CARD': { symbols: ['SBICARD'], name: 'SBI Cards' },
+    'SBI CARDS': { symbols: ['SBICARD'], name: 'SBI Cards' },
+    'SBIN': { symbols: ['SBIN'], name: 'State Bank of India' },
+    'SBI': { symbols: ['SBIN', 'SBILIFE', 'SBICARD'], name: 'SBI Group', isGroup: true },
+
+    // Bajaj Group
+    'BAJAJ FINANCE': { symbols: ['BAJFINANCE'], name: 'Bajaj Finance' },
+    'BAJAJ FINSERV': { symbols: ['BAJAJFINSV'], name: 'Bajaj Finserv' },
+    'BAJAJ AUTO': { symbols: ['BAJAJ-AUTO'], name: 'Bajaj Auto' },
+    'BAJAJ HOLDINGS': { symbols: ['BAJAJHLDNG'], name: 'Bajaj Holdings' },
+    'BAJAJ': { symbols: ['BAJFINANCE', 'BAJAJFINSV', 'BAJAJ-AUTO', 'BAJAJHLDNG'], name: 'Bajaj Group', isGroup: true },
+
+    // L&T
+    'LARSEN & TOUBRO': { symbols: ['LT'], name: 'Larsen & Toubro' },
+    'LARSEN AND TOUBRO': { symbols: ['LT'], name: 'Larsen & Toubro' },
+    'L&T INFOTECH': { symbols: ['LTIM'], name: 'LTIMindtree' },
+    'LTIMINDTREE': { symbols: ['LTIM'], name: 'LTIMindtree' },
+    'L&T': { symbols: ['LT', 'LTIM'], name: 'L&T Group', isGroup: true },
+    'LT': { symbols: ['LT', 'LTIM'], name: 'Larsen & Toubro' },
+
+    // Mahindra
+    'MAHINDRA & MAHINDRA': { symbols: ['M&M'], name: 'Mahindra & Mahindra' },
+    'MAHINDRA AND MAHINDRA': { symbols: ['M&M'], name: 'Mahindra & Mahindra' },
+    'M&M': { symbols: ['M&M', 'MMFIN'], name: 'Mahindra Group', isGroup: true },
+    'MAHINDRA': { symbols: ['M&M', 'MMFIN'], name: 'Mahindra Group', isGroup: true },
+
+    // ITC
+    'ITC': { symbols: ['ITC'], name: 'ITC Ltd.' },
+    'ITC LTD': { symbols: ['ITC'], name: 'ITC Ltd.' },
+
+    // Infosys
+    'INFOSYS': { symbols: ['INFY'], name: 'Infosys' },
+    'INFY': { symbols: ['INFY'], name: 'Infosys' },
+
+    // Bharti Airtel
+    'BHARTI AIRTEL': { symbols: ['BHARTIARTL'], name: 'Bharti Airtel' },
+    'AIRTEL': { symbols: ['BHARTIARTL'], name: 'Bharti Airtel' },
+
+    // Kotak
+    'KOTAK BANK': { symbols: ['KOTAKBANK'], name: 'Kotak Mahindra Bank' },
+    'KOTAK MAHINDRA BANK': { symbols: ['KOTAKBANK'], name: 'Kotak Mahindra Bank' },
+    'KOTAK': { symbols: ['KOTAKBANK'], name: 'Kotak Mahindra Bank' },
+
+    // Axis
+    'AXIS BANK': { symbols: ['AXISBANK'], name: 'Axis Bank' },
+    'AXIS': { symbols: ['AXISBANK'], name: 'Axis Bank' },
+
+    // Pharma
+    'SUN PHARMA': { symbols: ['SUNPHARMA'], name: 'Sun Pharma' },
+    'DR REDDY': { symbols: ['DRREDDY'], name: 'Dr. Reddy’s Laboratories' },
+    'DR REDDYS': { symbols: ['DRREDDY'], name: 'Dr. Reddy’s Laboratories' },
+    'CIPLA': { symbols: ['CIPLA'], name: 'Cipla' },
+    'LUPIN': { symbols: ['LUPIN'], name: 'Lupin' },
+
+    // FMCG / Consumer
+    'NESTLE': { symbols: ['NESTLEIND'], name: 'Nestlé India' },
+    'NESTLE INDIA': { symbols: ['NESTLEIND'], name: 'Nestlé India' },
+    'BRITANNIA': { symbols: ['BRITANNIA'], name: 'Britannia Industries' },
+    'MARICO': { symbols: ['MARICO'], name: 'Marico' },
+    'DABUR': { symbols: ['DABUR'], name: 'Dabur India' },
+    'COLGATE': { symbols: ['COLPAL'], name: 'Colgate-Palmolive' },
+    'COLPAL': { symbols: ['COLPAL'], name: 'Colgate-Palmolive' },
+    'ASIAN PAINTS': { symbols: ['ASIANPAINT'], name: 'Asian Paints' },
+    'DMART': { symbols: ['DMART'], name: 'Avenue Supermarts (DMart)' },
+    'AVENUE SUPERMARTS': { symbols: ['DMART'], name: 'Avenue Supermarts (DMart)' },
+
+    // Auto
+    'MARUTI': { symbols: ['MARUTI'], name: 'Maruti Suzuki' },
+    'MARUTI SUZUKI': { symbols: ['MARUTI'], name: 'Maruti Suzuki' },
+    'HERO MOTOCORP': { symbols: ['HEROMOTOCO'], name: 'Hero MotoCorp' },
+    'HERO': { symbols: ['HEROMOTOCO'], name: 'Hero MotoCorp' },
+    'EICHER': { symbols: ['EICHERMOT'], name: 'Eicher Motors' },
+    'TVS MOTOR': { symbols: ['TVSMOTOR'], name: 'TVS Motor' },
+    'TVS': { symbols: ['TVSMOTOR'], name: 'TVS Motor' },
+
+    // Adani
+    'ADANI': { symbols: ['ADANIENT', 'ADANIPORTS', 'ADANIGREEN', 'ATGL', 'ADANIPOWER'], name: 'Adani Group', isGroup: true }
+  };
+
+  // ── Helper: Match Query to Portfolio Holdings (Exact, Alias, or Group) ────
+  function findMatchingHoldings(query, holdingsList) {
+    if (!query || !Array.isArray(holdingsList) || holdingsList.length === 0) {
+      return { matches: [], queriedGroup: null, targetSymbols: [], entry: null };
+    }
+
+    const q = query.trim().toUpperCase();
+
+    // 1. Check known aliases (sorted by key length descending so specific precedes general)
+    const sortedAliases = Object.keys(STOCK_ALIASES).sort((a, b) => b.length - a.length);
+    for (const alias of sortedAliases) {
+      const escaped = alias.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const rx = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i');
+      if (rx.test(q)) {
+        const entry = STOCK_ALIASES[alias];
+        const targetSymbols = entry.symbols || [];
+        const matched = holdingsList.filter(h => {
+          const inst = (h.instrument || '').replace(/\.(NS|BO)$/i, '').toUpperCase();
+          return targetSymbols.some(ts => ts === inst || inst.startsWith(ts));
+        });
+        return {
+          matches: matched,
+          queriedGroup: alias,
+          targetSymbols: targetSymbols,
+          entry: entry
+        };
+      }
+    }
+
+    // 2. Direct exact match against instrument in holdingsList
+    for (const h of holdingsList) {
+      if (!h.instrument) continue;
+      const inst = h.instrument.toUpperCase();
+      const escaped = inst.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const rx = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i');
+      if (rx.test(q)) {
+        return {
+          matches: [h],
+          queriedGroup: inst,
+          targetSymbols: [inst],
+          entry: { symbols: [inst], name: inst }
+        };
+      }
+    }
+
+    // 3. Substring / Prefix match: user typed a token that matches part of an instrument
+    const tokens = q.match(/[A-Z0-9-]{3,}/g) || [];
+    const stopWords = new Set([
+      'THE', 'AND', 'FOR', 'ARE', 'CAN', 'YOU', 'ALL', 'ANY', 'NOT', 'GET',
+      'WHAT', 'WHEN', 'WHERE', 'SHOW', 'HOW', 'CHART', 'GRAPH', 'PORTFOLIO',
+      'STOCKS', 'STOCK', 'FUNDS', 'SHARE', 'SHARES', 'PRICE', 'RESEARCH', 'TOTAL',
+      'WORTH', 'VALUE', 'INVEST', 'MONEY', 'GAIN', 'LOSS', 'BANK', 'TECH', 'RATIO',
+      'MANY', 'MUCH', 'HAVE', 'HOLD', 'DOES', 'ABOUT', 'CURRENT', 'TREND', 'RANGE',
+      'OVERVIEW', 'DETAILS', 'RELATIVE', 'OVERALL', 'PERIOD', 'THIS', 'MOVED'
+    ]);
+
+    for (const token of tokens) {
+      if (stopWords.has(token) || /^\d+$/.test(token)) continue;
+      const matched = holdingsList.filter(h => {
+        const inst = (h.instrument || '').toUpperCase();
+        return inst.includes(token);
+      });
+      if (matched.length > 0) {
+        return {
+          matches: matched,
+          queriedGroup: token,
+          targetSymbols: matched.map(m => m.instrument),
+          entry: { symbols: matched.map(m => m.instrument), name: token }
+        };
+      }
+    }
+
+    return { matches: [], queriedGroup: null, targetSymbols: [], entry: null };
+  }
+
   // ── Build Structured Portfolio Knowledge Context ───────────────────────────
-  function buildPortfolioContext(targetStockSymbol, benchmarkData, fundamentalsData) {
+  function buildPortfolioContext(targetStockSymbol, benchmarkData, fundamentalsData, userQueryText) {
     const ctx = {};
 
     // 1. Total Net Worth
@@ -50,24 +255,59 @@ const PortfolioAssistant = (() => {
       });
     }
 
-    // 3. Top Stocks (from latestEquity)
-    ctx.topStocks = [];
+    // 3. Complete Equity Holdings (from latestEquity)
+    ctx.portfolioHoldings = [];
+    ctx.allOwnedStockSymbols = [];
     let totalEqVal = 0;
     if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
       const sorted = [...latestEquity].sort((a, b) => (b.cur_val || 0) - (a.cur_val || 0));
       totalEqVal = sorted.reduce((s, e) => s + (e.cur_val || 0), 0);
-      ctx.topStocks = sorted.slice(0, 8).map(s => {
+      ctx.totalEquityValuation = typeof formatINR === 'function' ? formatINR(totalEqVal) : totalEqVal;
+      ctx.totalEquityHoldingsCount = sorted.length;
+      ctx.allOwnedStockSymbols = sorted.map(s => s.instrument);
+
+      // ALL stock holdings provided for complete transparency and grounding
+      ctx.portfolioHoldings = sorted.map(s => {
         const weightPct = totalEqVal > 0 ? ((s.cur_val || 0) / totalEqVal) * 100 : 0;
         return {
           symbol: s.instrument,
           sector: s.sector || 'General',
-          weightInEquity: Number(weightPct.toFixed(1)),
+          qty: s.qty,
+          avgCost: Number((s.avg_cost || 0).toFixed(2)),
+          ltp: Number((s.ltp || s.price || 0).toFixed(2)),
           gainPct: Number((s.gain_pct || 0).toFixed(1)),
+          weightInEquity: Number(weightPct.toFixed(1)),
           value: typeof formatINR === 'function' ? formatINR(s.cur_val) : s.cur_val
         };
       });
 
-      // If a specific stock was queried, provide its complete holding metrics
+      // Quick reference top 5 stocks by valuation
+      ctx.topStocks = ctx.portfolioHoldings.slice(0, 5);
+
+      // Check for holdings matching the user query or target alias (e.g. ICICI -> ICICIBANK and ICICIGI)
+      const queryToCheck = userQueryText || targetStockSymbol || '';
+      if (queryToCheck) {
+        const matchRes = findMatchingHoldings(queryToCheck, latestEquity);
+        if (matchRes.matches && matchRes.matches.length > 0) {
+          ctx.matchedHoldings = matchRes.matches.map(s => {
+            const weight = totalEqVal > 0 ? Number(((s.cur_val / totalEqVal) * 100).toFixed(1)) : 0;
+            return {
+              symbol: s.instrument,
+              sector: s.sector || 'Direct Equity',
+              qty: s.qty,
+              avgCost: Number((s.avg_cost || 0).toFixed(2)),
+              currentPrice: Number((s.ltp || s.price || 0).toFixed(2)),
+              holdingGainPct: Number((s.gain_pct || 0).toFixed(2)),
+              invested: typeof formatINR === 'function' ? formatINR(s.invested) : s.invested,
+              currentValuation: typeof formatINR === 'function' ? formatINR(s.cur_val) : s.cur_val,
+              unrealizedPnl: typeof formatINR === 'function' ? formatINR(s.pnl) : s.pnl,
+              weightInEquity: weight
+            };
+          });
+        }
+      }
+
+      // If a specific stock was queried, provide its complete single holding metrics
       if (targetStockSymbol) {
         const holding = latestEquity.find(s => (s.instrument || '').toUpperCase() === targetStockSymbol.toUpperCase());
         if (holding) {
@@ -126,12 +366,15 @@ const PortfolioAssistant = (() => {
       };
     }
 
-    // 6. Top Mutual Funds (from latestMf)
-    ctx.topMutualFunds = [];
+    // 6. Complete Mutual Funds (from latestMf)
+    ctx.portfolioMutualFunds = [];
+    ctx.allOwnedMutualFunds = [];
     if (typeof latestMf !== 'undefined' && Array.isArray(latestMf)) {
-      const sorted = [...latestMf].sort((a, b) => (b.cur_val || 0) - (a.cur_val || 0));
-      const totalMfVal = sorted.reduce((s, m) => s + (m.cur_val || 0), 0);
-      ctx.topMutualFunds = sorted.slice(0, 6).map(m => {
+      const sortedMf = [...latestMf].sort((a, b) => (b.cur_val || 0) - (a.cur_val || 0));
+      const totalMfVal = sortedMf.reduce((s, m) => s + (m.cur_val || 0), 0);
+      ctx.totalMutualFundsValuation = typeof formatINR === 'function' ? formatINR(totalMfVal) : totalMfVal;
+      ctx.allOwnedMutualFunds = sortedMf.map(m => m.scheme);
+      ctx.portfolioMutualFunds = sortedMf.map(m => {
         const weightPct = totalMfVal > 0 ? ((m.cur_val || 0) / totalMfVal) * 100 : 0;
         return {
           scheme: m.scheme,
@@ -141,6 +384,7 @@ const PortfolioAssistant = (() => {
           value: typeof formatINR === 'function' ? formatINR(m.cur_val) : m.cur_val
         };
       });
+      ctx.topMutualFunds = ctx.portfolioMutualFunds.slice(0, 5);
     }
 
     // 7. Market Cap Concentration (from XRayEngine if available)
@@ -168,7 +412,7 @@ const PortfolioAssistant = (() => {
 
   function isHoldingLookup(query) {
     if (!query) return false;
-    return /\b(how many|how much|quantity|qty|shares|units|do i have|do i own|holding of|my holding|what is my avg|buy price|cost basis|how much invested)\b/i.test(query);
+    return /\b(how many|how much|quantity|qty|shares|units|do i have|do i own|holding of|my holding|my holdings|holdings of|what is my avg|buy price|cost basis|how much invested|any shares|own any)\b/i.test(query);
   }
 
   function isValuationQuery(query) {
@@ -222,16 +466,34 @@ const PortfolioAssistant = (() => {
     const suffixMatch = q.match(/\b([A-Z0-9-]{3,12})\.(?:NS|BO)\b/);
     if (suffixMatch) return suffixMatch[1];
 
-    // 2. Direct match against user's own equity instruments in latestEquity
+    // 2. Check known aliases (sorted by key length descending)
+    const sortedAliases = Object.keys(STOCK_ALIASES).sort((a, b) => b.length - a.length);
+    for (const alias of sortedAliases) {
+      const escaped = alias.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const rx = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i');
+      if (rx.test(q)) {
+        const entry = STOCK_ALIASES[alias];
+        const syms = entry.symbols || [];
+        if (syms.length === 1) return syms[0];
+        // If multiple symbols, check if user holds one of them in latestEquity
+        if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+          const held = latestEquity.find(e => syms.includes((e.instrument || '').toUpperCase()));
+          if (held) return held.instrument;
+        }
+        return syms[0];
+      }
+    }
+
+    // 3. Direct match against user's own equity instruments in latestEquity
     if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
       for (const eq of latestEquity) {
-        if (eq.instrument && new RegExp(`\\b${eq.instrument}\\b`, 'i').test(q)) {
+        if (eq.instrument && new RegExp(`(^|[^A-Z0-9])${eq.instrument}([^A-Z0-9]|$)`, 'i').test(q)) {
           return eq.instrument;
         }
       }
     }
 
-    // 3. Contextual keyword match: "PE of ITC", "PE ratio of X", "price of X", "research X"
+    // 4. Contextual keyword match: "PE of ITC", "PE ratio of X", "price of X", "research X"
     const keywordMatch = q.match(/(?:RESEARCH|PE\s+RATIO\s+(?:OF|FOR)|PE\s+(?:OF|FOR)|PRICE\s+OF|TREND\s+OF|ABOUT|ANALYZE)\s+([A-Z0-9-]{3,12})\b/);
     if (keywordMatch) {
       const candidate = keywordMatch[1];
@@ -239,14 +501,15 @@ const PortfolioAssistant = (() => {
       if (!stopWords.has(candidate)) return candidate;
     }
 
-    // 4. Fallback: Scan uppercase tokens excluding stop words
+    // 5. Fallback: Scan uppercase tokens excluding stop words
     const stopWords = new Set([
       'THE', 'AND', 'FOR', 'ARE', 'CAN', 'YOU', 'ALL', 'ANY', 'NOT', 'GET',
       'WHAT', 'WHEN', 'WHERE', 'SHOW', 'HOW', 'CHART', 'GRAPH', 'PORTFOLIO',
       'STOCKS', 'STOCK', 'FUNDS', 'SHARE', 'PRICE', 'RESEARCH', 'TOTAL', 'WORTH',
       'VALUE', 'INVEST', 'MONEY', 'GAIN', 'LOSS', 'BANK', 'TECH', 'RATIO',
       'TELL', 'ABOUT', 'CURRENT', 'TREND', 'RANGE', 'COMPARE', 'OVERVIEW', 'DETAILS',
-      'INDEX', 'FMCG', 'RELATIVE', 'OVERALL', 'PERIOD', 'THIS', 'MOVED', 'OVER'
+      'INDEX', 'FMCG', 'RELATIVE', 'OVERALL', 'PERIOD', 'THIS', 'MOVED', 'OVER',
+      'MANY', 'MUCH', 'DOES', 'HAVE', 'HOLD', 'UNITS', 'SHARES'
     ]);
     const tokens = q.match(/\b[A-Z0-9-]{3,14}\b/g) || [];
     for (const token of tokens) {
@@ -406,41 +669,80 @@ const PortfolioAssistant = (() => {
       return null;
     }
 
-    // 1. Specific Stock Holding Query (e.g., "How many ITC stocks do I have?", "Do I own HDFCBANK?", "What is my avg price of ITC?")
-    if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity) && latestEquity.length > 0) {
-      if (isHoldingLookup(q)) {
+    // 1. Specific Stock Holding Query (e.g., "How many ICICI do I own?", "How many HUL stocks do i own?", "Do I own HDFCBANK?", "What is my avg price of ITC?")
+    if (isHoldingLookup(q)) {
+      // Check Direct Equities first
+      let equityMatchResult = { matches: [], targetSymbols: [] };
+      if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity) && latestEquity.length > 0) {
         const totalEq = latestEquity.reduce((sum, e) => sum + (e.cur_val || 0), 0);
-        for (const s of latestEquity) {
-          if (!s.instrument) continue;
-          const inst = s.instrument.toUpperCase();
-          const regex = new RegExp(`\\b${inst}\\b`, 'i');
-          if (regex.test(query)) {
-            const gainSign = s.gain_pct >= 0 ? '+' : '';
-            const weight = totalEq > 0 ? ((s.cur_val / totalEq) * 100).toFixed(1) : '0';
+        equityMatchResult = findMatchingHoldings(query, latestEquity);
 
-            let text = `You currently hold **${s.qty.toLocaleString()} shares** of **${s.instrument}** (${s.sector || 'Direct Equity'}):\n\n`;
-            text += `* **Current Quantity**: **${s.qty.toLocaleString()} shares**\n`;
-            text += `* **Average Buy Price**: **₹${s.avg_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
-            text += `* **Current Market Price (LTP)**: **₹${s.ltp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
-            text += `* **Total Invested**: **${fmtVal(s.invested)}**\n`;
-            text += `* **Current Valuation**: **${fmtVal(s.cur_val)}** (${weight}% of total equity)\n`;
-            text += `* **Unrealized P&L**: **${gainSign}${fmtVal(Math.abs(s.pnl))} (${gainSign}${s.gain_pct.toFixed(2)}%)**\n`;
+        // Case A: Multiple holdings match a group/conglomerate query (e.g. "ICICI" -> ICICIBANK and ICICIGI)
+        if (equityMatchResult.matches.length > 1) {
+          const groupName = equityMatchResult.entry?.name || equityMatchResult.queriedGroup || 'Matching Group';
+          const matched = equityMatchResult.matches;
+          const groupCurVal = matched.reduce((sum, s) => sum + (s.cur_val || 0), 0);
+          const groupInvested = matched.reduce((sum, s) => sum + (s.invested || 0), 0);
+          const groupPnl = groupCurVal - groupInvested;
+          const groupGainPct = groupInvested > 0 ? (groupPnl / groupInvested) * 100 : 0;
+          const groupWeight = totalEq > 0 ? ((groupCurVal / totalEq) * 100).toFixed(1) : '0';
+          const groupGainSign = groupPnl >= 0 ? '+' : '';
 
-            const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
-              title: `${s.instrument}: Average Cost vs Current Price (₹)`,
-              labels: ['Avg Buy Price', 'Current LTP'],
-              data: [Number(s.avg_cost.toFixed(2)), Number(s.ltp.toFixed(2))]
-            }, null, 2)}\n\`\`\``;
+          let text = `You currently hold **${matched.length} stocks** in the **${groupName}**:\n\n`;
+          matched.forEach((s, idx) => {
+            const gainSign = (s.gain_pct || 0) >= 0 ? '+' : '';
+            const wt = totalEq > 0 ? ((s.cur_val / totalEq) * 100).toFixed(1) : '0';
+            text += `### ${idx + 1}. **${s.instrument}** (${s.sector || 'Direct Equity'})\n`;
+            text += `* **Quantity**: **${s.qty.toLocaleString()} shares**\n`;
+            text += `* **Average Buy Price**: **₹${(s.avg_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
+            text += `* **Current Market Price (LTP)**: **₹${(s.ltp || s.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
+            text += `* **Invested**: **${fmtVal(s.invested)}** | **Valuation**: **${fmtVal(s.cur_val)}** (${wt}% of equity)\n`;
+            text += `* **Unrealized P&L**: **${gainSign}${fmtVal(Math.abs(s.pnl || 0))} (${gainSign}${(s.gain_pct || 0).toFixed(2)}%)**\n\n`;
+          });
 
-            return text + chartBlock;
-          }
+          text += `**Combined ${groupName} Summary**:\n`;
+          text += `* **Total Valuation**: **${fmtVal(groupCurVal)}** (${groupWeight}% of total equity)\n`;
+          text += `* **Total Invested**: **${fmtVal(groupInvested)}**\n`;
+          text += `* **Total Unrealized Gain**: **${groupGainSign}${fmtVal(Math.abs(groupPnl))} (${groupGainSign}${groupGainPct.toFixed(2)}%)**\n`;
+
+          const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
+            title: `${groupName}: Holdings Valuation (₹)`,
+            labels: matched.map(s => s.instrument),
+            data: matched.map(s => Number((s.cur_val || 0).toFixed(0)))
+          }, null, 2)}\n\`\`\``;
+
+          return text + chartBlock;
+        }
+
+        // Case B: Exactly 1 stock holding matches
+        if (equityMatchResult.matches.length === 1) {
+          const s = equityMatchResult.matches[0];
+          const gainSign = (s.gain_pct || 0) >= 0 ? '+' : '';
+          const weight = totalEq > 0 ? ((s.cur_val / totalEq) * 100).toFixed(1) : '0';
+          const displayName = equityMatchResult.entry?.name && !equityMatchResult.entry.isGroup
+            ? `${equityMatchResult.entry.name} (${s.instrument})`
+            : s.instrument;
+
+          let text = `You currently hold **${s.qty.toLocaleString()} shares** of **${displayName}** (${s.sector || 'Direct Equity'}):\n\n`;
+          text += `* **Current Quantity**: **${s.qty.toLocaleString()} shares**\n`;
+          text += `* **Average Buy Price**: **₹${(s.avg_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
+          text += `* **Current Market Price (LTP)**: **₹${(s.ltp || s.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**\n`;
+          text += `* **Total Invested**: **${fmtVal(s.invested)}**\n`;
+          text += `* **Current Valuation**: **${fmtVal(s.cur_val)}** (${weight}% of total equity)\n`;
+          text += `* **Unrealized P&L**: **${gainSign}${fmtVal(Math.abs(s.pnl || 0))} (${gainSign}${(s.gain_pct || 0).toFixed(2)}%)**\n`;
+
+          const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
+            title: `${s.instrument}: Average Cost vs Current Price (₹)`,
+            labels: ['Avg Buy Price', 'Current LTP'],
+            data: [Number((s.avg_cost || 0).toFixed(2)), Number((s.ltp || s.price || 0).toFixed(2))]
+          }, null, 2)}\n\`\`\``;
+
+          return text + chartBlock;
         }
       }
-    }
 
-    // 2. Specific Mutual Fund Holding Query (e.g., "Parag Parikh", "Mirae", "HDFC Top 100")
-    if (typeof latestMf !== 'undefined' && Array.isArray(latestMf) && latestMf.length > 0) {
-      if (isHoldingLookup(q)) {
+      // Check Mutual Funds (e.g., "Parag Parikh", "Mirae", "HDFC Top 100")
+      if (typeof latestMf !== 'undefined' && Array.isArray(latestMf) && latestMf.length > 0) {
         const totalMf = latestMf.reduce((sum, m) => sum + (m.cur_val || 0), 0);
         for (const m of latestMf) {
           if (!m.scheme) continue;
@@ -448,8 +750,8 @@ const PortfolioAssistant = (() => {
           const schemeWords = schemeLower.split(/\s+/).filter(w => w.length > 3 && !['fund', 'direct', 'plan', 'growth', 'equity', 'flexi', 'index'].includes(w));
           const matchesWords = schemeWords.length >= 1 && schemeWords.every(w => q.includes(w));
           if (q.includes(schemeLower) || matchesWords) {
-            const gainSign = m.gain_pct >= 0 ? '+' : '';
-            const weight = totalMf > 0 ? ((m.cur_val / totalMf) * 100).toFixed(1) : '0';
+            const gainSign = (m.gain_pct || 0) >= 0 ? '+' : '';
+            const weight = totalMf > 0 ? (((m.cur_val || 0) / totalMf) * 100).toFixed(1) : '0';
             const avgNav = m.avg_nav || m.price || 0;
             const curNav = m.price || m.nav || 0;
 
@@ -459,7 +761,7 @@ const PortfolioAssistant = (() => {
             text += `* **Current NAV**: **₹${curNav.toFixed(2)}**\n`;
             text += `* **Total Invested**: **${fmtVal(m.invested)}**\n`;
             text += `* **Current Valuation**: **${fmtVal(m.cur_val)}** (${weight}% of mutual funds)\n`;
-            text += `* **Unrealized Gain**: **${gainSign}${fmtVal(Math.abs(m.pnl))} (${gainSign}${m.gain_pct.toFixed(2)}%)**\n`;
+            text += `* **Unrealized Gain**: **${gainSign}${fmtVal(Math.abs(m.pnl || 0))} (${gainSign}${(m.gain_pct || 0).toFixed(2)}%)**\n`;
 
             const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
               title: `${m.scheme.slice(0, 24)}…: Avg NAV vs Current NAV (₹)`,
@@ -470,6 +772,22 @@ const PortfolioAssistant = (() => {
             return text + chartBlock;
           }
         }
+      }
+
+      // Case C: Neither equity nor MF held, but a known alias/group was queried (e.g. HUL -> HINDUNILVR)
+      if (equityMatchResult.targetSymbols && equityMatchResult.targetSymbols.length > 0) {
+        const name = equityMatchResult.entry?.name || equityMatchResult.queriedGroup || equityMatchResult.targetSymbols.join(', ');
+        const symStr = equityMatchResult.targetSymbols.join(', ');
+        if (equityMatchResult.entry?.isGroup) {
+          return `You do not currently hold any shares from the **${name}** (${symStr}) in your portfolio.`;
+        }
+        return `You do not currently hold any shares of **${name}** (${symStr}) in your portfolio.`;
+      }
+
+      // Case D: A specific stock ticker token was queried directly (e.g., "Do I own XYZ?")
+      const candidateTicker = detectTickerQuery(query);
+      if (candidateTicker && typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
+        return `You do not currently hold any shares of **${candidateTicker}** in your portfolio.`;
       }
     }
 
@@ -644,18 +962,25 @@ const PortfolioAssistant = (() => {
 Your goals:
 1. Provide accurate, insightful, and concise financial commentary.
 2. Ground your answers firmly in the user's provided portfolio context, market fundamentals (PE ratio, EPS, Market Cap, Dividend Yield), and benchmark data.
-3. When asked about Valuation or PE ratio movement:
+3. CRITICAL PORTFOLIO HOLDINGS GROUNDING:
+   - "portfolioHoldings" contains the user's COMPLETE direct equity portfolio (all owned stocks).
+   - "allOwnedStockSymbols" lists all tickers currently owned.
+   - If a company or stock is NOT present in "portfolioHoldings", the user DOES NOT own it. State clearly: "You do not currently hold [Company] in your portfolio."
+   - NEVER say "as it is not listed in your top stocks holdings" or "not in top holdings". You have the ENTIRE portfolio.
+   - Recognize company names, group names, and ticker aliases (e.g., ICICI matches ICICIBANK and ICICIGI; HUL matches HINDUNILVR; HDFC matches HDFCBANK and HDFCLIFE; Tata matches TCS, Tata Motors, Tata Steel, etc.).
+   - If the user asks about a conglomerate or group (e.g., "ICICI" or "Tata"), report on ALL matching stocks in the user's holdings.
+4. When asked about Valuation or PE ratio movement:
    - Provide the exact current PE ratio, 5-year median PE, historical low/high range, and EPS growth.
    - Explain what drove the valuation changes (e.g. earnings growth vs re-rating/de-rating multiples, corporate events).
    - Use a Line Chart (\`\`\`chart:line) showing the historical PE trajectory over time.
-4. When asked to evaluate performance relative to a benchmark index (e.g. FMCG index vs ITC):
+5. When asked to evaluate performance relative to a benchmark index (e.g. FMCG index vs ITC):
    - Explicitly compare the holding's return percentage against the benchmark index return percentage over the user's holding period.
    - State clearly whether the holding outperformed or underperformed (calculate the alpha in percentage points).
    - Use a Bar Chart (\`\`\`chart:bar) comparing the two returns.
-5. Chart Selection Rules (CRITICAL: NEVER default to a vertical bar chart):
+6. Chart Selection Rules (CRITICAL: NEVER default to a vertical bar chart):
    - Line Chart (\`\`\`chart:line): Use for time-series trends (PE ratio movement over time, historical price trends, portfolio growth over time).
    - Doughnut Chart (\`\`\`chart:doughnut): Use for compositions & breakdowns of a whole (Asset allocation, sector split, market cap split).
-   - Bar Chart (\`\`\`chart:bar): Use ONLY for comparing discrete category snapshots at a single point in time (Holding Return vs Benchmark Return, Top 5 Gainers).
+   - Bar Chart (\`\`\`chart:bar): Use ONLY for comparing discrete category snapshots at a single point in time (Holding Return vs Benchmark Return, Top Performers, Holding Breakdown).
    - No Chart: Omit if the question is purely explanatory, a single factual lookup, or if visual aid is not genuinely useful.
 
 Output format for charts:
@@ -1069,7 +1394,7 @@ User Question: ${promptText}`;
 
     // 5. Portfolio Copilot AI Call
     showTypingIndicator('Analyzing with Portfolio Copilot…');
-    const context = buildPortfolioContext(ticker, benchmarkData, fundamentalsData);
+    const context = buildPortfolioContext(ticker, benchmarkData, fundamentalsData, userQuery);
 
     try {
       const response = await callCloudflareWorkersAI(userQuery, context, researchData, benchmarkData, fundamentalsData);
@@ -1099,6 +1424,11 @@ User Question: ${promptText}`;
             data: fundamentalsData.peHistory.map(p => p.pe)
           }, null, 2)}\n\`\`\``;
         }
+      } else if (context && context.matchedHoldings && context.matchedHoldings.length > 1) {
+        fallbackMsg = `Based on your portfolio records, you hold **${context.matchedHoldings.length} stocks** matching your query:\n\n`;
+        context.matchedHoldings.forEach(h => {
+          fallbackMsg += `* **${h.symbol}** (${h.sector}): **${h.qty.toLocaleString()} shares** | Valuation: ${h.currentValuation} (${h.weightInEquity}% of equity) | Return: +${h.holdingGainPct}%\n`;
+        });
       } else if (context && context.targetHolding) {
         const th = context.targetHolding;
         const benchText = context.benchmark ? `\n* **Benchmark (${context.benchmark.name})**: Return: **+${context.benchmark.periodReturnPct}%**\n* **Alpha**: **+${(th.holdingGainPct - context.benchmark.periodReturnPct).toFixed(2)}%**` : '';
