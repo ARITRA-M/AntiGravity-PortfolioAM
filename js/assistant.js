@@ -522,13 +522,13 @@ const PortfolioAssistant = (() => {
 
   // Helper to format proxy URLs for browser fetch calls
   function buildProxyUrl(rawUrl) {
+    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    if (isLocalhost) {
+      return `/api/proxy?url=${encodeURIComponent(rawUrl)}`;
+    }
     if (typeof _proxyList === 'function') {
       const proxies = _proxyList();
       return proxies[0](rawUrl);
-    }
-    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    if (isLocalhost) {
-      return `http://localhost:8080/api/proxy?url=${encodeURIComponent(rawUrl)}`;
     }
     return `https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/?url=${encodeURIComponent(rawUrl)}`;
   }
@@ -585,7 +585,32 @@ const PortfolioAssistant = (() => {
     const clean = symbol.replace(/\.(NS|BO)$/i, '').trim().toUpperCase();
     const result = { symbol: clean };
 
-    // 1. Screener.in search & PE chart (5-year historical PE trajectory)
+    // 1. Google Finance live exchange fundamentals (Real-time NSE P/E, EPS, Mcap, Div Yield)
+    try {
+      const gfUrl = buildProxyUrl(`https://www.google.com/finance/quote/${clean}:NSE`);
+      const gfRes = await fetch(gfUrl);
+      if (gfRes.ok) {
+        const html = await gfRes.text();
+        const regex = /<div class="(?:SwQK7|mD6t2c)">([^<]+)<\/div>[\s\S]*?<div class="(?:dO6ijd|P6K39c)">([^<]+)<\/div>/g;
+        let m;
+        const stats = {};
+        while ((m = regex.exec(html)) !== null) stats[m[1].trim()] = m[2].trim();
+
+        if (stats['P/E ratio']) {
+          const parsedPe = parseFloat(stats['P/E ratio'].replace(/[^0-9.]/g, ''));
+          if (!isNaN(parsedPe)) result.latestPe = parsedPe;
+        }
+        if (stats['EPS']) {
+          result.latestEps = stats['EPS'].replace(/^[₹Rs.\s]+/, '');
+        }
+        if (stats['Mkt. cap']) result.marketCap = stats['Mkt. cap'];
+        if (stats['Dividend']) result.dividendYield = stats['Dividend'];
+      }
+    } catch (e) {
+      console.warn('Google Finance fundamentals fetch error:', e);
+    }
+
+    // 2. Screener.in search & PE chart (5-year historical PE trajectory & median PE)
     try {
       const searchUrl = buildProxyUrl(`https://www.screener.in/api/company/search/?q=${encodeURIComponent(clean)}`);
       const searchRes = await fetch(searchUrl);
@@ -606,7 +631,9 @@ const PortfolioAssistant = (() => {
               if (peDs && Array.isArray(peDs.values) && peDs.values.length > 0) {
                 const peVals = peDs.values.filter(v => v[1] != null && !isNaN(v[1]));
                 if (peVals.length > 0) {
-                  result.latestPe = peVals[peVals.length - 1][1];
+                  if (!result.latestPe) {
+                    result.latestPe = peVals[peVals.length - 1][1];
+                  }
                   result.minPe = Math.min(...peVals.map(v => v[1]));
                   result.maxPe = Math.max(...peVals.map(v => v[1]));
 
@@ -616,9 +643,10 @@ const PortfolioAssistant = (() => {
                   for (let i = 0; i < peVals.length; i += step) {
                     result.peHistory.push({ date: peVals[i][0].slice(0, 7), pe: Number(peVals[i][1].toFixed(1)) });
                   }
-                  const lastPt = peVals[peVals.length - 1];
-                  if (result.peHistory[result.peHistory.length - 1].date !== lastPt[0].slice(0, 7)) {
-                    result.peHistory.push({ date: lastPt[0].slice(0, 7), pe: Number(lastPt[1].toFixed(1)) });
+                  // Append current live PE if available
+                  if (result.latestPe) {
+                    const todayStr = new Date().toISOString().slice(0, 7);
+                    result.peHistory.push({ date: todayStr, pe: Number(result.latestPe.toFixed(1)) });
                   }
                 }
               }
@@ -626,8 +654,8 @@ const PortfolioAssistant = (() => {
               if (medianDs && Array.isArray(medianDs.values) && medianDs.values.length > 0) {
                 result.medianPe = parseFloat(medianDs.values[medianDs.values.length - 1][1]);
               }
-              if (epsDs && Array.isArray(epsDs.values) && epsDs.values.length > 0) {
-                result.latestEps = epsDs.values[epsDs.values.length - 1][1];
+              if (epsDs && Array.isArray(epsDs.values) && epsDs.values.length > 0 && !result.latestEps) {
+                result.latestEps = String(epsDs.values[epsDs.values.length - 1][1]);
               }
             }
           }
@@ -635,25 +663,6 @@ const PortfolioAssistant = (() => {
       }
     } catch (e) {
       console.warn('Screener fundamentals fetch error:', e);
-    }
-
-    // 2. Google Finance supplement for current Market Cap & Dividend Yield
-    try {
-      const gfUrl = buildProxyUrl(`https://www.google.com/finance/quote/${clean}:NSE`);
-      const gfRes = await fetch(gfUrl);
-      if (gfRes.ok) {
-        const html = await gfRes.text();
-        const regex = /<div class="SwQK7">([^<]+)<\/div><div class="dO6ijd">([^<]+)<\/div>/g;
-        let m;
-        const stats = {};
-        while ((m = regex.exec(html)) !== null) stats[m[1].trim()] = m[2].trim();
-        if (stats['P/E ratio'] && !result.latestPe) result.latestPe = parseFloat(stats['P/E ratio']);
-        if (stats['EPS'] && !result.latestEps) result.latestEps = stats['EPS'];
-        if (stats['Mkt. cap']) result.marketCap = stats['Mkt. cap'];
-        if (stats['Dividend']) result.dividendYield = stats['Dividend'];
-      }
-    } catch (e) {
-      console.warn('Google Finance fundamentals fetch error:', e);
     }
 
     return result;
@@ -970,9 +979,11 @@ Your goals:
    - Recognize company names, group names, and ticker aliases (e.g., ICICI matches ICICIBANK and ICICIGI; HUL matches HINDUNILVR; HDFC matches HDFCBANK and HDFCLIFE; Tata matches TCS, Tata Motors, Tata Steel, etc.).
    - If the user asks about a conglomerate or group (e.g., "ICICI" or "Tata"), report on ALL matching stocks in the user's holdings.
 4. When asked about Valuation or PE ratio movement:
-   - Provide the exact current PE ratio, 5-year median PE, historical low/high range, and EPS growth.
-   - Explain what drove the valuation changes (e.g. earnings growth vs re-rating/de-rating multiples, corporate events).
-   - Use a Line Chart (\`\`\`chart:line) showing the historical PE trajectory over time.
+   - CRITICAL GROUNDING: When Market Fundamentals & Valuation Data is provided, you MUST use the exact numbers from that data (e.g. latestPe, latestEps, medianPe, minPe, maxPe, marketCap, dividendYield).
+   - NEVER invent or use PE ratios or EPS numbers from your pre-training memory when Market Fundamentals data is provided.
+   - State the exact current PE ratio (e.g., 18.8x), TTM EPS (e.g., ₹15.07), 5-year median PE, and historical range.
+   - Explain whether the stock is trading at a discount or premium to its 5-year median PE and what drove the valuation changes.
+   - Use a Line Chart (\`\`\`chart:line) showing the historical PE trajectory over time based on the provided peHistory.
 5. When asked to evaluate performance relative to a benchmark index (e.g. FMCG index vs ITC):
    - Explicitly compare the holding's return percentage against the benchmark index return percentage over the user's holding period.
    - State clearly whether the holding outperformed or underperformed (calculate the alpha in percentage points).
@@ -1157,6 +1168,12 @@ User Question: ${promptText}`;
         let labels = config.labels || config.data?.labels || [];
         let dataPoints = config.data;
         let chartTitle = config.title || '';
+
+        // Handle array of objects like [{x: '2021-11', y: 19}] or [{date: '2021-11', pe: 19}]
+        if (Array.isArray(config.data) && config.data.length > 0 && typeof config.data[0] === 'object' && config.data[0] !== null) {
+          labels = config.data.map(p => p.x || p.date || p.label || '');
+          dataPoints = config.data.map(p => p.y != null ? p.y : (p.pe != null ? p.pe : (p.value != null ? p.value : p.close)));
+        }
 
         if (Array.isArray(config.data?.datasets) && config.data.datasets.length > 0) {
           dataPoints = config.data.datasets[0].data || [];

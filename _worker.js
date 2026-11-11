@@ -12,6 +12,11 @@ const ALLOWED_HOSTS = new Set([
   'www.nseindia.com',
   // Groww's public price API — for Sovereign Gold Bond tranche quotes.
   'groww.in',
+  // Screener.in & Google Finance — for valuation fundamentals, P/E ratios, EPS, and 5Y median
+  'www.screener.in',
+  'screener.in',
+  'www.google.com',
+  'google.com',
 ]);
 
 const CORS = {

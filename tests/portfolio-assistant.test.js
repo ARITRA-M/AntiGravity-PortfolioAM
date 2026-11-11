@@ -12,15 +12,19 @@ assert.ok(wrangler.ai, 'wrangler.json must configure "ai" property');
 assert.strictEqual(wrangler.ai.binding, 'AI', 'wrangler.json AI binding must be "AI"');
 console.log('  ✓ wrangler.json contains valid Cloudflare Workers AI binding');
 
-// 2. Verify _worker.js and cloudflare-worker/worker.js have /api/chat route
+// 2. Verify _worker.js and cloudflare-worker/worker.js have /api/chat route and allowed hosts for fundamentals
 const rootWorker = fs.readFileSync(path.join(__dirname, '..', '_worker.js'), 'utf-8');
 assert.ok(rootWorker.includes("reqUrl.pathname.endsWith('/api/chat')"), '_worker.js must contain /api/chat endpoint');
 assert.ok(rootWorker.includes('@cf/meta/llama-3.3-70b-instruct-fp8-fast'), '_worker.js must reference Llama 3.3 fp8-fast model');
+assert.ok(rootWorker.includes("'www.screener.in'"), '_worker.js must allow www.screener.in for fundamentals');
+assert.ok(rootWorker.includes("'www.google.com'"), '_worker.js must allow www.google.com for Google Finance');
 
 const cfWorker = fs.readFileSync(path.join(__dirname, '..', 'cloudflare-worker', 'worker.js'), 'utf-8');
 assert.ok(cfWorker.includes("reqUrl.pathname.endsWith('/api/chat')"), 'cloudflare-worker/worker.js must contain /api/chat endpoint');
 assert.ok(cfWorker.includes('@cf/meta/llama-3.3-70b-instruct-fp8-fast'), 'cloudflare-worker must reference Llama 3.3 fp8-fast model');
-console.log('  ✓ Cloudflare Worker endpoints properly implement /api/chat with Llama 3.3 70B fp8-fast');
+assert.ok(cfWorker.includes("'www.screener.in'"), 'cloudflare-worker must allow www.screener.in for fundamentals');
+assert.ok(cfWorker.includes("'www.google.com'"), 'cloudflare-worker must allow www.google.com for Google Finance');
+console.log('  ✓ Cloudflare Worker endpoints properly implement /api/chat and proxy ALLOWED_HOSTS for Screener & Google');
 
 // 3. Verify server.js and static-server.js have /api/chat
 const serverJs = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf-8');
@@ -253,7 +257,21 @@ function isValuationQuery(query) {
 }
 assert.strictEqual(isValuationQuery(peQuery), true, 'PE question must trigger valuation query workflow');
 assert.strictEqual(testExtractTicker(peQuery, [{ instrument: 'ITC' }]), 'ITC', 'Must extract ITC ticker from PE query');
-console.log('  ✓ Valuation query detection and ticker resolution confirmed');
+
+// Verify assistant.js buildProxyUrl prioritizes localhost
+const proxyUrlCode = assistantJs.slice(assistantJs.indexOf('function buildProxyUrl'), assistantJs.indexOf('async function fetchMarketResearch'));
+assert.ok(proxyUrlCode.indexOf('isLocalhost') < proxyUrlCode.indexOf('_proxyList'), 'buildProxyUrl must prioritize isLocalhost check before external proxies');
+
+// Verify Google Finance stats parsing logic
+const sampleGfHtml = '<div class="SwQK7">P/E ratio</div><div class="dO6ijd">18.78</div><div class="SwQK7">EPS</div><div class="dO6ijd">₹15.07</div><div class="SwQK7">Mkt. cap</div><div class="dO6ijd">3.55T INR</div>';
+const gfRegex = /<div class="(?:SwQK7|mD6t2c)">([^<]+)<\/div>[\s\S]*?<div class="(?:dO6ijd|P6K39c)">([^<]+)<\/div>/g;
+let gfMatch;
+const sampleStats = {};
+while ((gfMatch = gfRegex.exec(sampleGfHtml)) !== null) sampleStats[gfMatch[1].trim()] = gfMatch[2].trim();
+assert.strictEqual(sampleStats['P/E ratio'], '18.78');
+assert.strictEqual(sampleStats['EPS'], '₹15.07');
+assert.strictEqual(parseFloat(sampleStats['P/E ratio']), 18.78);
+console.log('  ✓ Valuation query detection, buildProxyUrl localhost routing, and fundamentals parsing confirmed');
 
 // 5. Verify index.html & style.css references (Clean Portfolio Copilot Branding)
 const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');
