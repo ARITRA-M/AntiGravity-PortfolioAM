@@ -170,7 +170,7 @@ function handleChat(req, res) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(12000)
+            signal: AbortSignal.timeout(45000)
           });
           if (resp && resp.ok) {
             upstream = resp;
@@ -190,11 +190,11 @@ function handleChat(req, res) {
         return res.end(JSON.stringify(data));
       }
 
-      // If remote worker returned an error or is pending deployment:
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      // If remote worker returned an error:
+      res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       return res.end(JSON.stringify({
-        success: true,
-        response: "All portfolio queries and live stock research are processed directly by your browser in private zero-leakage mode. Cloudflare Workers AI remote endpoint is ready once published."
+        success: false,
+        error: 'Failed to contact Cloudflare AI Worker: ' + (lastErr || 'Request timed out')
       }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

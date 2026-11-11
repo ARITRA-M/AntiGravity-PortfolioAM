@@ -960,7 +960,7 @@ const PortfolioAssistant = (() => {
   async function callCloudflareWorkersAI(promptText, portfolioContext, researchData, benchmarkData, fundamentalsData) {
     const systemPrompt = `You are "Portfolio Copilot", an elite financial intelligence assistant embedded in the AntiGravity Portfolio Analytics app.
 Your goals:
-1. Provide accurate, insightful, and concise financial commentary.
+1. Provide accurate, insightful, and concise financial commentary (under 250 words). Avoid generic introductory filler or lengthy disclaimers.
 2. Ground your answers firmly in the user's provided portfolio context, market fundamentals (PE ratio, EPS, Market Cap, Dividend Yield), and benchmark data.
 3. CRITICAL PORTFOLIO HOLDINGS GROUNDING:
    - "portfolioHoldings" contains the user's COMPLETE direct equity portfolio (all owned stocks).
@@ -1007,9 +1007,8 @@ User Question: ${promptText}`;
 
     let endpoint = '/api/chat';
     const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    if (!isLocalhost && (window.__isGitHubPages || (typeof WORKER_PROXY_URL === 'string' && WORKER_PROXY_URL))) {
-      const base = (WORKER_PROXY_URL || 'https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/').replace(/\/+$/, '');
-      endpoint = `${base}/api/chat`;
+    if (!isLocalhost) {
+      endpoint = 'https://feature-portfolio-assistant-chat-portfolio-proxy.aritra2k7.workers.dev/api/chat';
     }
 
     const res = await fetch(endpoint, {

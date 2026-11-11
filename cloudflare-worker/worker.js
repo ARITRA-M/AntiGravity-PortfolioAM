@@ -139,7 +139,7 @@ export default {
         try {
           aiResult = await env.AI.run(model, {
             messages: chatMessages,
-            max_tokens: 1800,
+            max_tokens: 1200,
             temperature: 0.3
           });
         } catch (mErr) {
@@ -147,7 +147,7 @@ export default {
           if (model !== '@cf/meta/llama-3.1-8b-instruct-fp8') {
             aiResult = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
               messages: chatMessages,
-              max_tokens: 1800,
+              max_tokens: 1200,
               temperature: 0.3
             });
           } else {
