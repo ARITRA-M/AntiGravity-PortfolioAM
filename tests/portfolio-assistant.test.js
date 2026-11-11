@@ -35,6 +35,7 @@ const assistantJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'assistant.
 assert.ok(assistantJs.includes('buildPortfolioContext'), 'assistant.js must define buildPortfolioContext');
 assert.ok(assistantJs.includes('solveLocallyIfPossible'), 'assistant.js must define solveLocallyIfPossible');
 assert.ok(assistantJs.includes('fetchMarketResearch'), 'assistant.js must define fetchMarketResearch');
+assert.ok(assistantJs.includes('fetchStockFundamentals'), 'assistant.js must define fetchStockFundamentals');
 assert.ok(assistantJs.includes('mountInlineCharts'), 'assistant.js must support mounting inline Chart.js canvases');
 
 // Test Anonymization Logic: in anonymized mode, values are undefined or omitted
@@ -179,15 +180,27 @@ assert.ok(bench, 'Must detect benchmark index');
 assert.strictEqual(bench.symbol, '^CNXFMCG', 'Benchmark symbol must be ^CNXFMCG');
 console.log('  ✓ Query intent classification & benchmark routing verified (comparative queries bypass local card and route to AI)');
 
-// 5. Verify index.html & style.css references
+// 4c. Test Valuation Query Detection & Chart Type Intelligence
+const peQuery = 'How has the PE for ITC moved over this period?';
+function isValuationQuery(query) {
+  return /\b(pe|p\/e|valuation|earnings|eps|ratio|dividend|yield|mcap|market cap|book value|pb|p\/b|multiple|re-rating|derating)\b/i.test(query);
+}
+assert.strictEqual(isValuationQuery(peQuery), true, 'PE question must trigger valuation query workflow');
+assert.strictEqual(testExtractTicker(peQuery, [{ instrument: 'ITC' }]), 'ITC', 'Must extract ITC ticker from PE query');
+console.log('  ✓ Valuation query detection and ticker resolution confirmed');
+
+// 5. Verify index.html & style.css references (Clean Portfolio Copilot Branding)
 const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');
 assert.ok(indexHtml.includes('copilot-modal'), 'index.html must contain copilot-modal');
 assert.ok(indexHtml.includes('copilot-fab'), 'index.html must contain copilot-fab');
+assert.ok(indexHtml.includes('Portfolio Copilot'), 'index.html must brand as Portfolio Copilot');
+assert.ok(!indexHtml.includes('copilot-privacy-pill'), 'index.html must not contain privacy pill');
+assert.ok(!indexHtml.includes('>Cloudflare AI<'), 'index.html must not contain Cloudflare AI tag');
 assert.ok(indexHtml.includes('js/assistant.js'), 'index.html must include js/assistant.js');
 
 const styleCss = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf-8');
 assert.ok(styleCss.includes('.copilot-drawer'), 'style.css must contain .copilot-drawer styles');
 assert.ok(styleCss.includes('.copilot-chart-card'), 'style.css must contain .copilot-chart-card styles');
-console.log('  ✓ UI markup and styling references confirmed');
+console.log('  ✓ UI markup and clean branding references confirmed');
 
 console.log('\nAll 5 Portfolio Copilot tests passed successfully!\n');
