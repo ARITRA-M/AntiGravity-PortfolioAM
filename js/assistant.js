@@ -145,7 +145,60 @@ const PortfolioAssistant = (() => {
     'TVS': { symbols: ['TVSMOTOR'], name: 'TVS Motor' },
 
     // Adani
-    'ADANI': { symbols: ['ADANIENT', 'ADANIPORTS', 'ADANIGREEN', 'ATGL', 'ADANIPOWER'], name: 'Adani Group', isGroup: true }
+    'ADANI': { symbols: ['ADANIENT', 'ADANIPORTS', 'ADANIGREEN', 'ATGL', 'ADANIPOWER'], name: 'Adani Group', isGroup: true },
+
+    // Oracle Financial Services Software (OFSS)
+    'ORACLE FINANCIAL SERVICES SOFTWARE': { symbols: ['OFSS'], name: 'Oracle Financial Services Software (OFSS)' },
+    'ORACLE FINANCIAL SERVICES': { symbols: ['OFSS'], name: 'Oracle Financial Services Software (OFSS)' },
+    'ORACLE FINANCIAL': { symbols: ['OFSS'], name: 'Oracle Financial Services Software (OFSS)' },
+    'ORACLE': { symbols: ['OFSS'], name: 'Oracle Financial Services Software (OFSS)' },
+    'OFSS': { symbols: ['OFSS'], name: 'Oracle Financial Services Software (OFSS)' },
+
+    // IT & Tech Stocks
+    'KPIT TECHNOLOGIES': { symbols: ['KPITTECH'], name: 'KPIT Technologies' },
+    'KPIT TECH': { symbols: ['KPITTECH'], name: 'KPIT Technologies' },
+    'KPITTECH': { symbols: ['KPITTECH'], name: 'KPIT Technologies' },
+    'KPIT': { symbols: ['KPITTECH'], name: 'KPIT Technologies' },
+    'WIPRO': { symbols: ['WIPRO'], name: 'Wipro' },
+    'HCL TECHNOLOGIES': { symbols: ['HCLTECH'], name: 'HCL Technologies' },
+    'HCL TECH': { symbols: ['HCLTECH'], name: 'HCL Technologies' },
+    'HCLTECH': { symbols: ['HCLTECH'], name: 'HCL Technologies' },
+    'HCL': { symbols: ['HCLTECH'], name: 'HCL Technologies' },
+    'TECH MAHINDRA': { symbols: ['TECHM'], name: 'Tech Mahindra' },
+    'TECHM': { symbols: ['TECHM'], name: 'Tech Mahindra' },
+    'MPHASIS': { symbols: ['MPHASIS'], name: 'Mphasis' },
+    'COFORGE': { symbols: ['COFORGE'], name: 'Coforge' },
+    'PERSISTENT SYSTEMS': { symbols: ['PERSISTENT'], name: 'Persistent Systems' },
+    'PERSISTENT': { symbols: ['PERSISTENT'], name: 'Persistent Systems' },
+
+    // Castrol India
+    'CASTROL INDIA': { symbols: ['CASTROLIND'], name: 'Castrol India' },
+    'CASTROLIND': { symbols: ['CASTROLIND'], name: 'Castrol India' },
+    'CASTROL': { symbols: ['CASTROLIND'], name: 'Castrol India' },
+
+    // Energy & Mining
+    'COAL INDIA': { symbols: ['COALINDIA'], name: 'Coal India' },
+    'COALINDIA': { symbols: ['COALINDIA'], name: 'Coal India' },
+    'ONGC': { symbols: ['ONGC'], name: 'Oil and Natural Gas Corporation (ONGC)' },
+    'OIL AND NATURAL GAS': { symbols: ['ONGC'], name: 'Oil and Natural Gas Corporation (ONGC)' },
+
+    // Pharma & Auto Ancillary
+    'SYNGENE INTERNATIONAL': { symbols: ['SYNGENE'], name: 'Syngene International' },
+    'SYNGENE': { symbols: ['SYNGENE'], name: 'Syngene International' },
+    'BALKRISHNA INDUSTRIES': { symbols: ['BALKRISIND'], name: 'Balkrishna Industries' },
+    'BALKRISIND': { symbols: ['BALKRISIND'], name: 'Balkrishna Industries' },
+    'BALKRISHNA': { symbols: ['BALKRISIND'], name: 'Balkrishna Industries' },
+
+    // REITs
+    'EMBASSY OFFICE PARKS REIT': { symbols: ['EMBASSY-RR', 'EMBASSY'], name: 'Embassy Office Parks REIT' },
+    'EMBASSY REIT': { symbols: ['EMBASSY-RR', 'EMBASSY'], name: 'Embassy Office Parks REIT' },
+    'EMBASSY': { symbols: ['EMBASSY-RR', 'EMBASSY'], name: 'Embassy Office Parks REIT' },
+
+    // Gold & Bonds
+    'GOLDBEES': { symbols: ['GOLDBEES'], name: 'Nippon India ETF Gold BeES' },
+    'GOLD BEES': { symbols: ['GOLDBEES'], name: 'Nippon India ETF Gold BeES' },
+    'GOLD ETF': { symbols: ['GOLDBEES'], name: 'Nippon India ETF Gold BeES' },
+    '716GS2050': { symbols: ['716GS2050-GS', '716GS2050'], name: '7.16% GS 2050 Government Bond' }
   };
 
   // ── Helper: Match Query to Portfolio Holdings (Exact, Alias, or Group) ────
@@ -427,7 +480,7 @@ const PortfolioAssistant = (() => {
       };
     }
 
-    // 5. Fundamental Valuation Metrics (PE, EPS, Mcap, Dividend Yield)
+    // 5. Fundamental Valuation Metrics (PE, EPS, Mcap, Dividend Yield, ROCE, ROE, Book Value)
     if (fundamentalsData) {
       ctx.fundamentals = {
         symbol: fundamentalsData.symbol,
@@ -438,7 +491,11 @@ const PortfolioAssistant = (() => {
         historicalPeTrend: fundamentalsData.peHistory,
         ttmEps: fundamentalsData.latestEps,
         marketCap: fundamentalsData.marketCap,
-        dividendYield: fundamentalsData.dividendYield
+        dividendYield: fundamentalsData.dividendYield,
+        latestRoce: fundamentalsData.latestRoce != null ? `${fundamentalsData.latestRoce}%` : undefined,
+        latestRoe: fundamentalsData.latestRoe != null ? `${fundamentalsData.latestRoe}%` : undefined,
+        bookValue: fundamentalsData.bookValue != null ? `₹${fundamentalsData.bookValue}` : undefined,
+        historicalRoceTrend: fundamentalsData.roceHistory
       };
     }
 
@@ -477,13 +534,86 @@ const PortfolioAssistant = (() => {
       } catch (_) {}
     }
 
+    // 8. Offshore International & US Mutual Funds Exposure (segregated from domestic IT stocks)
+    ctx.internationalExposure = null;
+    if (typeof latestMf !== 'undefined' && Array.isArray(latestMf)) {
+      const isIntl = (m) => {
+        const name = (m.scheme || '').toLowerCase();
+        const cat = (m.category || '').toLowerCase();
+        return name.includes('nasdaq') || name.includes('fang') || name.includes('s&p 500') ||
+               name.includes('us ') || name.includes('u.s.') || name.includes('global') ||
+               name.includes('international') || name.includes('greater china') ||
+               name.includes('feeder') || cat.includes('international') || cat.includes('overseas');
+      };
+      const intlFunds = latestMf.filter(isIntl);
+      if (intlFunds.length > 0) {
+        const totalMfVal = latestMf.reduce((s, m) => s + (m.cur_val || 0), 0);
+        const intlVal = intlFunds.reduce((s, m) => s + (m.cur_val || 0), 0);
+        ctx.internationalExposure = {
+          description: 'Offshore International & US Equity Fund holdings (foreign currency hedge, distinct from domestic Indian equities)',
+          totalValuation: typeof formatINR === 'function' ? formatINR(intlVal) : intlVal,
+          weightInMutualFundsPct: totalMfVal > 0 ? Number(((intlVal / totalMfVal) * 100).toFixed(1)) : 0,
+          funds: intlFunds.map(f => ({
+            scheme: f.scheme,
+            category: f.category || 'International / Overseas FoF',
+            gainPct: Number((f.gain_pct || 0).toFixed(1)),
+            valuation: typeof formatINR === 'function' ? formatINR(f.cur_val) : f.cur_val
+          }))
+        };
+      }
+    }
+
     return ctx;
+  }
+
+  // ── Helper: Match Stock Sector with Category (Prevents False Positives) ──
+  function matchSector(stockSector, targetCategory) {
+    if (!stockSector || !targetCategory) return false;
+    const s = stockSector.toLowerCase();
+    const cat = targetCategory.toLowerCase();
+
+    if (cat === 'technology' || cat === 'it' || cat === 'software') {
+      if (s.includes('commodit') || s.includes('gold') || s.includes('reit') || s.includes('real estate') || s.includes('bond') || s.includes('securit') || s.includes('debt') || s.includes('chemical') || s.includes('energy') || s.includes('mining')) {
+        return false;
+      }
+      return /\b(it|information technology|technology|software|tech|it services|it & software services)\b/i.test(stockSector);
+    }
+
+    if (cat === 'banking' || cat === 'financial') {
+      return /\b(bank|banking|financial|insurance)\b/i.test(stockSector);
+    }
+
+    if (cat === 'fmcg' || cat === 'consumer') {
+      return /\b(fmcg|consumer|foods|beverages)\b/i.test(stockSector);
+    }
+
+    if (cat === 'pharma' || cat === 'healthcare') {
+      return /\b(pharma|pharmaceuticals|healthcare|hospital|diagnostics)\b/i.test(stockSector);
+    }
+
+    if (cat === 'auto' || cat === 'automobile') {
+      return /\b(auto|automobile|ancillaries|vehicles)\b/i.test(stockSector);
+    }
+
+    if (cat === 'energy' || cat === 'oil' || cat === 'power') {
+      return /\b(energy|oil|gas|power|mining|refinery)\b/i.test(stockSector);
+    }
+
+    if (cat === 'realty' || cat === 'real estate' || cat === 'reit') {
+      return /\b(real estate|realty|reit|property|construction)\b/i.test(stockSector);
+    }
+
+    if (cat === 'metals' || cat === 'mining') {
+      return /\b(metals|mining|steel|aluminum|zinc)\b/i.test(stockSector);
+    }
+
+    return s.includes(cat);
   }
 
   // ── Intent Classifiers ─────────────────────────────────────────────────────
   function isAnalyticalOrComparative(query) {
     if (!query) return false;
-    return /\b(compare|comparison|relative|vs|versus|against|index|benchmark|fmcg|sector|trend|history|historical|why|analysis|research|recommend|should i|underperform|outperform|cagr|alpha|beta|valuation|pe|p\/e|pb|p\/b|dividend|yield|earnings|eps|growth|outlook|holding period|timeline|multiple)\b/i.test(query);
+    return /\b(compare|comparison|relative|vs|versus|against|index|benchmark|fmcg|sector|trend|history|historical|why|analysis|research|recommend|should i|underperform|outperform|cagr|alpha|beta|valuation|pe|p\/e|pb|p\/b|dividend|yield|earnings|eps|growth|outlook|holding period|timeline|multiple|roce|roe|operating margin|margins|return on capital|return on equity)\b/i.test(query);
   }
 
   function isHoldingLookup(query) {
@@ -493,38 +623,38 @@ const PortfolioAssistant = (() => {
 
   function isValuationQuery(query) {
     if (!query) return false;
-    return /\b(pe|p\/e|valuation|earnings|eps|ratio|dividend|yield|mcap|market cap|book value|pb|p\/b|multiple|re-rating|derating)\b/i.test(query);
+    return /\b(pe|p\/e|valuation|earnings|eps|ratio|dividend|yield|mcap|market cap|book value|pb|p\/b|multiple|re-rating|derating|roce|roe|operating margin|margins|return on capital|return on equity)\b/i.test(query);
   }
 
   // ── Helper: Detect Relevant Sector Benchmark Index ──────────────────────────
   function detectBenchmarkIndex(query, holdingSector) {
     const q = (query || '').toLowerCase();
-    const sec = (holdingSector || '').toLowerCase();
+    const sec = holdingSector || '';
 
-    if (q.includes('fmcg') || sec.includes('fmcg') || sec.includes('consumer goods')) {
+    if (q.includes('fmcg') || matchSector(sec, 'fmcg')) {
       if (q.includes('index') || q.includes('fmcg') || q.includes('sector') || q.includes('relative') || q.includes('benchmark')) {
         return { symbol: '^CNXFMCG', name: 'NIFTY FMCG Index', sector: 'FMCG' };
       }
     }
-    if (q.includes('it index') || q.includes('tech index') || ((sec.includes('it') || sec.includes('technology')) && (q.includes('index') || q.includes('sector') || q.includes('relative')))) {
+    if (q.includes('it index') || q.includes('tech index') || (matchSector(sec, 'technology') && (q.includes('index') || q.includes('sector') || q.includes('relative')))) {
       return { symbol: '^CNXIT', name: 'NIFTY IT Index', sector: 'IT' };
     }
-    if (q.includes('bank index') || q.includes('bank nifty') || ((sec.includes('bank') || sec.includes('financial')) && (q.includes('index') || q.includes('relative')))) {
+    if (q.includes('bank index') || q.includes('bank nifty') || (matchSector(sec, 'banking') && (q.includes('index') || q.includes('relative')))) {
       return { symbol: '^NSEBANK', name: 'NIFTY Bank Index', sector: 'Banking' };
     }
-    if (q.includes('pharma index') || ((sec.includes('pharma') || sec.includes('health')) && (q.includes('index') || q.includes('relative')))) {
+    if (q.includes('pharma index') || (matchSector(sec, 'pharma') && (q.includes('index') || q.includes('relative')))) {
       return { symbol: '^CNXPHARMA', name: 'NIFTY Pharma Index', sector: 'Pharma' };
     }
-    if (q.includes('auto index') || (sec.includes('auto') && (q.includes('index') || q.includes('relative')))) {
+    if (q.includes('auto index') || (matchSector(sec, 'auto') && (q.includes('index') || q.includes('relative')))) {
       return { symbol: '^CNXAUTO', name: 'NIFTY Auto Index', sector: 'Auto' };
     }
-    if (q.includes('metal index') || (sec.includes('metal') && (q.includes('index') || q.includes('relative')))) {
+    if (q.includes('metal index') || (matchSector(sec, 'metals') && (q.includes('index') || q.includes('relative')))) {
       return { symbol: '^CNXMETAL', name: 'NIFTY Metal Index', sector: 'Metals' };
     }
-    if (q.includes('energy index') || (sec.includes('energy') && (q.includes('index') || q.includes('relative')))) {
+    if (q.includes('energy index') || (matchSector(sec, 'energy') && (q.includes('index') || q.includes('relative')))) {
       return { symbol: '^CNXENERGY', name: 'NIFTY Energy Index', sector: 'Energy' };
     }
-    if (q.includes('realty index') || (sec.includes('realty') && (q.includes('index') || q.includes('relative')))) {
+    if (q.includes('realty index') || (matchSector(sec, 'realty') && (q.includes('index') || q.includes('relative')))) {
       return { symbol: '^CNXREALTY', name: 'NIFTY Realty Index', sector: 'Real Estate' };
     }
     if (q.includes('nifty 50') || q.includes('nifty') || q.includes('broad market') || q.includes('market index')) {
@@ -545,19 +675,24 @@ const PortfolioAssistant = (() => {
     const suffixMatch = q.match(/\b([A-Z0-9-]{3,12})\.(?:NS|BO)\b/);
     if (suffixMatch) return suffixMatch[1];
 
-    // 2. Explicit research keywords: "research X", "PE of X", "price of X", "analyze X", "quote of X"
-    const keywordMatch = q.match(/(?:RESEARCH|PE\s+RATIO\s+(?:OF|FOR)|PE\s+(?:OF|FOR)|PRICE\s+OF|QUOTE\s+OF|ANALYZE)\s+([A-Z0-9-]{2,12})\b/);
+    // 2. Explicit research keywords: "research X", "PE of X", "price of X", "ROCE of X", "analyze X"
+    const keywordMatch = q.match(/(?:RESEARCH|ROCE\s+(?:OF|FOR)|ROE\s+(?:OF|FOR)|PE\s+RATIO\s+(?:OF|FOR)|PE\s+(?:OF|FOR)|PRICE\s+OF|QUOTE\s+OF|PERFORMANCE\s+OF|TREND\s+OF|ANALYZE)\s+([A-Z0-9-]{2,12})\b/);
     if (keywordMatch) {
       const candidate = keywordMatch[1];
       const stopWords = new Set([
         'THE', 'THIS', 'THAT', 'MY', 'ALL', 'ANY', 'OUR', 'GOLD', 'DEBT', 'EQUITY',
         'STOCK', 'STOCKS', 'FUNDS', 'PORTFOLIO', 'WORTH', 'ALLOCATION', 'INDEX', 'BENCHMARK'
       ]);
-      if (!stopWords.has(candidate)) return candidate;
+      if (!stopWords.has(candidate)) {
+        if (STOCK_ALIASES[candidate]) {
+          return STOCK_ALIASES[candidate].symbols[0];
+        }
+        return candidate;
+      }
     }
 
     // If broad portfolio query without explicit stock keywords, do NOT match tickers
-    if (isBroadPortfolioTopic && !/\b(PE|RATIO|EPS|BUY|SELL|STOCK|SHARES|RESEARCH|PRICE|LTP)\b/i.test(query)) {
+    if (isBroadPortfolioTopic && !/\b(PE|RATIO|EPS|BUY|SELL|STOCK|SHARES|RESEARCH|PRICE|LTP|ROCE|ROE)\b/i.test(query)) {
       return null;
     }
 
@@ -650,10 +785,10 @@ const PortfolioAssistant = (() => {
     }
   }
 
-  // ── Helper: Fetch Fundamental Valuation Metrics (PE, EPS, Mcap, Dividend) ──
+  // ── Helper: Fetch Fundamental Valuation Metrics (PE, EPS, Mcap, Dividend, ROCE, ROE, Book Value) ──
   async function fetchStockFundamentals(symbol) {
     if (!symbol) return null;
-    const clean = symbol.replace(/\.(NS|BO)$/i, '').trim().toUpperCase();
+    const clean = symbol.replace(/\.(NS|BO)$/i, '').replace(/-(GS|RR|GB)$/i, '').trim().toUpperCase();
     const result = { symbol: clean };
 
     // 1. Google Finance live exchange fundamentals (Real-time NSE P/E, EPS, Mcap, Div Yield)
@@ -681,7 +816,74 @@ const PortfolioAssistant = (() => {
       console.warn('Google Finance fundamentals fetch error:', e);
     }
 
-    // 2. Screener.in search & PE chart (5-year historical PE trajectory & median PE)
+    // 2. Screener.in Company Page (ROCE, ROE, Book Value, and Annual ROCE History)
+    try {
+      let pageUrl = buildProxyUrl(`https://www.screener.in/company/${clean}/consolidated/`);
+      let pageRes = await fetch(pageUrl);
+      if (!pageRes.ok) {
+        pageUrl = buildProxyUrl(`https://www.screener.in/company/${clean}/`);
+        pageRes = await fetch(pageUrl);
+      }
+      if (pageRes.ok) {
+        const html = await pageRes.text();
+
+        // 2a. Top Ratios list (ROCE, ROE, Book Value, etc.)
+        const topListMatch = html.match(/<ul id="top-ratios"[^>]*>([\s\S]*?)<\/ul>/);
+        if (topListMatch) {
+          const listHtml = topListMatch[1];
+          const liRegex = /<span class="name">\s*([^<]+?)\s*<\/span>[\s\S]*?<span class="number">\s*([^<]+?)\s*<\/span>/g;
+          let liMatch;
+          while ((liMatch = liRegex.exec(listHtml)) !== null) {
+            const name = liMatch[1].trim();
+            const valStr = liMatch[2].trim().replace(/,/g, '');
+            const num = parseFloat(valStr);
+            if (name.includes('ROCE')) result.latestRoce = num;
+            if (name.includes('ROE')) result.latestRoe = num;
+            if (name.includes('Book Value')) result.bookValue = num;
+            if (name.includes('Dividend Yield') && !result.dividendYield) result.dividendYield = valStr + '%';
+            if (name.includes('Stock P/E') && !result.latestPe) result.latestPe = num;
+            if (name.includes('Market Cap') && !result.marketCap) result.marketCap = '₹' + valStr + ' Cr';
+          }
+        }
+
+        // 2b. Historical ROCE from id="ratios" table
+        const ratiosIdx = html.indexOf('id="ratios"');
+        if (ratiosIdx > -1) {
+          const ratiosHtml = html.slice(ratiosIdx, ratiosIdx + 20000);
+          const thRegex = /<th[^>]*data-date-key="([^"]+)"[^>]*>\s*([A-Za-z]{3}\s*\d{4})/g;
+          let thMatch;
+          const years = [];
+          while ((thMatch = thRegex.exec(ratiosHtml)) !== null) {
+            years.push(thMatch[2].replace(/[A-Za-z\s]+/, '').trim());
+          }
+
+          const trs = ratiosHtml.split(/<\/tr>/);
+          for (const tr of trs) {
+            if (tr.includes('ROCE %')) {
+              const cells = [];
+              const tdRegex = /<td[^>]*class=""[^>]*>\s*([0-9.-]+)%?\s*<\/td>/g;
+              let tdMatch;
+              while ((tdMatch = tdRegex.exec(tr)) !== null) {
+                cells.push(parseFloat(tdMatch[1]));
+              }
+              if (years.length > 0 && cells.length > 0) {
+                result.roceHistory = [];
+                const startIdx = Math.max(0, cells.length - 6);
+                for (let i = startIdx; i < cells.length; i++) {
+                  if (years[i] && cells[i] != null && !isNaN(cells[i])) {
+                    result.roceHistory.push({ date: years[i], roce: cells[i] });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Screener company page fetch error:', e);
+    }
+
+    // 3. Screener.in search & PE chart (5-year historical PE trajectory & median PE)
     try {
       const searchUrl = buildProxyUrl(`https://www.screener.in/api/company/search/?q=${encodeURIComponent(clean)}`);
       const searchRes = await fetch(searchUrl);
@@ -989,23 +1191,27 @@ const PortfolioAssistant = (() => {
     }
 
     // 4. Sector Exposure Queries
-    const sectorKeywords = {
-      'banking': ['banking', 'banks', 'financial'],
-      'technology': ['it', 'tech', 'software', 'technology'],
-      'fmcg': ['fmcg', 'consumer goods', 'consumer'],
-      'pharma': ['pharma', 'healthcare', 'medical'],
-      'auto': ['auto', 'automobile', 'vehicles']
-    };
-    for (const [secName, kwList] of Object.entries(sectorKeywords)) {
-      if (kwList.some(k => q.includes(k)) && (q.includes('sector') || q.includes('exposure') || q.includes('how much') || q.includes('holding') || q.includes('stocks'))) {
+    const sectorCategories = [
+      { key: 'technology', label: 'Technology (IT & Software Services)', rx: /\b(it|technology|software|tech)\b/i },
+      { key: 'banking', label: 'Banking & Financial Services', rx: /\b(bank|banking|financial|insurance)\b/i },
+      { key: 'fmcg', label: 'Consumer Goods & FMCG', rx: /\b(fmcg|consumer goods|consumer)\b/i },
+      { key: 'pharma', label: 'Pharmaceuticals & Healthcare', rx: /\b(pharma|pharmaceuticals|healthcare)\b/i },
+      { key: 'auto', label: 'Automobile & Ancillaries', rx: /\b(auto|automobile|vehicles)\b/i },
+      { key: 'energy', label: 'Energy & Mining', rx: /\b(energy|mining|oil|power)\b/i },
+      { key: 'realty', label: 'Real Estate & Construction', rx: /\b(realty|real estate|reit)\b/i },
+      { key: 'metals', label: 'Metals & Mining', rx: /\b(metals|mining|steel)\b/i }
+    ];
+
+    for (const cat of sectorCategories) {
+      if (cat.rx.test(q) && (q.includes('sector') || q.includes('exposure') || q.includes('how much') || q.includes('holding') || q.includes('stocks'))) {
         if (typeof latestEquity !== 'undefined' && Array.isArray(latestEquity)) {
-          const matchedStocks = latestEquity.filter(s => (s.sector || '').toLowerCase().includes(secName) || kwList.some(k => (s.sector || '').toLowerCase().includes(k)));
+          const matchedStocks = latestEquity.filter(s => matchSector(s.sector, cat.key));
           if (matchedStocks.length) {
             const totalEq = latestEquity.reduce((sum, e) => sum + (e.cur_val || 0), 0);
             const secVal = matchedStocks.reduce((sum, s) => sum + (s.cur_val || 0), 0);
             const secWeight = totalEq > 0 ? ((secVal / totalEq) * 100).toFixed(1) : '0';
 
-            let text = `Your exposure to the **${secName.toUpperCase()}** sector represents **${secWeight}%** of your direct equity portfolio:\n\n`;
+            let text = `Your exposure to the **${cat.label}** sector represents **${secWeight}%** of your direct equity portfolio:\n\n`;
             text += `* **Total Valuation**: **${fmtVal(secVal)}**\n`;
             text += `* **Holdings Count**: **${matchedStocks.length} stocks**\n\n`;
             matchedStocks.forEach(s => {
@@ -1013,8 +1219,19 @@ const PortfolioAssistant = (() => {
               text += `  - **${s.instrument}**: ${s.qty.toLocaleString()} shares (${wt}% of equity)\n`;
             });
 
+            // If technology was queried and user holds international funds (e.g. Nasdaq 100), clarify separation:
+            if (cat.key === 'technology' && typeof latestMf !== 'undefined' && Array.isArray(latestMf)) {
+              const intlFunds = latestMf.filter(m => {
+                const n = (m.scheme || '').toLowerCase();
+                return n.includes('nasdaq') || n.includes('fang') || n.includes('us ') || n.includes('global') || n.includes('international');
+              });
+              if (intlFunds.length > 0) {
+                text += `\n*(Note: You also hold **${intlFunds.length} International/US Fund(s)** (e.g. ${intlFunds.map(f => f.scheme.slice(0, 24)).join(', ')}), which provide offshore global tech exposure, classified separately from your domestic Indian equity portfolio.)*\n`;
+              }
+            }
+
             const chartBlock = `\n\`\`\`chart:bar\n${JSON.stringify({
-              title: `${secName.toUpperCase()} Sector Holdings by Weight (%)`,
+              title: `${cat.label.slice(0, 28)} Holdings (%)`,
               labels: matchedStocks.map(s => s.instrument),
               data: matchedStocks.map(s => Number(((s.cur_val / totalEq) * 100).toFixed(1)))
             }, null, 2)}\n\`\`\``;
@@ -1100,7 +1317,7 @@ const PortfolioAssistant = (() => {
     const systemPrompt = `You are "Portfolio Copilot", an elite financial intelligence assistant embedded in the AntiGravity Portfolio Analytics app.
 Your goals:
 1. Provide accurate, insightful, and concise financial commentary (under 250 words). Avoid generic introductory filler or lengthy disclaimers.
-2. Ground your answers firmly in the user's provided portfolio context, market fundamentals (PE ratio, EPS, Market Cap, Dividend Yield), and benchmark data.
+2. Ground your answers firmly in the user's provided portfolio context, market fundamentals (PE ratio, EPS, ROCE, ROE, Market Cap, Dividend Yield), and benchmark data.
 3. CRITICAL PORTFOLIO HOLDINGS GROUNDING:
    - "portfolioHoldings" contains the user's COMPLETE direct equity portfolio (all owned stocks).
    - "allOwnedStockSymbols" lists all tickers currently owned.
@@ -1108,23 +1325,38 @@ Your goals:
    - NEVER say "as it is not listed in your top stocks holdings" or "not in top holdings". You have the ENTIRE portfolio.
    - Recognize company names, group names, and ticker aliases (e.g., ICICI matches ICICIBANK and ICICIGI; HUL matches HINDUNILVR; HDFC matches HDFCBANK and HDFCLIFE; Tata matches TCS, Tata Motors, Tata Steel, etc.).
    - If the user asks about a conglomerate or group (e.g., "ICICI" or "Tata"), report on ALL matching stocks in the user's holdings.
-4. When asked about Valuation or PE ratio movement:
+4. INDIAN MARKET TICKER GROUNDING:
+   - You are operating within the context of an Indian investment portfolio (NSE/BSE).
+   - When the user asks about "Oracle" or "Oracle stock", refer to Oracle Financial Services Software Limited (NSE ticker: OFSS), NOT US-listed Oracle Corporation (ORCL).
+   - When the user asks about Castrol, Coal India, ONGC, Syngene, KPIT, or Balkrishna Industries, ground strictly in Indian listed equities (CASTROLIND, COALINDIA, ONGC, SYNGENE, KPITTECH, BALKRISIND).
+5. SECTOR SEGREGATION & ASSET DISCIPLINE:
+   - NEVER classify International Mutual Funds, Nasdaq 100 FoFs, US tech funds, or global ETFs as domestic Indian Technology stocks.
+   - Domestic Indian Technology refers SOLELY to Indian IT Services and Software equities listed on NSE/BSE (e.g. TCS, INFY, OFSS, KPITTECH, HCLTECH, WIPRO, COFORGE, LTIM, PERSISTENT, TECHM).
+   - Offshore / International mutual funds (e.g. Nasdaq 100, S&P 500, US Tech FoFs) represent "International / US Offshore Allocation" (foreign currency hedge), NOT domestic Indian IT equities.
+   - NEVER classify Commodities (Gold, Silver, Castrol), REITs (Embassy REIT), Government Bonds (716GS2050), or Corporate Bonds as Technology.
+6. When asked about Valuation or PE ratio movement:
    - CRITICAL GROUNDING: When Market Fundamentals & Valuation Data is provided, you MUST use the exact numbers from that data (e.g. latestPe, latestEps, medianPe, minPe, maxPe, marketCap, dividendYield).
    - NEVER invent or use PE ratios or EPS numbers from your pre-training memory when Market Fundamentals data is provided.
    - State the exact current PE ratio (e.g., 18.8x), TTM EPS (e.g., ₹15.07), 5-year median PE, and historical range.
    - Explain whether the stock is trading at a discount or premium to its 5-year median PE and what drove the valuation changes.
    - Use a Line Chart (\`\`\`chart:line) showing the historical PE trajectory over time based on the provided peHistory.
-5. When asked to evaluate performance relative to a benchmark index (e.g. FMCG index vs ITC):
+7. When asked to evaluate performance relative to a benchmark index (e.g. FMCG index vs ITC):
    - Explicitly compare the holding's return percentage against the benchmark index return percentage over the user's holding period.
    - State clearly whether the holding outperformed or underperformed (calculate the alpha in percentage points).
    - Use a Bar Chart (\`\`\`chart:bar) comparing the two returns.
-6. When asked about Asset Allocation, Rebalancing, or Gold Exposure (e.g. "Should I increase my gold allocation?"):
+8. When asked about Return on Capital Employed (ROCE), Return on Equity (ROE), or Capital Efficiency:
+   - CRITICAL GROUNDING: When Market Fundamentals & Valuation Data includes "latestRoce" or "historicalRoceTrend", you MUST state the exact numbers from that data (e.g. latest ROCE of 28.4% and latest ROE of 31.0%).
+   - NEVER state that ROCE or 5-year ROCE data is unavailable when "latestRoce" or "historicalRoceTrend" is present in Market Fundamentals.
+   - Present the 5-year ROCE trajectory using the exact annual numbers from "historicalRoceTrend" (e.g. 2021: 39%, 2022: 25%, 2023: 27%, 2024: 27%, 2025: 28%, 2026: 28%).
+   - Explain what drove the ROCE changes (e.g. operating leverage, capital discipline, debt-free balance sheet, high reinvestment rate).
+   - Output a Line Chart (\`\`\`chart:line) visualizing the historical ROCE % trajectory over time using labels and data from historicalRoceTrend.
+9. When asked about Asset Allocation, Rebalancing, or Gold Exposure (e.g. "Should I increase my gold allocation?"):
    - Ground strictly in the user's provided "allocation" array, "goldExposure", and "netWorth".
    - State their exact current allocation percentage and valuation in Lakhs.
    - Provide standard institutional financial guidelines (e.g. 5–10% gold as an inflation hedge and crisis diversifier) with concise commentary.
    - Use a Doughnut Chart (\`\`\`chart:doughnut) showing the current asset allocation breakdown.
-7. Chart Selection Rules (CRITICAL: NEVER default to a vertical bar chart):
-   - Line Chart (\`\`\`chart:line): Use for time-series trends (PE ratio movement over time, historical price trends, net worth growth over time).
+10. Chart Selection Rules (CRITICAL: NEVER default to a vertical bar chart):
+   - Line Chart (\`\`\`chart:line): Use for time-series trends (PE ratio movement over time, ROCE trajectory over time, historical price trends, net worth growth over time).
    - Doughnut Chart (\`\`\`chart:doughnut): Use for compositions & breakdowns of a whole (Asset allocation, sector split, market cap split).
    - Bar Chart (\`\`\`chart:bar): Use ONLY for comparing discrete category snapshots at a single point in time (Holding Return vs Benchmark Return, Top Performers, Holding Breakdown).
    - No Chart: Omit if the question is purely explanatory, a single factual lookup, or if visual aid is not genuinely useful.
@@ -1141,7 +1373,7 @@ Output format for charts:
     const userContent = `Portfolio Context:
 ${JSON.stringify(portfolioContext, null, 2)}
 ${researchData ? `\nLive Market Price & History Data:\n${JSON.stringify(researchData, null, 2)}` : ''}
-${fundamentalsData ? `\nMarket Fundamentals & Valuation Data (PE Ratio, EPS, Mcap):\n${JSON.stringify(fundamentalsData, null, 2)}` : ''}
+${fundamentalsData ? `\nMarket Fundamentals & Valuation Data (PE Ratio, EPS, ROCE, ROE, Mcap):\n${JSON.stringify(fundamentalsData, null, 2)}` : ''}
 ${benchmarkData ? `\nSector Benchmark Index Data:\n${JSON.stringify(benchmarkData, null, 2)}` : ''}
 
 User Question: ${promptText}`;
@@ -1559,7 +1791,22 @@ User Question: ${promptText}`;
 
       // Synthesize answer directly from available data
       let fallbackMsg = '';
-      if (fundamentalsData && fundamentalsData.latestPe) {
+      if (fundamentalsData && (userQuery.toLowerCase().includes('roce') || userQuery.toLowerCase().includes('capital employed') || userQuery.toLowerCase().includes('roe')) && fundamentalsData.latestRoce) {
+        fallbackMsg = `### ROCE & Capital Efficiency Summary for **${fundamentalsData.companyName || ticker}**:\n\n` +
+          `* **Current ROCE**: **${fundamentalsData.latestRoce}%**\n` +
+          (fundamentalsData.latestRoe ? `* **Current ROE**: **${fundamentalsData.latestRoe}%**\n` : '') +
+          (fundamentalsData.bookValue ? `* **Book Value**: ₹${fundamentalsData.bookValue}\n` : '') +
+          (fundamentalsData.latestPe ? `* **Current P/E Ratio**: ${fundamentalsData.latestPe}x\n` : '') +
+          (fundamentalsData.marketCap ? `* **Market Cap**: ${fundamentalsData.marketCap}\n\n` : '\n');
+
+        if (fundamentalsData.roceHistory && fundamentalsData.roceHistory.length > 1) {
+          fallbackMsg += `\`\`\`chart:line\n${JSON.stringify({
+            title: `${ticker} Historical ROCE (%) Trend`,
+            labels: fundamentalsData.roceHistory.map(p => p.date),
+            data: fundamentalsData.roceHistory.map(p => p.roce)
+          }, null, 2)}\n\`\`\``;
+        }
+      } else if (fundamentalsData && fundamentalsData.latestPe) {
         fallbackMsg = `### Valuation Summary for **${fundamentalsData.companyName || ticker}**:\n\n` +
           `* **Current P/E Ratio**: **${fundamentalsData.latestPe}x**\n` +
           `* **5-Year Median P/E**: **${fundamentalsData.medianPe ? fundamentalsData.medianPe + 'x' : '—'}**\n` +
@@ -1641,6 +1888,7 @@ User Question: ${promptText}`;
     buildPortfolioContext,
     isAnalyticalOrComparative,
     isValuationQuery,
+    matchSector,
     fetchStockFundamentals,
     fetchMarketResearch
   };

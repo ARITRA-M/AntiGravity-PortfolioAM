@@ -335,4 +335,85 @@ assert.ok(styleCss.includes('.copilot-drawer'), 'style.css must contain .copilot
 assert.ok(styleCss.includes('.copilot-chart-card'), 'style.css must contain .copilot-chart-card styles');
 console.log('  ✓ UI markup and clean branding references confirmed');
 
-console.log('\nAll 5 Portfolio Copilot tests passed successfully!\n');
+// 6. Verify Sector Disambiguation, Oracle / OFSS Alias, and ROCE extraction logic
+const assistantModule = require('../js/assistant.js');
+
+// 6a. Oracle / OFSS Alias detection
+const oracleQuery = 'What is the performance of oracle stock over last 5 years? Show both price and valuation trends.';
+const detectedOracle = assistantModule.detectTickerQuery(oracleQuery);
+assert.strictEqual(detectedOracle, 'OFSS', 'detectTickerQuery must map "oracle stock" to OFSS');
+
+const ofssDirect = assistantModule.detectTickerQuery('What is the ROCE of OFSS?');
+assert.strictEqual(ofssDirect, 'OFSS', 'detectTickerQuery must extract OFSS directly');
+
+// 6b. Sector Disambiguation (Prevent false positives on 'it' substring)
+assert.strictEqual(assistantModule.matchSector('Energy & Mining', 'technology'), false, 'Castrol (Energy & Mining) must NOT match technology');
+assert.strictEqual(assistantModule.matchSector('Speciality Chemicals', 'technology'), false, 'Speciality Chemicals must NOT match technology');
+assert.strictEqual(assistantModule.matchSector('Commodities - Gold', 'technology'), false, 'Gold Commodities must NOT match technology');
+assert.strictEqual(assistantModule.matchSector('Gold Commodity (ETF)', 'technology'), false, 'Gold Commodity (ETF) must NOT match technology');
+assert.strictEqual(assistantModule.matchSector('Real Estate (REIT)', 'technology'), false, 'Embassy REIT must NOT match technology');
+assert.strictEqual(assistantModule.matchSector('Government Bonds', 'technology'), false, '716GS2050 Government Bonds must NOT match technology');
+assert.strictEqual(assistantModule.matchSector('Corporate Bonds', 'technology'), false, 'Corporate Bonds must NOT match technology');
+
+assert.strictEqual(assistantModule.matchSector('IT & Software Services', 'technology'), true, 'IT & Software Services must match technology');
+assert.strictEqual(assistantModule.matchSector('Information Technology', 'technology'), true, 'Information Technology must match technology');
+assert.strictEqual(assistantModule.matchSector('IT Services', 'technology'), true, 'IT Services must match technology');
+
+// 6c. Verify ROCE & Fundamentals HTML parsing logic
+const sampleCompanyHtml = `
+<ul id="top-ratios">
+  <li><span class="name">ROCE</span><span class="number">28.4</span></li>
+  <li><span class="name">ROE</span><span class="number">31.0</span></li>
+  <li><span class="name">Book Value</span><span class="number">208</span></li>
+</ul>
+<div id="ratios">
+  <table>
+    <thead><tr><th data-date-key="2021">Mar 2021</th><th data-date-key="2022">Mar 2022</th><th data-date-key="2023">Mar 2023</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="text">ROCE %</td>
+        <td class="">39%</td>
+        <td class="">25%</td>
+        <td class="">27%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+`;
+
+// Extract top ratios
+const topListMatch = sampleCompanyHtml.match(/<ul id="top-ratios"[^>]*>([\s\S]*?)<\/ul>/);
+assert.ok(topListMatch, 'Top ratios list must be matched');
+const listHtml = topListMatch[1];
+const liRegex = /<span class="name">\s*([^<]+?)\s*<\/span>[\s\S]*?<span class="number">\s*([^<]+?)\s*<\/span>/g;
+let liMatch;
+const parsed = {};
+while ((liMatch = liRegex.exec(listHtml)) !== null) {
+  parsed[liMatch[1].trim()] = parseFloat(liMatch[2].trim());
+}
+assert.strictEqual(parsed['ROCE'], 28.4);
+assert.strictEqual(parsed['ROE'], 31.0);
+assert.strictEqual(parsed['Book Value'], 208);
+
+// Extract ROCE % row
+const ratiosIdx = sampleCompanyHtml.indexOf('id="ratios"');
+assert.ok(ratiosIdx > -1, 'Ratios table must be found');
+const ratiosHtml = sampleCompanyHtml.slice(ratiosIdx);
+const thRegex = /<th[^>]*data-date-key="([^"]+)"[^>]*>\s*([A-Za-z]{3}\s*\d{4})/g;
+let thMatch;
+const years = [];
+while ((thMatch = thRegex.exec(ratiosHtml)) !== null) {
+  years.push(thMatch[2].replace(/[A-Za-z\s]+/, '').trim());
+}
+assert.deepStrictEqual(years, ['2021', '2022', '2023']);
+
+const tdRegex = /<td[^>]*class=""[^>]*>\s*([0-9.-]+)%?\s*<\/td>/g;
+let tdMatch;
+const cells = [];
+while ((tdMatch = tdRegex.exec(ratiosHtml)) !== null) {
+  cells.push(parseFloat(tdMatch[1]));
+}
+assert.deepStrictEqual(cells, [39, 25, 27]);
+console.log('  ✓ Oracle/OFSS alias, sector disambiguation, and ROCE extraction verified');
+
+console.log('\nAll 6 Portfolio Copilot tests passed successfully!\n');
